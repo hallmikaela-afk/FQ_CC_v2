@@ -8,7 +8,7 @@ export default function ShootCard({ project }: { project: Project }) {
   const countdown = formatCountdown(project.event_date);
   const [tasks, setTasks] = useState<Task[]>(project.tasks || []);
 
-  const openTasks = tasks.filter(t => !t.completed);
+  const openTasks = tasks.filter(t => !t.completed).slice(0, 10);
   const completedCount = tasks.filter(t => t.completed).length;
 
   const toggleTask = (taskId: string) => {

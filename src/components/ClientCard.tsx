@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, ReactNode } from 'react';
 import Link from 'next/link';
-import { Project, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
+import { Project, Task, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
 
 /* ── Inline editable text field ── */
 function EditableField({
@@ -205,10 +205,17 @@ function LinkRow({
 export default function ClientCard({ project }: { project: Project }) {
   const [expanded, setExpanded] = useState(false);
   const countdown = formatCountdown(project.event_date);
-  const progressPct = project.tasks_total > 0
-    ? (project.tasks_completed / project.tasks_total) * 100
-    : 0;
+  const [tasks, setTasks] = useState<Task[]>(project.tasks || []);
+  const openTasks = tasks.filter(t => !t.completed).slice(0, 10);
+  const completedCount = tasks.filter(t => t.completed).length;
+  const progressPct = tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0;
   const callNoteCount = project.call_notes?.length ?? 0;
+
+  const toggleTask = (taskId: string) => {
+    setTasks(prev => prev.map(t =>
+      t.id === taskId ? { ...t, completed: !t.completed } : t
+    ));
+  };
 
   // Editable state
   const [eventDate, setEventDate] = useState(project.event_date);
@@ -364,28 +371,40 @@ export default function ClientCard({ project }: { project: Project }) {
           </div>
         </div>
 
-        {/* Task Progress */}
+        {/* Open Tasks */}
         <div className="mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <span className={`font-body text-[12px] ${t.label}`}>Task Progress</span>
-            <span className={`font-body text-[12px] ${t.light}`}>
-              {project.tasks_completed}/{project.tasks_total}
+          <div className="flex items-center justify-between mb-2">
+            <span className={`font-body text-[12px] font-medium ${t.body}`}>Open Tasks</span>
+            <span className={`font-body text-[11px] ${t.light}`}>
+              {completedCount}/{tasks.length} done
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-[6px] bg-fq-border rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full animate-progress"
-                style={{
-                  width: `${progressPct}%`,
-                  backgroundColor: selectedColor,
-                }}
-              />
+
+          {openTasks.length > 0 ? (
+            <div className="space-y-1.5">
+              {openTasks.map((task) => (
+                <label
+                  key={task.id}
+                  className="flex items-start gap-2 cursor-pointer group/task"
+                >
+                  <button
+                    onClick={() => toggleTask(task.id)}
+                    className="mt-0.5 w-4 h-4 rounded border border-fq-border shrink-0 flex items-center justify-center hover:border-fq-accent/60 transition-colors"
+                  />
+                  <span className={`font-body text-[12px] ${t.body} leading-snug group-hover/task:text-fq-dark transition-colors`}>
+                    {task.text}
+                    {task.due_date && (
+                      <span className={`ml-1.5 ${t.light} text-[10px]`}>
+                        · {formatDate(task.due_date)}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              ))}
             </div>
-            <span className={`font-body text-[11px] ${t.light} w-8 text-right`}>
-              {Math.round(progressPct)}%
-            </span>
-          </div>
+          ) : (
+            <p className={`font-body text-[12px] ${t.light} italic`}>All tasks completed!</p>
+          )}
         </div>
 
         {/* Badges row — overdue links to tasks, call notes links to notes page */}
