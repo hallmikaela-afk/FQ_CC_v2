@@ -1,10 +1,57 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { projects, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
 import type { Project, Vendor, CallNote } from '@/data/seed';
+
+/* ─────────────── Inline Editable Field ─────────────── */
+function EditableField({
+  value,
+  onChange,
+  className = '',
+  placeholder = 'Click to edit...',
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { onChange(draft); setEditing(false); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { onChange(draft); setEditing(false); }
+          if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+        }}
+        className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 ${className}`}
+        placeholder={placeholder}
+      />
+    );
+  }
+
+  return (
+    <span
+      onClick={() => { setDraft(value); setEditing(true); }}
+      className={`cursor-text hover:border-b hover:border-fq-border/60 transition-colors ${className}`}
+    >
+      {value || <span className="text-fq-border italic">{placeholder}</span>}
+    </span>
+  );
+}
 
 /* ─────────────── Header Card ─────────────── */
 function HeaderCard({ project }: { project: Project }) {
@@ -12,6 +59,15 @@ function HeaderCard({ project }: { project: Project }) {
   const progressPct = project.tasks_total > 0
     ? (project.tasks_completed / project.tasks_total) * 100
     : 0;
+
+  const [concept, setConcept] = useState(project.concept || '');
+  const [venueName, setVenueName] = useState(
+    (project.venue_name || project.location || '') +
+    (project.venue_location ? `, ${project.venue_location}` : '')
+  );
+  const [guestCount, setGuestCount] = useState(project.guest_count?.toString() || '');
+  const [budget, setBudget] = useState(project.estimated_budget || '');
+  const [serviceTier, setServiceTier] = useState(project.service_tier || '');
 
   const t = {
     heading: 'text-fq-dark/90',
@@ -43,38 +99,50 @@ function HeaderCard({ project }: { project: Project }) {
         </div>
       </div>
 
-      {/* Concept */}
-      <p className={`font-body text-[13px] ${t.light} italic ml-6 mb-4`}>
-        {project.concept || 'Click to add concept...'}
-      </p>
+      {/* Concept — click to edit */}
+      <div className="ml-6 mb-4">
+        <EditableField
+          value={concept}
+          onChange={setConcept}
+          className={`font-body text-[13px] ${t.light} italic`}
+          placeholder="Click to add concept..."
+        />
+      </div>
 
       <div className="border-t border-fq-border my-4" />
 
-      {/* Info row: venue, guests, budget, service tier */}
+      {/* Info row — all click to edit */}
       <div className="flex items-center gap-6 mb-4 flex-wrap">
-        {(project.venue_name || project.location) && (
-          <div className="flex items-center gap-1.5">
-            <span className={`${t.icon} text-[13px]`}>◉</span>
-            <span className={`font-body text-[13px] ${t.body}`}>
-              {project.venue_name || project.location}
-              {project.venue_location && `, ${project.venue_location}`}
-            </span>
-          </div>
-        )}
-        {project.guest_count && (
-          <div className="flex items-center gap-1.5">
-            <span className={`${t.icon} text-[13px]`}>♗</span>
-            <span className={`font-body text-[13px] ${t.body}`}>{project.guest_count} guests</span>
-          </div>
-        )}
-        {project.estimated_budget && (
-          <span className={`font-body text-[13px] ${t.body}`}>{project.estimated_budget} budget</span>
-        )}
-        {project.service_tier && (
-          <span className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-            {project.service_tier}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          <span className={`${t.icon} text-[13px]`}>◉</span>
+          <EditableField
+            value={venueName}
+            onChange={setVenueName}
+            className={`font-body text-[13px] ${t.body}`}
+            placeholder="Venue name..."
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`${t.icon} text-[13px]`}>♗</span>
+          <EditableField
+            value={guestCount ? `${guestCount} guests` : ''}
+            onChange={(v) => setGuestCount(v.replace(/[^0-9]/g, ''))}
+            className={`font-body text-[13px] ${t.body}`}
+            placeholder="Guest count..."
+          />
+        </div>
+        <EditableField
+          value={budget ? `${budget} budget` : ''}
+          onChange={(v) => setBudget(v.replace(' budget', ''))}
+          className={`font-body text-[13px] ${t.body}`}
+          placeholder="Budget..."
+        />
+        <EditableField
+          value={serviceTier}
+          onChange={setServiceTier}
+          className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full"
+          placeholder="Service tier..."
+        />
       </div>
 
       {/* Task progress + team avatars */}
@@ -127,8 +195,13 @@ function NextCallAgenda({ items }: { items: string[] }) {
     }
   };
 
+  const removeItem = (index: number) => {
+    setAgenda(agenda.filter((_, i) => i !== index));
+  };
+
   const t = {
     heading: 'text-fq-dark/90',
+    body: 'text-fq-muted/90',
     light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
   };
@@ -153,12 +226,114 @@ function NextCallAgenda({ items }: { items: string[] }) {
       {agenda.length > 0 && (
         <div className="space-y-2 mt-4">
           {agenda.map((item, i) => (
-            <p key={i} className={`font-body text-[13px] ${t.light}`}>
-              - {item}
-            </p>
+            <div key={i} className="flex items-start gap-2 group">
+              <p className={`font-body text-[13px] ${t.body} flex-1`}>
+                - {item}
+              </p>
+              <button
+                onClick={() => removeItem(i)}
+                className="text-fq-muted/40 hover:text-fq-alert text-[11px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+              >
+                ✕
+              </button>
+            </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────── Vendor Tile ─────────────── */
+function VendorTile({
+  vendor,
+  onRemove,
+}: {
+  vendor: Vendor;
+  onRemove: () => void;
+}) {
+  const [name, setName] = useState(vendor.vendor_name);
+  const [contact, setContact] = useState(vendor.contact_name || '');
+  const [email, setEmail] = useState(vendor.email || '');
+  const [phone, setPhone] = useState(vendor.phone || '');
+  const [website, setWebsite] = useState(vendor.website || '');
+  const [category, setCategory] = useState(vendor.category);
+
+  const t = {
+    heading: 'text-fq-dark/90',
+    body: 'text-fq-muted/90',
+    light: 'text-fq-muted/70',
+    icon: 'text-fq-muted/60',
+  };
+
+  return (
+    <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-4 flex flex-col group/tile">
+      {/* Category + delete */}
+      <div className="flex items-center justify-between mb-2">
+        <EditableField
+          value={category}
+          onChange={setCategory}
+          className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full"
+          placeholder="Category..."
+        />
+        <button
+          onClick={onRemove}
+          className="text-fq-muted/30 hover:text-fq-alert transition-colors opacity-0 group-hover/tile:opacity-100"
+          title="Remove vendor"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Vendor name */}
+      <EditableField
+        value={name}
+        onChange={setName}
+        className={`font-body text-[15px] font-medium ${t.heading} mb-2`}
+        placeholder="Vendor name..."
+      />
+
+      {/* Details */}
+      <div className="space-y-1 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className={`${t.icon} text-[10px] w-3 shrink-0`}>♗</span>
+          <EditableField
+            value={contact}
+            onChange={setContact}
+            className={`font-body text-[12px] ${t.light}`}
+            placeholder="Contact name..."
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`${t.icon} text-[10px] w-3 shrink-0`}>✉</span>
+          <EditableField
+            value={email}
+            onChange={setEmail}
+            className={`font-body text-[12px] ${t.light}`}
+            placeholder="Email..."
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`${t.icon} text-[10px] w-3 shrink-0`}>☏</span>
+          <EditableField
+            value={phone}
+            onChange={setPhone}
+            className={`font-body text-[12px] ${t.light}`}
+            placeholder="Phone..."
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={`${t.icon} text-[10px] w-3 shrink-0`}>⊕</span>
+          <EditableField
+            value={website}
+            onChange={setWebsite}
+            className={`font-body text-[12px] ${t.light}`}
+            placeholder="Website..."
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -173,14 +348,12 @@ function VendorContacts({ vendors: initialVendors }: { vendors: Vendor[] }) {
 
   const t = {
     heading: 'text-fq-dark/90',
-    body: 'text-fq-muted/90',
-    light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
   };
 
   return (
-    <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div>
+      <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
           <span className={`${t.icon} text-[16px]`}>◇</span>
           <h2 className={`font-heading text-[20px] font-semibold ${t.heading}`}>Vendor Contacts</h2>
@@ -193,51 +366,13 @@ function VendorContacts({ vendors: initialVendors }: { vendors: Vendor[] }) {
         </button>
       </div>
 
-      <div className="divide-y divide-fq-border">
+      <div className="grid grid-cols-3 gap-4">
         {vendors.map((vendor) => (
-          <div key={vendor.id} className="py-4 flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full">
-                  {vendor.category}
-                </span>
-                <span className={`font-body text-[15px] font-medium ${t.heading}`}>
-                  {vendor.vendor_name}
-                </span>
-              </div>
-              <div className="flex items-center gap-4 flex-wrap">
-                {vendor.contact_name && (
-                  <span className={`font-body text-[12px] ${t.light} flex items-center gap-1`}>
-                    <span className="text-[10px]">♗</span> {vendor.contact_name}
-                  </span>
-                )}
-                {vendor.email && (
-                  <span className={`font-body text-[12px] ${t.light} flex items-center gap-1`}>
-                    <span className="text-[10px]">✉</span> {vendor.email}
-                  </span>
-                )}
-                {vendor.phone && (
-                  <span className={`font-body text-[12px] ${t.light} flex items-center gap-1`}>
-                    <span className="text-[10px]">☏</span> {vendor.phone}
-                  </span>
-                )}
-                {vendor.website && (
-                  <span className={`font-body text-[12px] ${t.light} flex items-center gap-1`}>
-                    <span className="text-[10px]">⊕</span> {vendor.website}
-                  </span>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => removeVendor(vendor.id)}
-              className={`${t.light} hover:text-fq-alert transition-colors p-1`}
-              title="Remove vendor"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
-              </svg>
-            </button>
-          </div>
+          <VendorTile
+            key={vendor.id}
+            vendor={vendor}
+            onRemove={() => removeVendor(vendor.id)}
+          />
         ))}
       </div>
     </div>
