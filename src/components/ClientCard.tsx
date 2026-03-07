@@ -53,8 +53,91 @@ function EditableField({
   );
 }
 
-/* ── Editable link row (for expanded details) ── */
-function EditableLinkRow({
+/* ── Editable address box (two lines in one copyable block) ── */
+function EditableAddressBox({
+  icon,
+  street,
+  cityStateZip,
+  onStreetChange,
+  onCityStateZipChange,
+  streetPlaceholder = 'Street address...',
+  cityPlaceholder = 'City, State ZIP...',
+}: {
+  icon: ReactNode;
+  street: string;
+  cityStateZip: string;
+  onStreetChange: (v: string) => void;
+  onCityStateZipChange: (v: string) => void;
+  streetPlaceholder?: string;
+  cityPlaceholder?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftStreet, setDraftStreet] = useState(street);
+  const [draftCity, setDraftCity] = useState(cityStateZip);
+  const streetRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) streetRef.current?.focus();
+  }, [editing]);
+
+  const save = () => {
+    onStreetChange(draftStreet);
+    onCityStateZipChange(draftCity);
+    setEditing(false);
+  };
+
+  const t = { body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
+
+  if (editing) {
+    return (
+      <div className="flex items-start gap-2">
+        <span className={`${t.icon} w-4 text-center text-[12px] mt-0.5 shrink-0`}>{icon}</span>
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <input
+            ref={streetRef}
+            value={draftStreet}
+            onChange={(e) => setDraftStreet(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[13px] ${t.body}`}
+            placeholder={streetPlaceholder}
+          />
+          <input
+            value={draftCity}
+            onChange={(e) => setDraftCity(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[12px] ${t.light}`}
+            placeholder={cityPlaceholder}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const hasContent = street || cityStateZip;
+
+  return (
+    <div
+      className="flex items-start gap-2 cursor-text group"
+      onClick={() => { setDraftStreet(street); setDraftCity(cityStateZip); setEditing(true); }}
+    >
+      <span className={`${t.icon} w-4 text-center text-[12px] mt-0.5 shrink-0`}>{icon}</span>
+      <div className="flex-1 min-w-0 group-hover:border-b group-hover:border-fq-border/60 transition-colors">
+        {hasContent ? (
+          <>
+            <p className={`font-body text-[13px] ${t.body} leading-snug`}>{street}</p>
+            <p className={`font-body text-[12px] ${t.light} leading-snug`}>{cityStateZip}</p>
+          </>
+        ) : (
+          <p className="font-body text-[12px] text-fq-border italic">{streetPlaceholder}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Link row with clickable "Link" text + editable URL ── */
+function LinkRow({
   icon,
   label,
   value,
@@ -73,10 +156,12 @@ function EditableLinkRow({
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
+  const t = { light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
+
   return (
     <div className="flex items-center gap-2 text-[12px] font-body">
-      <span className="text-fq-muted/70 w-4 text-center shrink-0">{icon}</span>
-      <span className="text-fq-muted/80 w-[130px] shrink-0">{label}</span>
+      <span className={`${t.icon} w-4 text-center shrink-0`}>{icon}</span>
+      <span className={`${t.light} w-[130px] shrink-0`}>{label}</span>
       {editing ? (
         <input
           ref={inputRef}
@@ -91,12 +176,26 @@ function EditableLinkRow({
           placeholder="https://..."
         />
       ) : (
-        <span
-          onClick={() => { setDraft(value); setEditing(true); }}
-          className="flex-1 min-w-0 text-fq-muted/60 bg-fq-bg px-2 py-1 rounded text-[11px] truncate cursor-text hover:border hover:border-fq-border/60"
-        >
-          {value || 'https://...'}
-        </span>
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {value ? (
+            <a
+              href={value}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-fq-accent font-medium hover:underline shrink-0"
+            >
+              Link
+            </a>
+          ) : (
+            <span className="text-fq-border italic shrink-0">—</span>
+          )}
+          <button
+            onClick={() => { setDraft(value); setEditing(true); }}
+            className={`${t.light} hover:text-fq-muted text-[10px] shrink-0`}
+          >
+            edit
+          </button>
+        </div>
       )}
     </div>
   );
@@ -111,15 +210,15 @@ export default function ClientCard({ project }: { project: Project }) {
     : 0;
   const callNoteCount = project.call_notes?.length ?? 0;
 
-  // Editable state for all fields
-  const [name, setName] = useState(project.name);
+  // Editable state
   const [eventDate, setEventDate] = useState(project.event_date);
   const [serviceTier, setServiceTier] = useState(project.service_tier || '');
   const [concept, setConcept] = useState(project.concept || '');
   const [venueName, setVenueName] = useState(project.venue_name || '');
-  const [venueLocation, setVenueLocation] = useState(project.venue_location || '');
-  const [venueAddress, setVenueAddress] = useState(project.venue_address || '');
-  const [clientAddress, setClientAddress] = useState(project.client_address || '');
+  const [venueStreet, setVenueStreet] = useState(project.venue_street || '');
+  const [venueCityStateZip, setVenueCityStateZip] = useState(project.venue_city_state_zip || '');
+  const [clientStreet, setClientStreet] = useState(project.client_street || '');
+  const [clientCityStateZip, setClientCityStateZip] = useState(project.client_city_state_zip || '');
   const [guestCount, setGuestCount] = useState(project.guest_count?.toString() || '');
   const [budget, setBudget] = useState(project.estimated_budget || '');
   const [signedDate, setSignedDate] = useState(project.contract_signed_date || '');
@@ -131,6 +230,7 @@ export default function ClientCard({ project }: { project: Project }) {
   const [portalLink, setPortalLink] = useState(project.client_portal_link || '');
   const [clientWebsite, setClientWebsite] = useState(project.client_website || '');
   const [sharepointFolder, setSharepointFolder] = useState(project.sharepoint_folder || '');
+  const [selectedColor, setSelectedColor] = useState(project.color);
 
   // Text color classes — lighter muted tones
   const t = {
@@ -144,22 +244,17 @@ export default function ClientCard({ project }: { project: Project }) {
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm overflow-hidden flex flex-col min-w-0">
       {/* Color bar */}
-      <div className="h-[4px]" style={{ backgroundColor: project.color }} />
+      <div className="h-[4px]" style={{ backgroundColor: selectedColor }} />
 
       <div className="p-5 pb-3 flex-1">
-        {/* Header: Name + Countdown */}
+        {/* Header: Name (clickable link) + Countdown */}
         <div className="flex items-start justify-between mb-0.5">
-          <div className="flex items-center gap-1.5 min-w-0">
+          <Link href={`/projects/${project.id}`} className="flex items-center gap-1.5 min-w-0 group">
             <span className={`${t.icon} text-[14px] shrink-0`}>♡</span>
-            <h2 className={`font-heading text-[18px] font-semibold ${t.heading} leading-tight min-w-0`}>
-              <EditableField
-                value={name}
-                onChange={setName}
-                className={`font-heading text-[18px] font-semibold ${t.heading}`}
-                placeholder="Client name..."
-              />
+            <h2 className={`font-heading text-[18px] font-semibold ${t.heading} leading-tight truncate group-hover:text-fq-accent transition-colors`}>
+              {project.name}
             </h2>
-          </div>
+          </Link>
           <div className="text-right shrink-0 ml-2">
             <span className={`font-heading text-[20px] font-bold tracking-tight ${countdown.isUrgent ? 'text-fq-alert' : t.heading}`}>
               {countdown.text}
@@ -178,8 +273,8 @@ export default function ClientCard({ project }: { project: Project }) {
           />
         </div>
 
-        {/* Service tier + Concept badges */}
-        <div className="flex flex-wrap items-center gap-1.5 ml-5 mb-3">
+        {/* Service tier badge */}
+        <div className="ml-5 mb-1">
           <EditableField
             value={serviceTier}
             onChange={setServiceTier}
@@ -187,6 +282,10 @@ export default function ClientCard({ project }: { project: Project }) {
             inputClassName="text-[11px] font-body text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full"
             placeholder="Service tier..."
           />
+        </div>
+
+        {/* Concept on its own line */}
+        <div className="ml-5 mb-3">
           <EditableField
             value={concept}
             onChange={setConcept}
@@ -198,40 +297,39 @@ export default function ClientCard({ project }: { project: Project }) {
 
         {/* Metadata rows */}
         <div className="space-y-1.5 ml-5 mb-4 text-[13px] font-body">
-          {/* Venue */}
+          {/* Venue name only (no city/state) */}
           <div className="flex items-center gap-2">
             <span className={`${t.icon} w-4 text-center text-[12px]`}>◉</span>
             <EditableField
-              value={venueName ? `${venueName}, ${venueLocation}` : ''}
-              onChange={(v) => {
-                const parts = v.split(',').map(s => s.trim());
-                setVenueName(parts[0] || '');
-                setVenueLocation(parts.slice(1).join(', ') || '');
-              }}
+              value={venueName}
+              onChange={setVenueName}
               className={t.body}
-              placeholder="Venue, Location"
+              placeholder="Venue name..."
             />
           </div>
-          {/* Venue Address */}
-          <div className="flex items-center gap-2">
-            <span className={`${t.icon} w-4 text-center text-[12px]`}>&nbsp;</span>
-            <EditableField
-              value={venueAddress}
-              onChange={setVenueAddress}
-              className={`${t.light} text-[12px]`}
-              placeholder="Venue address..."
-            />
-          </div>
-          {/* Client Address */}
-          <div className="flex items-center gap-2">
-            <span className={`${t.icon} w-4 text-center text-[12px]`}>⌂</span>
-            <EditableField
-              value={clientAddress}
-              onChange={setClientAddress}
-              className={t.body}
-              placeholder="Client address..."
-            />
-          </div>
+
+          {/* Venue Address box */}
+          <EditableAddressBox
+            icon={<span>&nbsp;</span>}
+            street={venueStreet}
+            cityStateZip={venueCityStateZip}
+            onStreetChange={setVenueStreet}
+            onCityStateZipChange={setVenueCityStateZip}
+            streetPlaceholder="Venue street address..."
+            cityPlaceholder="City, State ZIP..."
+          />
+
+          {/* Client Address box */}
+          <EditableAddressBox
+            icon="⌂"
+            street={clientStreet}
+            cityStateZip={clientCityStateZip}
+            onStreetChange={setClientStreet}
+            onCityStateZipChange={setClientCityStateZip}
+            streetPlaceholder="Client street address..."
+            cityPlaceholder="City, State ZIP..."
+          />
+
           {/* Guests */}
           <div className="flex items-center gap-2">
             <span className={`${t.icon} w-4 text-center text-[12px]`}>♗</span>
@@ -242,6 +340,7 @@ export default function ClientCard({ project }: { project: Project }) {
               placeholder="Guest count..."
             />
           </div>
+
           {/* Budget */}
           <div className="flex items-center gap-2">
             <span className={`${t.icon} w-4 text-center text-[12px]`}>$</span>
@@ -252,6 +351,7 @@ export default function ClientCard({ project }: { project: Project }) {
               placeholder="Budget..."
             />
           </div>
+
           {/* Signed date */}
           <div className="flex items-center gap-2">
             <span className={`${t.icon} w-4 text-center text-[12px]`}>☐</span>
@@ -278,7 +378,7 @@ export default function ClientCard({ project }: { project: Project }) {
                 className="h-full rounded-full animate-progress"
                 style={{
                   width: `${progressPct}%`,
-                  backgroundColor: project.color,
+                  backgroundColor: selectedColor,
                 }}
               />
             </div>
@@ -288,17 +388,23 @@ export default function ClientCard({ project }: { project: Project }) {
           </div>
         </div>
 
-        {/* Badges row */}
+        {/* Badges row — overdue links to tasks, call notes links to notes page */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
           {project.overdue_count > 0 && (
-            <span className="text-[11px] font-body font-medium text-fq-alert bg-fq-alert/10 px-2 py-0.5 rounded-full">
+            <Link
+              href={`/tasks?client=${project.id}&filter=overdue`}
+              className="text-[11px] font-body font-medium text-fq-alert bg-fq-alert/10 px-2 py-0.5 rounded-full hover:bg-fq-alert/20 transition-colors"
+            >
               {project.overdue_count} overdue
-            </span>
+            </Link>
           )}
           {callNoteCount > 0 && (
-            <span className={`text-[11px] font-body ${t.light} bg-fq-bg px-2 py-0.5 rounded-full`}>
+            <Link
+              href={`/projects/${project.id}/notes`}
+              className={`text-[11px] font-body ${t.light} bg-fq-bg px-2 py-0.5 rounded-full hover:bg-fq-border/50 transition-colors`}
+            >
               ☐ {callNoteCount} call note{callNoteCount !== 1 ? 's' : ''}
-            </span>
+            </Link>
           )}
         </div>
 
@@ -334,14 +440,8 @@ export default function ClientCard({ project }: { project: Project }) {
       >
         {expanded ? 'Less details' : 'Full details'}
         <svg
-          width="10"
-          height="10"
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+          width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+          strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
           className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
         >
           <path d="M3 5l3 3 3-3" />
@@ -354,22 +454,6 @@ export default function ClientCard({ project }: { project: Project }) {
           <h3 className={`font-heading text-[16px] font-semibold ${t.heading} mb-3`}>
             Client Details
           </h3>
-
-          {/* Project Color palette */}
-          {project.project_colors && project.project_colors.length > 0 && (
-            <div className="mb-4">
-              <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
-              <div className="flex flex-wrap gap-1.5">
-                {project.project_colors.map((c, i) => (
-                  <div
-                    key={i}
-                    className="w-7 h-7 rounded-full border border-fq-border/50 cursor-pointer hover:scale-110 transition-transform"
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Partner cards */}
           <div className="grid grid-cols-2 gap-2 mb-4">
@@ -399,32 +483,57 @@ export default function ClientCard({ project }: { project: Project }) {
               Links &amp; Resources
             </h3>
             <div className="space-y-1.5">
-              <EditableLinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
-              <EditableLinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
-              <EditableLinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
-              <EditableLinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
-              <EditableLinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
-              <EditableLinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
+              <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
+              <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
+              <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
+              <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
+              <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
+              <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
             </div>
           </div>
 
-          {/* Latest Call Note */}
+          {/* Latest Call Note — clickable to notes page */}
           {project.call_notes && project.call_notes.length > 0 && (
-            <div>
-              <h3 className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
+            <div className="mb-4">
+              <Link
+                href={`/projects/${project.id}/notes`}
+                className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5 hover:text-fq-accent transition-colors`}
+              >
                 <span className="text-fq-accent/70">✦</span>
                 Latest Call Note
                 <span className={`font-body text-[11px] font-normal ${t.light}`}>
                   ({project.call_notes.length} total)
                 </span>
-              </h3>
-              <div className="bg-fq-bg rounded-lg p-3 border-l-[3px] border-fq-accent/60">
+              </Link>
+              <Link
+                href={`/projects/${project.id}/notes`}
+                className="block bg-fq-bg rounded-lg p-3 border-l-[3px] border-fq-accent/60 hover:bg-fq-light-accent transition-colors mt-2"
+              >
                 <p className={`font-body text-[12px] font-semibold ${t.heading} mb-1`}>
                   {formatDate(project.call_notes[0].date)}
                 </p>
                 <p className={`font-body text-[12px] ${t.light} leading-relaxed`}>
                   {project.call_notes[0].raw_text}
                 </p>
+              </Link>
+            </div>
+          )}
+
+          {/* Project Color palette — at the bottom */}
+          {project.project_colors && project.project_colors.length > 0 && (
+            <div>
+              <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
+              <div className="flex flex-wrap gap-1.5">
+                {project.project_colors.map((c, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setSelectedColor(c)}
+                    className={`w-7 h-7 rounded-full border-2 cursor-pointer hover:scale-110 transition-transform ${
+                      selectedColor === c ? 'border-fq-dark/60 ring-2 ring-fq-accent/30' : 'border-fq-border/50'
+                    }`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
               </div>
             </div>
           )}

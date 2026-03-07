@@ -45,8 +45,10 @@ export interface Project {
   client2_name?: string;
   venue_name?: string;
   venue_location?: string;
-  venue_address?: string;
-  client_address?: string;
+  venue_street?: string;
+  venue_city_state_zip?: string;
+  client_street?: string;
+  client_city_state_zip?: string;
   guest_count?: number;
   estimated_budget?: string;
   // Task counts
@@ -91,8 +93,10 @@ export const projects: Project[] = [
     client2_name: 'Frank',
     venue_name: 'Wave Resort',
     venue_location: 'Long Branch, NJ',
-    venue_address: '101 Chelsea Ave, Long Branch, NJ 07740',
-    client_address: '245 Park Ave, Apt 12B, New York, NY 10167',
+    venue_street: '101 Chelsea Ave',
+    venue_city_state_zip: 'Long Branch, NJ 07740',
+    client_street: '245 Park Ave, Apt 12B',
+    client_city_state_zip: 'New York, NY 10167',
     guest_count: 130,
     estimated_budget: '$100K',
     assigned_to: ['1', '2'],
