@@ -13,6 +13,7 @@ export interface Vendor {
   email?: string;
   phone?: string;
   website?: string;
+  instagram?: string;
 }
 
 export interface CallNote {
@@ -140,16 +141,16 @@ export const projects: Project[] = [
     client_website: 'https://...',
     sharepoint_folder: 'https://sharepoint.com/...',
     vendors: [
-      { id: 'v1', category: 'Hair & Makeup', vendor_name: 'Artsi Artistry', email: 'artsiartistry@gmail.com', phone: '(856) 885-0001' },
-      { id: 'v2', category: 'Hair & Makeup', vendor_name: 'Gloss Studio' },
-      { id: 'v3', category: 'Band/DJ', vendor_name: 'SCE Event Group', contact_name: 'Jason Jani', email: 'jason@sceeventgroup.com', phone: '(888) 278-0900', website: 'https://sceeventgroup.com/' },
+      { id: 'v1', category: 'Hair & Makeup', vendor_name: 'Artsi Artistry', email: 'artsiartistry@gmail.com', phone: '(856) 885-0001', instagram: '@artsiartistry' },
+      { id: 'v2', category: 'Hair & Makeup', vendor_name: 'Gloss Studio', instagram: '@glossstudio' },
+      { id: 'v3', category: 'Band/DJ', vendor_name: 'SCE Event Group', contact_name: 'Jason Jani', email: 'jason@sceeventgroup.com', phone: '(888) 278-0900', website: 'https://sceeventgroup.com/', instagram: '@sceeventgroup' },
       { id: 'v4', category: 'Band/DJ', vendor_name: 'Arnie Abrams Pianist', contact_name: 'Arnie Abrams', email: 'arnie@arnieabramspianist.com', phone: '(732) 995-1082', website: 'http://www.ArnieAbramsPianist.com' },
       { id: 'v5', category: 'Band/DJ', vendor_name: 'Piano Piano', contact_name: 'Amy Wolk', email: 'amy@pianopianostudios.com', phone: '(212) 586-9056' },
-      { id: 'v6', category: 'Florist', vendor_name: 'Lilysh Floral', contact_name: 'Liliya Pincosy', email: 'contact@lilyshdesign.com', phone: '(347) 339-2627', website: 'https://www.lilysh.com/' },
+      { id: 'v6', category: 'Florist', vendor_name: 'Lilysh Floral', contact_name: 'Liliya Pincosy', email: 'contact@lilyshdesign.com', phone: '(347) 339-2627', website: 'https://www.lilysh.com/', instagram: '@lilyshfloral' },
       { id: 'v7', category: 'Rentals', vendor_name: 'United Rent All', contact_name: 'Kristen A. Redmond', email: 'kristen@unitedrentall.com', phone: '(908) 359-3663' },
-      { id: 'v8', category: 'Photographer', vendor_name: 'Tay Tesvich Photography', contact_name: 'Tay Tesvich', email: 'taylortesvichphotography@gmail.com', phone: '(251) 554-5227', website: 'https://www.taytesvichphoto.com/' },
-      { id: 'v9', category: 'Stationery', vendor_name: 'Merci Studio', contact_name: 'Meredith Masingill Cochran', email: 'mercistudio.design@gmail.com', phone: '(205) 438-5177' },
-      { id: 'v10', category: 'Caterer', vendor_name: 'Wave Resort - Catering', contact_name: 'Allison Mercer', email: 'amercer@waveresort.com', phone: '(732) 795-6659', website: 'https://www.waveresort.com/' },
+      { id: 'v8', category: 'Photographer', vendor_name: 'Tay Tesvich Photography', contact_name: 'Tay Tesvich', email: 'taylortesvichphotography@gmail.com', phone: '(251) 554-5227', website: 'https://www.taytesvichphoto.com/', instagram: '@taytesvich' },
+      { id: 'v9', category: 'Stationery', vendor_name: 'Merci Studio', contact_name: 'Meredith Masingill Cochran', email: 'mercistudio.design@gmail.com', phone: '(205) 438-5177', instagram: '@mercistudiodesign' },
+      { id: 'v10', category: 'Caterer', vendor_name: 'Wave Resort - Catering', contact_name: 'Allison Mercer', email: 'amercer@waveresort.com', phone: '(732) 795-6659', website: 'https://www.waveresort.com/', instagram: '@waveresort' },
     ],
     next_call_agenda: [
       'Follow up on venue deposit',
