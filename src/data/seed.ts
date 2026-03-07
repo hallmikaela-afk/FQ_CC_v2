@@ -146,17 +146,26 @@ export const projects: Project[] = [
     event_date: '2026-09-19',
     contract_signed_date: '2025-10-28',
     color: '#6B7F5E',
-    service_tier: 'Harmony',
+    service_tier: 'Harmony Planning',
     venue_name: 'Vanderbilt Museum',
     venue_location: 'Centerport, NY',
     guest_count: 175,
     estimated_budget: '$170K',
     assigned_to: ['2'],
-    tasks_total: 90,
-    tasks_completed: 25,
+    tasks_total: 92,
+    tasks_completed: 50,
     overdue_count: 0,
     vendors: [],
-    call_notes: [],
+    call_notes: [
+      {
+        id: 'cn-tj1',
+        date: '2026-02-28',
+        raw_text: 'Reviewed venue walkthrough notes, confirmed ceremony in the courtyard. Discussed cocktail hour logistics and shuttle service from hotel. Tippi prefers candlelit reception with minimal uplighting.',
+        extracted_actions: [
+          { id: 'ea-tj1', text: 'Get shuttle quotes for guest transportation', due_date: '2026-03-15', accepted: true, dismissed: false },
+        ],
+      },
+    ],
   },
   {
     id: 'elisabeth-jj',
@@ -166,18 +175,28 @@ export const projects: Project[] = [
     event_date: '2026-10-10',
     contract_signed_date: '2025-11-07',
     color: '#A0522D',
-    service_tier: 'Harmony',
+    service_tier: 'Harmony Planning',
     concept: 'Rooted in Rhythm',
     venue_name: 'LionRock Farm',
     venue_location: 'Sharon, CT',
     guest_count: 160,
     estimated_budget: '$200K',
     assigned_to: ['2'],
-    tasks_total: 90,
-    tasks_completed: 18,
-    overdue_count: 0,
+    tasks_total: 81,
+    tasks_completed: 30,
+    overdue_count: 4,
     vendors: [],
-    call_notes: [],
+    call_notes: [
+      {
+        id: 'cn-ej1',
+        date: '2026-02-20',
+        raw_text: 'Discussed ceremony setup at LionRock Farm barn, cocktail hour on the terrace, and reception tent layout. Elisabeth wants live band for reception and acoustic duo for ceremony. Floral concept: earthy tones, dried grasses, garden roses.',
+        extracted_actions: [
+          { id: 'ea-ej1', text: 'Send band options to Elisabeth', due_date: '2026-03-01', accepted: true, dismissed: false },
+          { id: 'ea-ej2', text: 'Schedule florist consultation', due_date: '2026-03-10', accepted: true, dismissed: false },
+        ],
+      },
+    ],
   },
   {
     id: 'cathy-omar',
@@ -240,11 +259,12 @@ export function formatCountdown(eventDate: string): { text: string; isUrgent: bo
     return { text: `${Math.abs(diffDays)}d ago`, isUrgent: true };
   }
   if (diffDays <= 30) {
-    return { text: `${diffDays} days away`, isUrgent: true };
+    return { text: `${diffDays}d`, isUrgent: true };
   }
   const weeks = Math.floor(diffDays / 7);
   const days = diffDays % 7;
-  return { text: `${weeks}w ${days}d away`, isUrgent: false };
+  const text = days > 0 ? `${weeks}w ${days}d` : `${weeks}w`;
+  return { text, isUrgent: false };
 }
 
 export function formatDate(dateStr: string): string {
