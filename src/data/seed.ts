@@ -55,10 +55,15 @@ export interface Project {
   photographer?: string;
   florist?: string;
   location?: string;
-  // Links
+  // Links & Resources
   canva_link?: string;
+  internal_file_share?: string;
+  client_shared_folder?: string;
   client_portal_link?: string;
+  client_website?: string;
   sharepoint_folder?: string;
+  // Project colors palette
+  project_colors?: string[];
   // Related data
   vendors?: Vendor[];
   call_notes?: CallNote[];
@@ -79,7 +84,9 @@ export const projects: Project[] = [
     event_date: '2026-06-07',
     contract_signed_date: '2024-10-14',
     color: '#8B6F4E',
-    service_tier: 'Harmony',
+    service_tier: 'Harmony Planning',
+    client1_name: 'Julia',
+    client2_name: 'Frank',
     venue_name: 'Wave Resort',
     venue_location: 'Long Branch, NJ',
     guest_count: 130,
@@ -87,7 +94,14 @@ export const projects: Project[] = [
     assigned_to: ['1', '2'],
     tasks_total: 90,
     tasks_completed: 60,
-    overdue_count: 3,
+    overdue_count: 2,
+    project_colors: ['#C4A97D', '#5B7A5E', '#A0522D', '#8B8FAE', '#C4A040', '#B8A060', '#C49870', '#6B5B4E', '#7B8B5E', '#4A5B8B', '#5B4B3E', '#C4A040', '#B87040', '#D4A0B0'],
+    canva_link: 'https://canva.com/...',
+    internal_file_share: 'https://sharepoint.com/...',
+    client_shared_folder: 'https://drive.google.com/...',
+    client_portal_link: 'https://portal.example.com/...',
+    client_website: 'https://...',
+    sharepoint_folder: 'https://sharepoint.com/...',
     vendors: [
       { id: 'v1', category: 'Hair & Makeup', vendor_name: 'Artsi Artistry', email: 'artsiartistry@gmail.com', phone: '(856) 885-0001' },
       { id: 'v2', category: 'Hair & Makeup', vendor_name: 'Gloss Studio' },
@@ -111,6 +125,15 @@ export const projects: Project[] = [
           { id: 'ea3', text: 'Follow up with Julia on calligrapher Instagram handle', due_date: '2026-03-07', accepted: true, dismissed: false },
           { id: 'ea4', text: 'Research jazz trio options for cocktail hour', due_date: '2026-03-15', accepted: false, dismissed: true },
           { id: 'ea5', text: 'Flag room block deadline — April 15 final numbers', due_date: '2026-04-10', accepted: true, dismissed: false },
+        ],
+      },
+      {
+        id: 'cn2',
+        date: '2026-02-15',
+        raw_text: 'Initial planning call — discussed venue walkthrough date, ceremony format (non-religious, ~20 min), cocktail hour flow, and guest accommodation blocks at Wave Resort.',
+        extracted_actions: [
+          { id: 'ea6', text: 'Book venue walkthrough for early March', due_date: '2026-02-28', accepted: true, dismissed: false },
+          { id: 'ea7', text: 'Send accommodation block details to Julia', due_date: '2026-02-20', accepted: true, dismissed: false },
         ],
       },
     ],
