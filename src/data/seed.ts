@@ -29,6 +29,13 @@ export interface CallNote {
   }[];
 }
 
+export interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+  due_date?: string;
+}
+
 export interface Project {
   id: string;
   type: 'client' | 'shoot' | 'proposal';
@@ -71,6 +78,7 @@ export interface Project {
   // Project colors palette
   project_colors?: string[];
   // Related data
+  tasks?: Task[];
   vendors?: Vendor[];
   call_notes?: CallNote[];
 }
@@ -236,6 +244,20 @@ export const projects: Project[] = [
     tasks_total: 12,
     tasks_completed: 4,
     overdue_count: 0,
+    tasks: [
+      { id: 'ss-t1', text: 'Confirm venue (EHP vs Wildflower)', completed: false, due_date: '2026-03-14' },
+      { id: 'ss-t2', text: 'Book photographer', completed: false, due_date: '2026-03-15' },
+      { id: 'ss-t3', text: 'Source gold + black tableware rentals', completed: false, due_date: '2026-03-20' },
+      { id: 'ss-t4', text: 'Finalize floral palette with florist', completed: false, due_date: '2026-03-22' },
+      { id: 'ss-t5', text: 'Order mimosa-toned linens', completed: false, due_date: '2026-03-25' },
+      { id: 'ss-t6', text: 'Create shot list / mood board', completed: false, due_date: '2026-03-28' },
+      { id: 'ss-t7', text: 'Coordinate model casting', completed: false, due_date: '2026-04-01' },
+      { id: 'ss-t8', text: 'Schedule hair & makeup artist', completed: false, due_date: '2026-04-05' },
+      { id: 'ss-t9', text: 'Send creative brief to team', completed: true },
+      { id: 'ss-t10', text: 'Draft concept mood board', completed: true },
+      { id: 'ss-t11', text: 'Research venue options', completed: true },
+      { id: 'ss-t12', text: 'Create project timeline', completed: true },
+    ],
   },
   {
     id: 'menorca',
@@ -252,6 +274,23 @@ export const projects: Project[] = [
     tasks_total: 15,
     tasks_completed: 6,
     overdue_count: 0,
+    tasks: [
+      { id: 'mn-t1', text: 'Book flights to Menorca', completed: false, due_date: '2026-03-20' },
+      { id: 'mn-t2', text: 'Confirm Vestige Son Vell access permit', completed: false, due_date: '2026-03-25' },
+      { id: 'mn-t3', text: 'Finalize floral order with Cassandra', completed: false, due_date: '2026-04-01' },
+      { id: 'mn-t4', text: 'Ship rentals & props to Spain', completed: false, due_date: '2026-04-10' },
+      { id: 'mn-t5', text: 'Arrange local transport + accommodation', completed: false, due_date: '2026-04-15' },
+      { id: 'mn-t6', text: 'Create detailed shot list for Lithica Quarry', completed: false, due_date: '2026-04-20' },
+      { id: 'mn-t7', text: 'Coordinate model travel logistics', completed: false, due_date: '2026-04-25' },
+      { id: 'mn-t8', text: 'Confirm EFEGE availability + contract', completed: false, due_date: '2026-03-15' },
+      { id: 'mn-t9', text: 'Source local hair & makeup in Menorca', completed: false, due_date: '2026-04-05' },
+      { id: 'mn-t10', text: 'Research Menorca venue options', completed: true },
+      { id: 'mn-t11', text: 'Contact EFEGE for initial inquiry', completed: true },
+      { id: 'mn-t12', text: 'Draft concept + mood board', completed: true },
+      { id: 'mn-t13', text: 'Connect with Cassandra at Enrich', completed: true },
+      { id: 'mn-t14', text: 'Create project budget estimate', completed: true },
+      { id: 'mn-t15', text: 'Build project timeline', completed: true },
+    ],
   },
 ];
 
