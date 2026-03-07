@@ -37,11 +37,17 @@ export default function ShootCard({ project }: { project: Project }) {
             </h2>
           </Link>
           <div className="text-right shrink-0 ml-2">
-            <span className={`font-heading text-[14px] font-semibold tracking-tight ${countdown.isUrgent ? 'text-fq-alert' : t.heading}`}>
+            <span className={`font-heading text-[20px] font-bold tracking-tight ${countdown.isUrgent ? 'text-fq-alert' : t.heading}`}>
               {countdown.text}
             </span>
+            <p className={`font-body text-[10px] ${t.light}`}>countdown</p>
           </div>
         </div>
+
+        {/* Date */}
+        <p className={`font-body text-[12px] ${t.light} mb-3`}>
+          {formatDate(project.event_date)}
+        </p>
 
         {/* Venue / Location + Address */}
         {(project.location || project.venue_name) && (

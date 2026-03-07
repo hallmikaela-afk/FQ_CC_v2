@@ -256,10 +256,21 @@ export default function ClientCard({ project }: { project: Project }) {
             </h2>
           </Link>
           <div className="text-right shrink-0 ml-2">
-            <span className={`font-heading text-[14px] font-semibold tracking-tight ${countdown.isUrgent ? 'text-fq-alert' : t.heading}`}>
+            <span className={`font-heading text-[20px] font-bold tracking-tight ${countdown.isUrgent ? 'text-fq-alert' : t.heading}`}>
               {countdown.text}
             </span>
+            <p className={`font-body text-[10px] ${t.light}`}>countdown</p>
           </div>
+        </div>
+
+        {/* Date */}
+        <div className="ml-5 mb-2">
+          <EditableField
+            value={formatDate(eventDate)}
+            onChange={setEventDate}
+            className={`font-body text-[12px] ${t.light}`}
+            placeholder="Event date..."
+          />
         </div>
 
         {/* Service tier badge */}
