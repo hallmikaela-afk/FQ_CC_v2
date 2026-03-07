@@ -59,6 +59,8 @@ export interface Project {
   photographer?: string;
   florist?: string;
   location?: string;
+  location_street?: string;
+  location_city_state_zip?: string;
   // Links & Resources
   canva_link?: string;
   internal_file_share?: string;
