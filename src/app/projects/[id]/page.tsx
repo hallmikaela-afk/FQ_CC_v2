@@ -183,6 +183,65 @@ function HeaderCard({ project }: { project: Project }) {
   );
 }
 
+/* ─────────────── Editable Agenda Item ─────────────── */
+function AgendaItem({
+  value,
+  onChange,
+  onDelete,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const t = {
+    body: 'text-fq-muted/90',
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className={`font-body text-[13px] ${t.body} shrink-0`}>-</span>
+        <input
+          ref={inputRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => { onChange(draft); setEditing(false); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { onChange(draft); setEditing(false); }
+            if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+          }}
+          className={`flex-1 bg-transparent border-b border-fq-accent/40 outline-none font-body text-[13px] ${t.body} py-0`}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-2 group">
+      <p
+        onClick={() => { setDraft(value); setEditing(true); }}
+        className={`font-body text-[13px] ${t.body} flex-1 cursor-text hover:text-fq-dark transition-colors`}
+      >
+        - {value}
+      </p>
+      <button
+        onClick={onDelete}
+        className="text-fq-muted/40 hover:text-fq-alert text-[11px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 /* ─────────────── Next Call Agenda ─────────────── */
 function NextCallAgenda({ items }: { items: string[] }) {
   const [agenda, setAgenda] = useState(items);
@@ -195,13 +254,20 @@ function NextCallAgenda({ items }: { items: string[] }) {
     }
   };
 
+  const updateItem = (index: number, value: string) => {
+    if (!value.trim()) {
+      setAgenda(agenda.filter((_, i) => i !== index));
+    } else {
+      setAgenda(agenda.map((item, i) => i === index ? value : item));
+    }
+  };
+
   const removeItem = (index: number) => {
     setAgenda(agenda.filter((_, i) => i !== index));
   };
 
   const t = {
     heading: 'text-fq-dark/90',
-    body: 'text-fq-muted/90',
     light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
   };
@@ -226,17 +292,12 @@ function NextCallAgenda({ items }: { items: string[] }) {
       {agenda.length > 0 && (
         <div className="space-y-2 mt-4">
           {agenda.map((item, i) => (
-            <div key={i} className="flex items-start gap-2 group">
-              <p className={`font-body text-[13px] ${t.body} flex-1`}>
-                - {item}
-              </p>
-              <button
-                onClick={() => removeItem(i)}
-                className="text-fq-muted/40 hover:text-fq-alert text-[11px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-              >
-                ✕
-              </button>
-            </div>
+            <AgendaItem
+              key={i}
+              value={item}
+              onChange={(v) => updateItem(i, v)}
+              onDelete={() => removeItem(i)}
+            />
           ))}
         </div>
       )}
@@ -341,40 +402,84 @@ function VendorTile({
 /* ─────────────── Vendor Contacts ─────────────── */
 function VendorContacts({ vendors: initialVendors }: { vendors: Vendor[] }) {
   const [vendors, setVendors] = useState(initialVendors);
+  const [collapsed, setCollapsed] = useState(false);
 
   const removeVendor = (id: string) => {
     setVendors(vendors.filter(v => v.id !== id));
   };
 
+  const downloadCSV = () => {
+    const headers = ['Category', 'Vendor Name', 'Contact Name', 'Email', 'Phone', 'Website'];
+    const rows = vendors.map(v => [
+      v.category,
+      v.vendor_name,
+      v.contact_name || '',
+      v.email || '',
+      v.phone || '',
+      v.website || '',
+    ]);
+    const csv = [headers, ...rows].map(row =>
+      row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'vendor-contacts.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const t = {
     heading: 'text-fq-dark/90',
+    light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
   };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-3">
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center gap-3 group"
+        >
+          <svg
+            width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+            strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+            className={`${t.light} transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`}
+          >
+            <path d="M3 5l3 3 3-3" />
+          </svg>
           <span className={`${t.icon} text-[16px]`}>◇</span>
-          <h2 className={`font-heading text-[20px] font-semibold ${t.heading}`}>Vendor Contacts</h2>
+          <h2 className={`font-heading text-[20px] font-semibold ${t.heading} group-hover:text-fq-accent transition-colors`}>Vendor Contacts</h2>
           <span className="text-[12px] font-body text-fq-muted bg-fq-bg px-2 py-0.5 rounded-full">
             {vendors.length}
           </span>
-        </div>
-        <button className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors">
-          + Add Vendor
         </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={downloadCSV}
+            className={`flex items-center gap-1.5 font-body text-[13px] ${t.light} hover:text-fq-dark px-3 py-2 rounded-lg border border-fq-border hover:border-fq-dark/20 transition-colors`}
+          >
+            ↓ Download CSV
+          </button>
+          <button className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors">
+            + Add Vendor
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        {vendors.map((vendor) => (
-          <VendorTile
-            key={vendor.id}
-            vendor={vendor}
-            onRemove={() => removeVendor(vendor.id)}
-          />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="grid grid-cols-3 gap-4">
+          {vendors.map((vendor) => (
+            <VendorTile
+              key={vendor.id}
+              vendor={vendor}
+              onRemove={() => removeVendor(vendor.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
