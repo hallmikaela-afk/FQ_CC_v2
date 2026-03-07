@@ -349,16 +349,8 @@ export function formatCountdown(eventDate: string): { text: string; isUrgent: bo
   const diffMs = event.getTime() - now.getTime();
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays < 0) {
-    return { text: `${Math.abs(diffDays)}d ago`, isUrgent: true };
-  }
-  if (diffDays <= 30) {
-    return { text: `${diffDays}d`, isUrgent: true };
-  }
-  const weeks = Math.floor(diffDays / 7);
-  const days = diffDays % 7;
-  const text = days > 0 ? `${weeks}w ${days}d` : `${weeks}w`;
-  return { text, isUrgent: false };
+  const text = event.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  return { text, isUrgent: diffDays <= 30 };
 }
 
 export function formatDate(dateStr: string): string {
