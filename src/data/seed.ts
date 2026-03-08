@@ -402,6 +402,11 @@ export function formatDate(dateStr: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+export function formatMonthYear(dateStr: string): string {
+  const date = new Date(dateStr + 'T00:00:00');
+  return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 /* Template tasks generated for new client weddings */
 export function generateTemplateTasks(eventDate: string): Task[] {
   const event = new Date(eventDate + 'T00:00:00');

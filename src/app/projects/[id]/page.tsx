@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { projects, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
+import { projects, getTeamMember, formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
 import type { Project, Vendor, CallNote, Task } from '@/data/seed';
 
 /* ─────────────── Inline Editable Field ─────────────── */
@@ -1078,6 +1078,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const [groupBy, setGroupBy] = useState<'category' | 'date'>('date');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [kanbanGroupField, setKanbanGroupField] = useState<'category' | 'date' | 'assigned_to' | 'status'>('category');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskDue, setNewTaskDue] = useState('');
@@ -1089,6 +1090,25 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     body: 'text-fq-muted/90',
     light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
+  };
+
+  // Category color palette
+  const categoryColorPalette = [
+    { text: 'text-fq-sage', bg: 'bg-fq-sage-light', border: 'border-fq-sage/20' },
+    { text: 'text-fq-rose', bg: 'bg-fq-rose-light', border: 'border-fq-rose/20' },
+    { text: 'text-fq-blue', bg: 'bg-fq-blue-light', border: 'border-fq-blue/20' },
+    { text: 'text-fq-plum', bg: 'bg-fq-plum-light', border: 'border-fq-plum/20' },
+    { text: 'text-fq-amber', bg: 'bg-fq-amber-light', border: 'border-fq-amber/20' },
+    { text: 'text-fq-teal', bg: 'bg-fq-teal-light', border: 'border-fq-teal/20' },
+    { text: 'text-fq-accent', bg: 'bg-fq-light-accent', border: 'border-fq-accent/20' },
+    { text: 'text-fq-alert', bg: 'bg-fq-alert/10', border: 'border-fq-alert/20' },
+  ];
+  const categoryColorMap = new Map<string, typeof categoryColorPalette[0]>();
+  const getCategoryColor = (cat: string) => {
+    if (!categoryColorMap.has(cat)) {
+      categoryColorMap.set(cat, categoryColorPalette[categoryColorMap.size % categoryColorPalette.length]);
+    }
+    return categoryColorMap.get(cat)!;
   };
 
   const toggleTask = (taskId: string) => {
@@ -1138,7 +1158,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     });
   } else {
     filtered.forEach(tk => {
-      const key = tk.due_date ? formatDate(tk.due_date) : 'No date';
+      const key = tk.due_date ? formatMonthYear(tk.due_date) : 'No date';
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(tk);
     });
@@ -1154,7 +1174,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     });
   } else if (kanbanGroupField === 'date') {
     filtered.forEach(tk => {
-      const key = tk.due_date ? formatDate(tk.due_date) : 'No date';
+      const key = tk.due_date ? formatMonthYear(tk.due_date) : 'No date';
       if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
       kanbanGrouped[key].push(tk);
     });
@@ -1369,15 +1389,28 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
               const groupCompleted = groupTasks.filter(tk => tk.completed).length;
               return (
                 <div key={group}>
-                  <div className="flex items-center gap-2 mb-1.5 px-3">
-                    <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-                      {group}
-                    </span>
+                  <button
+                    onClick={() => setCollapsedGroups(prev => {
+                      const next = new Set(prev);
+                      next.has(group) ? next.delete(group) : next.add(group);
+                      return next;
+                    })}
+                    className="flex items-center gap-2 mb-1.5 px-3 w-full text-left group/collapse"
+                  >
+                    <span className={`text-[10px] ${t.light} transition-transform ${collapsedGroups.has(group) ? '' : 'rotate-90'}`}>▶</span>
+                    {(() => {
+                      const gc = groupBy === 'category' ? getCategoryColor(group) : { text: 'text-fq-accent', bg: 'bg-fq-light-accent' };
+                      return (
+                        <span className={`font-body text-[12px] font-medium ${gc.text} ${gc.bg} px-2.5 py-0.5 rounded-full`}>
+                          {group}
+                        </span>
+                      );
+                    })()}
                     <span className={`font-body text-[11px] ${t.light}`}>
                       {groupCompleted}/{groupTasks.length}
                     </span>
-                  </div>
-                  <div>
+                  </button>
+                  {!collapsedGroups.has(group) && <div>
                     {groupTasks.map((task) => {
                       const overdue = !task.completed && isOverdue(task.due_date);
                       const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
@@ -1411,20 +1444,23 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                           </span>
                           {/* Category pill */}
                           <span className="truncate">
-                            {task.category && (
-                              <span className="font-body text-[11px] text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full inline-block truncate max-w-full">
+                            {task.category && (() => {
+                              const cc = getCategoryColor(task.category!);
+                              return (
+                              <span className={`font-body text-[11px] ${cc.text} ${cc.bg} px-2 py-0.5 rounded-full inline-block truncate max-w-full`}>
                                 {task.category}
                               </span>
-                            )}
+                              );
+                            })()}
                           </span>
                           {/* Status */}
                           <span>
                             {task.completed ? (
-                              <span className="font-body text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Done</span>
+                              <span className="font-body text-[11px] text-fq-sage bg-fq-sage-light px-2 py-0.5 rounded-full">Done</span>
                             ) : overdue ? (
-                              <span className="font-body text-[11px] text-fq-alert bg-fq-alert/10 px-2 py-0.5 rounded-full font-medium">Overdue</span>
+                              <span className="font-body text-[11px] text-fq-rose bg-fq-rose-light px-2 py-0.5 rounded-full font-medium">Overdue</span>
                             ) : (
-                              <span className={`font-body text-[11px] ${t.light} bg-fq-bg px-2 py-0.5 rounded-full`}>Open</span>
+                              <span className="font-body text-[11px] text-fq-blue bg-fq-blue-light px-2 py-0.5 rounded-full">Open</span>
                             )}
                           </span>
                           {/* Due date */}
@@ -1449,7 +1485,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                         </div>
                       );
                     })}
-                  </div>
+                  </div>}
                 </div>
               );
             })}
@@ -1465,9 +1501,14 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                 {/* Column header */}
                 <div className="flex items-center justify-between mb-3 px-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-                      {column}
-                    </span>
+                    {(() => {
+                      const gc = kanbanGroupField === 'category' ? getCategoryColor(column) : { text: 'text-fq-accent', bg: 'bg-fq-light-accent' };
+                      return (
+                        <span className={`font-body text-[12px] font-medium ${gc.text} ${gc.bg} px-2.5 py-0.5 rounded-full`}>
+                          {column}
+                        </span>
+                      );
+                    })()}
                     <span className={`font-body text-[11px] ${t.light}`}>{columnTasks.length}</span>
                   </div>
                   <span className={`font-body text-[10px] ${t.light}`}>
@@ -1515,11 +1556,14 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                               {formatDate(task.due_date)}
                             </span>
                           )}
-                          {task.category && kanbanGroupField !== 'category' && (
-                            <span className={`font-body text-[10px] ${t.light} bg-fq-bg px-1.5 py-0.5 rounded`}>
-                              {task.category}
-                            </span>
-                          )}
+                          {task.category && kanbanGroupField !== 'category' && (() => {
+                            const cc = getCategoryColor(task.category!);
+                            return (
+                              <span className={`font-body text-[10px] ${cc.text} ${cc.bg} px-1.5 py-0.5 rounded`}>
+                                {task.category}
+                              </span>
+                            );
+                          })()}
                           {member && kanbanGroupField !== 'assigned_to' && (
                             <div
                               className="w-5 h-5 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0 ml-auto"
