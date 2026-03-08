@@ -77,6 +77,10 @@ export interface ProjectRow {
   service_tier: string | null;
   client1_name: string | null;
   client2_name: string | null;
+  client1_email: string | null;
+  client2_email: string | null;
+  client1_phone: string | null;
+  client2_phone: string | null;
   venue_name: string | null;
   venue_location: string | null;
   venue_street: string | null;
