@@ -1,5 +1,5 @@
 'use client';
-
+/* Task table v2 — inline filters, status system, subtasks */
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
