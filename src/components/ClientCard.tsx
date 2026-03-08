@@ -424,6 +424,21 @@ export default function ClientCard({ project }: { project: Project }) {
           })}
         </div>
 
+        {/* Next Call Agenda */}
+        {project.next_call_agenda && project.next_call_agenda.length > 0 && (
+          <div className="mb-3">
+            <p className={`font-body text-[11px] font-medium ${t.label} mb-1.5`}>Next Call Agenda</p>
+            <div className="space-y-1">
+              {project.next_call_agenda.slice(0, 3).map((item, i) => (
+                <p key={i} className={`font-body text-[12px] ${t.light} leading-snug`}>- {item}</p>
+              ))}
+              {project.next_call_agenda.length > 3 && (
+                <p className={`font-body text-[11px] ${t.light}`}>+{project.next_call_agenda.length - 3} more</p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* View project link */}
         <Link
           href={`/projects/${project.id}`}

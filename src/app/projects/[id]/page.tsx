@@ -180,19 +180,35 @@ function AgendaItem({ value, onChange, onDelete }: { value: string; onChange: (v
 function NextCallAgenda({ items }: { items: string[] }) {
   const [agenda, setAgenda] = useState(items);
   const [draft, setDraft] = useState('');
+  const [copied, setCopied] = useState(false);
   const addItem = () => { if (draft.trim()) { setAgenda([...agenda, draft.trim()]); setDraft(''); } };
   const updateItem = (index: number, value: string) => {
     if (!value.trim()) setAgenda(agenda.filter((_, i) => i !== index));
     else setAgenda(agenda.map((item, i) => i === index ? value : item));
   };
   const removeItem = (index: number) => setAgenda(agenda.filter((_, i) => i !== index));
+
+  const copyAsEmail = () => {
+    const text = 'Next Call Agenda:\n' + agenda.map((item, i) => `${i + 1}. ${item}`).join('\n');
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-5 h-full">
-      <div className="flex items-center gap-2 mb-4">
-        <span className={`${t.icon} text-[14px]`}>📋</span>
-        <h3 className={`font-heading text-[16px] font-semibold ${t.heading}`}>Next Call Agenda</h3>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className={`${t.icon} text-[14px]`}>📋</span>
+          <h3 className={`font-heading text-[16px] font-semibold ${t.heading}`}>Next Call Agenda</h3>
+        </div>
+        {agenda.length > 0 && (
+          <button onClick={copyAsEmail} className={`font-body text-[11px] ${copied ? 'text-fq-accent' : t.light} hover:text-fq-dark transition-colors`}>
+            {copied ? '✓ Copied!' : '📋 Copy for email'}
+          </button>
+        )}
       </div>
       <div className="mb-3">
         <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addItem()}
@@ -363,25 +379,47 @@ function RichTextEditor({
   placeholder?: string;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
+  const [isEmpty, setIsEmpty] = useState(!initialContent);
+
+  // Only set innerHTML once on mount — never again (prevents cursor reset / backward typing)
+  useEffect(() => {
+    if (editorRef.current && initialContent) {
+      editorRef.current.innerHTML = initialContent;
+      setIsEmpty(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateActiveFormats = useCallback(() => {
     const formats = new Set<string>();
-    if (document.queryCommandState('bold')) formats.add('bold');
-    if (document.queryCommandState('italic')) formats.add('italic');
-    if (document.queryCommandState('underline')) formats.add('underline');
-    if (document.queryCommandState('insertUnorderedList')) formats.add('insertUnorderedList');
-    if (document.queryCommandState('insertOrderedList')) formats.add('insertOrderedList');
+    try {
+      if (document.queryCommandState('bold')) formats.add('bold');
+      if (document.queryCommandState('italic')) formats.add('italic');
+      if (document.queryCommandState('underline')) formats.add('underline');
+      if (document.queryCommandState('insertUnorderedList')) formats.add('insertUnorderedList');
+      if (document.queryCommandState('insertOrderedList')) formats.add('insertOrderedList');
+    } catch { /* ignore */ }
     setActiveFormats(formats);
   }, []);
 
   const exec = useCallback((command: string) => {
-    // Ensure focus is on the editor before executing
     editorRef.current?.focus();
     document.execCommand(command, false);
-    onChange?.(editorRef.current?.innerHTML || '');
+    const html = editorRef.current?.innerHTML || '';
+    onChangeRef.current?.(html);
+    setIsEmpty(!editorRef.current?.textContent?.trim());
     updateActiveFormats();
-  }, [onChange, updateActiveFormats]);
+  }, [updateActiveFormats]);
+
+  const handleInput = useCallback(() => {
+    const html = editorRef.current?.innerHTML || '';
+    onChangeRef.current?.(html);
+    setIsEmpty(!editorRef.current?.textContent?.trim());
+    updateActiveFormats();
+  }, [updateActiveFormats]);
 
   const t = { light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
@@ -412,21 +450,21 @@ function RichTextEditor({
         <ToolBtn cmd="insertUnorderedList" label="•" title="Bullet list" />
         <ToolBtn cmd="insertOrderedList" label="1." title="Numbered list" />
       </div>
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={() => {
-          onChange?.(editorRef.current?.innerHTML || '');
-          updateActiveFormats();
-        }}
-        onKeyUp={updateActiveFormats}
-        onMouseUp={updateActiveFormats}
-        onFocus={updateActiveFormats}
-        dangerouslySetInnerHTML={{ __html: initialContent || '' }}
-        data-placeholder={placeholder}
-        className="min-h-[120px] max-h-[300px] overflow-y-auto p-3 font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/40 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5"
-      />
+      <div className="relative">
+        {isEmpty && placeholder && (
+          <div className="absolute top-3 left-3 font-body text-[13px] text-fq-muted/40 pointer-events-none">{placeholder}</div>
+        )}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={handleInput}
+          onKeyUp={updateActiveFormats}
+          onMouseUp={updateActiveFormats}
+          onFocus={updateActiveFormats}
+          className="min-h-[120px] max-h-[300px] overflow-y-auto p-3 font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5"
+        />
+      </div>
     </div>
   );
 }
@@ -456,26 +494,37 @@ async function parsePdfFile(file: File): Promise<string> {
   return pages.join('\n\n');
 }
 
-/* ─────────────── Summary Generation ─────────────── */
-function generateSummary(text: string): string {
-  const clean = text.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-  const sentences = clean.split(/(?<=[.!?])\s+/).filter(s => s.length > 10);
-  if (sentences.length <= 3) return clean;
+/* ─────────────── HTML Entity Decoder ─────────────── */
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
 
-  // Pick the first 2–3 most informative sentences
-  const keywords = ['discussed', 'confirmed', 'decided', 'agreed', 'reviewed', 'covered', 'updated', 'finalized', 'scheduled', 'addressed', 'focused', 'meeting', 'call'];
+/* ─────────────── Summary Generation (returns bullet array) ─────────────── */
+function generateSummaryBullets(text: string): string[] {
+  const clean = decodeHtmlEntities(text.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const sentences = clean.split(/(?<=[.!?])\s+/).filter(s => s.length > 10);
+  if (sentences.length === 0) return [clean].filter(Boolean);
+  if (sentences.length <= 4) return sentences;
+
+  const keywords = ['discussed', 'confirmed', 'decided', 'agreed', 'reviewed', 'covered', 'updated', 'finalized', 'scheduled', 'addressed', 'focused', 'meeting', 'call', 'follow up', 'timeline', 'budget', 'venue', 'vendor'];
   const scored = sentences.map((s, i) => {
     let score = 0;
-    if (i === 0) score += 3; // first sentence usually has context
+    if (i === 0) score += 3;
     keywords.forEach(kw => { if (s.toLowerCase().includes(kw)) score += 2; });
-    if (s.length > 40 && s.length < 200) score += 1;
-    return { s, score };
+    if (s.length > 30 && s.length < 200) score += 1;
+    return { s, score, i };
   });
   scored.sort((a, b) => b.score - a.score);
-  const topSentences = scored.slice(0, 3).map(x => x.s);
+  const top = scored.slice(0, 5);
   // Return in original order
-  const ordered = sentences.filter(s => topSentences.includes(s));
-  return ordered.join(' ');
+  top.sort((a, b) => a.i - b.i);
+  return top.map(x => x.s);
 }
 
 /* ─────────────── AI Action Item Extraction ─────────────── */
@@ -569,15 +618,18 @@ function NoteDetailModal({
   tasks,
   onAcceptAction,
   onDelete,
+  onUpdate,
 }: {
   note: CallNote;
   onClose: () => void;
   tasks: Task[];
   onAcceptAction: (noteId: string, actionText: string, parentTaskId?: string) => void;
   onDelete: (noteId: string) => void;
+  onUpdate: (noteId: string, updates: Partial<CallNote>) => void;
 }) {
+  const [editingContent, setEditingContent] = useState(false);
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
-  const autoSummary = !note.summary ? generateSummary(note.raw_text) : null;
+  const autoSummaryBullets = !note.summary ? generateSummaryBullets(note.raw_text) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -585,23 +637,28 @@ function NoteDetailModal({
       <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[720px] max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 pb-4 border-b border-fq-border">
-          <div className="flex items-center gap-3">
-            <span className={`${t.icon} text-[16px]`}>📄</span>
-            <h3 className={`font-heading text-[18px] font-semibold ${t.heading}`}>{formatDate(note.date)}</h3>
+          <div className="flex-1 min-w-0 mr-4">
+            <div className="flex items-center gap-3 mb-1">
+              <span className={`${t.icon} text-[16px]`}>📄</span>
+              <EditableField
+                value={note.title || ''}
+                onChange={(v) => onUpdate(note.id, { title: v })}
+                className={`font-heading text-[18px] font-semibold ${t.heading}`}
+                placeholder="Add a title..."
+              />
+            </div>
+            <div className="ml-8">
+              <EditableField
+                value={note.date}
+                onChange={(v) => onUpdate(note.id, { date: v })}
+                className={`font-body text-[13px] ${t.light}`}
+                placeholder="YYYY-MM-DD"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => navigator.clipboard.writeText(note.summary || note.raw_text)}
-              className={`font-body text-[12px] ${t.light} hover:text-fq-dark px-3 py-1.5 rounded-lg border border-fq-border hover:border-fq-dark/20 transition-colors`}
-            >
-              📋 Copy
-            </button>
-            <button
-              onClick={() => { onDelete(note.id); onClose(); }}
-              className="font-body text-[12px] text-fq-muted/50 hover:text-fq-alert px-3 py-1.5 rounded-lg border border-fq-border hover:border-fq-alert/30 transition-colors"
-            >
-              🗑 Delete
-            </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => navigator.clipboard.writeText(note.summary || decodeHtmlEntities(note.raw_text.replace(/<[^>]+>/g, ' ')))} className={`font-body text-[12px] ${t.light} hover:text-fq-dark px-3 py-1.5 rounded-lg border border-fq-border hover:border-fq-dark/20 transition-colors`}>📋 Copy</button>
+            <button onClick={() => { onDelete(note.id); onClose(); }} className="font-body text-[12px] text-fq-muted/50 hover:text-fq-alert px-3 py-1.5 rounded-lg border border-fq-border hover:border-fq-alert/30 transition-colors">🗑 Delete</button>
             <button onClick={onClose} className="text-fq-muted/40 hover:text-fq-dark text-[18px] ml-2">✕</button>
           </div>
         </div>
@@ -609,22 +666,48 @@ function NoteDetailModal({
         {/* Content (scrollable) */}
         <div className="flex-1 overflow-y-auto p-6">
           {/* Summary */}
-          {(note.summary || autoSummary) && (
+          {(note.summary || (autoSummaryBullets && autoSummaryBullets.length > 0)) && (
             <div className="mb-5 bg-fq-light-accent/30 rounded-lg p-4 border border-fq-accent/20">
               <p className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wider mb-2`}>
                 {note.summary ? 'Summary' : 'Auto-Generated Summary'}
               </p>
-              <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{note.summary || autoSummary}</p>
+              {note.summary ? (
+                <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{note.summary}</p>
+              ) : (
+                <ul className="space-y-1">
+                  {autoSummaryBullets!.map((bullet, i) => (
+                    <li key={i} className={`font-body text-[13px] ${t.body} leading-relaxed flex gap-2`}>
+                      <span className="text-fq-accent shrink-0">•</span>
+                      <span>{bullet}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
-          {/* Full Notes */}
+          {/* Full Notes — editable */}
           <div className="mb-5">
-            <p className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wider mb-2`}>Full Notes</p>
-            <div
-              className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
-              dangerouslySetInnerHTML={{ __html: note.raw_text }}
-            />
+            <div className="flex items-center justify-between mb-2">
+              <p className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wider`}>Full Notes</p>
+              <button
+                onClick={() => setEditingContent(!editingContent)}
+                className={`font-body text-[11px] ${editingContent ? 'text-fq-accent' : t.light} hover:text-fq-dark transition-colors`}
+              >
+                {editingContent ? '✓ Done editing' : '✎ Edit'}
+              </button>
+            </div>
+            {editingContent ? (
+              <RichTextEditor
+                initialContent={note.raw_text}
+                onChange={(html) => onUpdate(note.id, { raw_text: html })}
+              />
+            ) : (
+              <div
+                className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
+                dangerouslySetInnerHTML={{ __html: note.raw_text }}
+              />
+            )}
           </div>
 
           {/* Extracted Actions */}
@@ -636,12 +719,8 @@ function NoteDetailModal({
               <div className="space-y-1.5">
                 {note.extracted_actions.map((action) => (
                   <div key={action.id} className="flex items-center gap-2">
-                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 ${
-                      action.accepted ? 'bg-fq-accent text-white' : action.dismissed ? 'bg-fq-border' : 'border border-fq-border'
-                    }`}>
-                      {action.accepted && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>
-                      )}
+                    <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 ${action.accepted ? 'bg-fq-accent text-white' : action.dismissed ? 'bg-fq-border' : 'border border-fq-border'}`}>
+                      {action.accepted && (<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>)}
                     </div>
                     <span className={`font-body text-[12px] ${action.dismissed ? 'line-through text-fq-muted/50' : t.body}`}>{action.text}</span>
                     <span className={`font-body text-[11px] ${t.light} ml-1`}>— due {formatDate(action.due_date)}</span>
@@ -651,12 +730,7 @@ function NoteDetailModal({
             </div>
           )}
 
-          {/* Extract more action items */}
-          <ActionItemsPanel
-            noteContent={note.raw_text}
-            tasks={tasks}
-            onAccept={(item, parentId) => onAcceptAction(note.id, item, parentId)}
-          />
+          <ActionItemsPanel noteContent={note.raw_text} tasks={tasks} onAccept={(item, parentId) => onAcceptAction(note.id, item, parentId)} />
         </div>
       </div>
     </div>
@@ -681,6 +755,14 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
   };
 
   const deleteNote = (id: string) => setNotes(notes.filter(n => n.id !== id));
+
+  const updateNote = (id: string, updates: Partial<CallNote>) => {
+    setNotes(notes.map(n => n.id === id ? { ...n, ...updates } : n));
+    // Also update the expanded note if it's the same one
+    if (expandedNote && expandedNote.id === id) {
+      setExpandedNote({ ...expandedNote, ...updates });
+    }
+  };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -785,18 +867,45 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
           <div className="space-y-0">
             {notes.map((note) => {
               const isNoteCollapsed = collapsedNotes.has(note.id);
-              const autoSummary = !note.summary ? generateSummary(note.raw_text.replace(/<[^>]+>/g, ' ')) : null;
-              const displaySummary = note.summary || autoSummary || '';
+              const autoSummaryBullets = !note.summary ? generateSummaryBullets(note.raw_text.replace(/<[^>]+>/g, ' ')) : null;
 
               return (
                 <div key={note.id} className="border-l-[3px] border-fq-accent/40 pl-5 py-5 first:pt-0">
                   <div className="flex items-center justify-between mb-3">
-                    <button onClick={() => toggleNoteCollapse(note.id)} className="flex items-center gap-2 group">
-                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${t.light} transition-transform duration-200 ${isNoteCollapsed ? '-rotate-90' : ''}`}><path d="M3 5l3 3 3-3" /></svg>
-                      <h4 className={`font-body text-[14px] font-semibold ${t.heading} group-hover:text-fq-accent transition-colors`}>{formatDate(note.date)}</h4>
-                    </button>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => navigator.clipboard.writeText(note.summary || note.raw_text.replace(/<[^>]+>/g, ' '))} className={`font-body text-[12px] ${t.light} hover:text-fq-dark transition-colors flex items-center gap-1`}>📋 Copy</button>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <button onClick={() => toggleNoteCollapse(note.id)} className="shrink-0">
+                        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${t.light} transition-transform duration-200 ${isNoteCollapsed ? '-rotate-90' : ''}`}><path d="M3 5l3 3 3-3" /></svg>
+                      </button>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <EditableField
+                          value={note.date}
+                          onChange={(v) => updateNote(note.id, { date: v })}
+                          className={`font-body text-[14px] font-semibold ${t.heading} shrink-0`}
+                          placeholder="YYYY-MM-DD"
+                        />
+                        {note.title && (
+                          <>
+                            <span className={`${t.light} text-[12px]`}>—</span>
+                            <EditableField
+                              value={note.title}
+                              onChange={(v) => updateNote(note.id, { title: v })}
+                              className={`font-body text-[13px] ${t.light} truncate`}
+                              placeholder="Add title..."
+                            />
+                          </>
+                        )}
+                        {!note.title && (
+                          <EditableField
+                            value=""
+                            onChange={(v) => updateNote(note.id, { title: v })}
+                            className={`font-body text-[12px] ${t.light}`}
+                            placeholder="Add title..."
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => navigator.clipboard.writeText(note.summary || decodeHtmlEntities(note.raw_text.replace(/<[^>]+>/g, ' ')))} className={`font-body text-[12px] ${t.light} hover:text-fq-dark transition-colors flex items-center gap-1`}>📋 Copy</button>
                       <button onClick={() => deleteNote(note.id)} className={`font-body text-[12px] text-fq-muted/40 hover:text-fq-alert transition-colors flex items-center gap-1`}>🗑</button>
                       <ActionItemsPanel noteContent={note.raw_text} tasks={tasks} onAccept={(item, parentId) => handleAcceptAction(note.id, item, parentId)} />
                     </div>
@@ -804,11 +913,22 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
 
                   {!isNoteCollapsed && (
                     <div onDoubleClick={() => setExpandedNote(note)} className="cursor-default" title="Double-click to expand">
-                      {/* Always show summary */}
-                      {displaySummary && (
+                      {/* Summary as bullets */}
+                      {note.summary ? (
                         <div className="mb-3">
-                          {!note.summary && <span className={`font-body text-[10px] ${t.light} uppercase tracking-wider`}>Auto-summary</span>}
-                          <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{displaySummary}</p>
+                          <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{note.summary}</p>
+                        </div>
+                      ) : autoSummaryBullets && autoSummaryBullets.length > 0 && (
+                        <div className="mb-3">
+                          <span className={`font-body text-[10px] ${t.light} uppercase tracking-wider`}>Auto-summary</span>
+                          <ul className="mt-1 space-y-0.5">
+                            {autoSummaryBullets.map((bullet, i) => (
+                              <li key={i} className={`font-body text-[13px] ${t.body} leading-relaxed flex gap-2`}>
+                                <span className="text-fq-accent shrink-0">•</span>
+                                <span>{bullet}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       )}
 
@@ -828,9 +948,7 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
                           <div className="space-y-1.5">
                             {note.extracted_actions.map((action) => (
                               <div key={action.id} className="flex items-center gap-2">
-                                <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 ${
-                                  action.accepted ? 'bg-fq-accent text-white' : action.dismissed ? 'bg-fq-border' : 'border border-fq-border'
-                                }`}>
+                                <div className={`w-5 h-5 rounded flex items-center justify-center shrink-0 ${action.accepted ? 'bg-fq-accent text-white' : action.dismissed ? 'bg-fq-border' : 'border border-fq-border'}`}>
                                   {action.accepted && (<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>)}
                                 </div>
                                 <span className={`font-body text-[12px] ${action.dismissed ? 'line-through text-fq-muted/50' : t.body}`}>{action.text}</span>
@@ -857,6 +975,7 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
           tasks={tasks}
           onAcceptAction={handleAcceptAction}
           onDelete={(id) => { deleteNote(id); setExpandedNote(null); }}
+          onUpdate={updateNote}
         />
       )}
     </div>

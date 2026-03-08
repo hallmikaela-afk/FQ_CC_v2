@@ -19,6 +19,7 @@ export interface Vendor {
 export interface CallNote {
   id: string;
   date: string;
+  title?: string;
   summary?: string;
   raw_text: string;
   extracted_actions: {
@@ -161,6 +162,7 @@ export const projects: Project[] = [
       {
         id: 'cn1',
         date: '2026-03-03',
+        title: 'Floral Direction & Logistics',
         raw_text: 'Call covered floral direction (greenery + white/blush approved), cocktail hour music (jazz trio preference), room block deadline (April 15 — potential late RSVPs from Italy), sparkler exit request (needs venue fire check), tasting scheduling (within 3 weeks), budget check (florals may need trim), and calligrapher lead from Instagram.',
         extracted_actions: [
           { id: 'ea1', text: 'Check Wave Resort fire safety rules for sparkler exit', due_date: '2026-03-10', accepted: true, dismissed: false },
@@ -173,6 +175,7 @@ export const projects: Project[] = [
       {
         id: 'cn2',
         date: '2026-03-05',
+        title: 'Timeline & Logistics Review',
         summary: 'The meeting focused on finalizing the wedding timeline and addressing various logistical details for the upcoming wedding. The couple and Mikaela discussed adjustments to the timeline, including moving the first look earlier and reorganizing hair and makeup schedules based on artist availability. They decided to add a photo booth during dinner and addressed concerns about the ice luge and bar package costs. The group also reviewed seating arrangements, dinner timing, and the placement of a well-wishing box. Mikaela agreed to update the timeline and follow up with the venue about the photo booth setup. The couple shared their decision to forego a rehearsal dinner and discussed options for the wedding film and cigar selection. They concluded by reviewing the progress on design elements, including linens, florals, and table arrangements, with plans to finalize details with the florist in the coming weeks.',
         raw_text: 'juliamazzucca: Provide Mikaela with details on the number of hair and makeup artists, their schedule/timeline, and how many people each is bringing juliamazzucca: Send Mikaela the specific link or details for the chosen cigars juliamazzucca: Send Mikaela options for the well-wishing box (card box) for review Mikaela: Update the hair and makeup schedule to include the additional person (Gabriella) and reorganize based on new artist information Mikaela: Move the first look timing earlier (to 3:15 or 3:30) and consult with Tay (photographer) on timing Mikaela: Reach out to Mark to confirm timing for the single toast during dinner Mikaela: Ask the photo booth vendor how long setup takes and if it can be set up during dinner Mikaela: Schedule a call with Mark to discuss bartender and martini tower/luge situation Mikaela: Look into options for mid-tone/darker napkins and coordinate with florist on fabric choices juliamazzucca: Think about and inform Mikaela on preferred timing for first dance Mikaela: Consider and confirm best timing/flow for first dance and cake cutting juliamazzucca: Decide on bouquet style and communicate to Mikaela Mikaela: Add linens/fabric for the credenza (card box table) and satellite bar to the linens list and source options Mikaela: Update the after party venue information on the website back from Wave Resort juliamazzucca: Arrange for bridal suite food for wedding party (and coordinate with Frank\'s mom if needed) Mikaela: Add time for rehearsal before hair and makeup, once schedule is set',
         extracted_actions: [
