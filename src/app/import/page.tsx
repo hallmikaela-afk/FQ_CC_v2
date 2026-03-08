@@ -1,0 +1,405 @@
+'use client';
+
+import { useState, useCallback } from 'react';
+import * as XLSX from 'xlsx';
+
+type TableName = 'tasks' | 'vendors' | 'projects' | 'team_members' | 'call_notes' | 'template_tasks';
+
+interface ColumnMapping {
+  sourceCol: string;
+  targetCol: string;
+}
+
+const TABLE_COLUMNS: Record<TableName, { required: string[]; optional: string[] }> = {
+  tasks: {
+    required: ['project_id', 'text'],
+    optional: ['completed', 'status', 'due_date', 'category', 'assigned_to', 'priority', 'notes', 'sort_order'],
+  },
+  vendors: {
+    required: ['project_id', 'category', 'vendor_name'],
+    optional: ['contact_name', 'email', 'phone', 'website', 'instagram'],
+  },
+  projects: {
+    required: ['type', 'name'],
+    optional: ['slug', 'status', 'event_date', 'contract_signed_date', 'color', 'concept', 'service_tier', 'client1_name', 'client2_name', 'venue_name', 'venue_location', 'venue_street', 'venue_city_state_zip', 'guest_count', 'estimated_budget', 'photographer', 'florist', 'location', 'design_board_link', 'canva_link'],
+  },
+  team_members: {
+    required: ['name', 'initials', 'role'],
+    optional: [],
+  },
+  call_notes: {
+    required: ['project_id', 'date', 'raw_text'],
+    optional: ['title', 'summary'],
+  },
+  template_tasks: {
+    required: ['text', 'category', 'weeks_before_event'],
+    optional: ['sort_order', 'is_active'],
+  },
+};
+
+export default function ImportPage() {
+  const [table, setTable] = useState<TableName>('tasks');
+  const [rawData, setRawData] = useState<Record<string, string>[]>([]);
+  const [sourceColumns, setSourceColumns] = useState<string[]>([]);
+  const [mappings, setMappings] = useState<ColumnMapping[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ inserted?: number; errors?: string[] } | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
+
+  // Fetch projects for the project_id selector
+  const fetchProjects = useCallback(async () => {
+    try {
+      const res = await fetch('/api/projects');
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data.map((p: any) => ({ id: p.id, name: p.name })));
+      }
+    } catch { /* projects not loaded yet */ }
+  }, []);
+
+  const fetchTeamMembers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/team');
+      if (res.ok) {
+        const data = await res.json();
+        setTeamMembers(data.map((t: any) => ({ id: t.id, name: t.name })));
+      }
+    } catch { /* team not loaded yet */ }
+  }, []);
+
+  const handleFile = useCallback((file: File) => {
+    setFileName(file.name);
+    setResult(null);
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const data = e.target?.result;
+      let rows: Record<string, string>[] = [];
+
+      if (file.name.endsWith('.csv')) {
+        // Parse CSV
+        const text = data as string;
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) return;
+        const headers = parseCSVLine(lines[0]);
+        rows = lines.slice(1).map(line => {
+          const values = parseCSVLine(line);
+          const obj: Record<string, string> = {};
+          headers.forEach((h, i) => { obj[h.trim()] = values[i]?.trim() || ''; });
+          return obj;
+        });
+      } else {
+        // Parse Excel
+        const wb = XLSX.read(data, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, string>[];
+      }
+
+      setRawData(rows);
+      const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+      setSourceColumns(cols);
+
+      // Auto-map columns by name similarity
+      const targetCols = [...TABLE_COLUMNS[table].required, ...TABLE_COLUMNS[table].optional];
+      const autoMappings: ColumnMapping[] = [];
+      cols.forEach(src => {
+        const normalized = src.toLowerCase().replace(/[^a-z0-9]/g, '_');
+        const match = targetCols.find(t => t === normalized || t.includes(normalized) || normalized.includes(t));
+        if (match) {
+          autoMappings.push({ sourceCol: src, targetCol: match });
+        }
+      });
+      setMappings(autoMappings);
+
+      // Fetch projects/team for dropdowns
+      fetchProjects();
+      fetchTeamMembers();
+    };
+
+    if (file.name.endsWith('.csv')) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsArrayBuffer(file);
+    }
+  }, [table, fetchProjects, fetchTeamMembers]);
+
+  function parseCSVLine(line: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (const char of line) {
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  const updateMapping = (sourceCol: string, targetCol: string) => {
+    setMappings(prev => {
+      const existing = prev.findIndex(m => m.sourceCol === sourceCol);
+      if (targetCol === '') {
+        return prev.filter(m => m.sourceCol !== sourceCol);
+      }
+      if (existing >= 0) {
+        const updated = [...prev];
+        updated[existing] = { sourceCol, targetCol };
+        return updated;
+      }
+      return [...prev, { sourceCol, targetCol }];
+    });
+  };
+
+  const handleImport = async () => {
+    setImporting(true);
+    setResult(null);
+
+    const mappedRows = rawData.map(row => {
+      const mapped: Record<string, any> = {};
+      mappings.forEach(m => {
+        let val: any = row[m.sourceCol];
+        // Type coercion
+        if (m.targetCol === 'completed' || m.targetCol === 'is_active' || m.targetCol === 'accepted' || m.targetCol === 'dismissed') {
+          val = val === 'true' || val === '1' || val === 'yes' || val === 'TRUE' || val === 'Yes';
+        }
+        if (m.targetCol === 'guest_count' || m.targetCol === 'weeks_before_event' || m.targetCol === 'sort_order') {
+          val = parseInt(val) || 0;
+        }
+        if (val !== '' && val !== undefined) {
+          mapped[m.targetCol] = val;
+        }
+      });
+
+      // Auto-inject project_id if selected and table needs it
+      if (selectedProjectId && ['tasks', 'vendors', 'call_notes'].includes(table) && !mapped.project_id) {
+        mapped.project_id = selectedProjectId;
+      }
+
+      return mapped;
+    }).filter(row => Object.keys(row).length > 0);
+
+    try {
+      const res = await fetch('/api/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table, rows: mappedRows }),
+      });
+      const data = await res.json();
+      setResult(data);
+    } catch (err: any) {
+      setResult({ errors: [err.message] });
+    }
+
+    setImporting(false);
+  };
+
+  const allTargetCols = [...TABLE_COLUMNS[table].required, ...TABLE_COLUMNS[table].optional];
+  const needsProject = ['tasks', 'vendors', 'call_notes'].includes(table);
+  const mappedTargets = new Set(mappings.map(m => m.targetCol));
+  const missingRequired = TABLE_COLUMNS[table].required.filter(
+    r => !mappedTargets.has(r) && !(r === 'project_id' && selectedProjectId)
+  );
+
+  return (
+    <div className="p-8 max-w-5xl">
+      <h1 className="font-heading text-3xl text-fq-dark mb-2">Import Data</h1>
+      <p className="text-fq-muted mb-6">Upload a CSV or Excel file to import data into Supabase.</p>
+
+      {/* Step 1: Select table */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-fq-dark mb-2">1. What are you importing?</label>
+        <div className="flex gap-2 flex-wrap">
+          {(Object.keys(TABLE_COLUMNS) as TableName[]).map(t => (
+            <button
+              key={t}
+              onClick={() => { setTable(t); setRawData([]); setMappings([]); setResult(null); }}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                table === t
+                  ? 'bg-fq-accent text-white'
+                  : 'bg-fq-light-accent text-fq-dark hover:bg-fq-border'
+              }`}
+            >
+              {t.replace(/_/g, ' ')}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Step 1b: Select project for tasks/vendors */}
+      {needsProject && (
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-fq-dark mb-2">
+            1b. Which project? {!selectedProjectId && <span className="text-fq-alert">(required unless mapped in file)</span>}
+          </label>
+          <select
+            value={selectedProjectId}
+            onChange={e => setSelectedProjectId(e.target.value)}
+            className="w-full max-w-md px-3 py-2 border border-fq-border rounded-lg bg-white text-fq-dark"
+          >
+            <option value="">— Select project (or map project_id column) —</option>
+            {projects.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Step 2: Upload file */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-fq-dark mb-2">2. Upload your file</label>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={handleDrop}
+          className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
+            dragOver ? 'border-fq-accent bg-fq-light-accent' : 'border-fq-border hover:border-fq-muted'
+          }`}
+          onClick={() => document.getElementById('file-input')?.click()}
+        >
+          <input
+            id="file-input"
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            onChange={handleFileInput}
+            className="hidden"
+          />
+          {fileName ? (
+            <div>
+              <p className="text-fq-dark font-medium">{fileName}</p>
+              <p className="text-fq-muted text-sm mt-1">{rawData.length} rows found</p>
+            </div>
+          ) : (
+            <div>
+              <p className="text-fq-muted text-lg mb-1">Drop a CSV or Excel file here</p>
+              <p className="text-fq-muted text-sm">or click to browse</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Step 3: Column mapping */}
+      {sourceColumns.length > 0 && (
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-fq-dark mb-2">3. Map your columns</label>
+          <div className="bg-white border border-fq-border rounded-xl overflow-hidden">
+            <div className="grid grid-cols-2 gap-0 px-4 py-2 bg-fq-light-accent border-b border-fq-border">
+              <span className="text-xs font-medium text-fq-muted uppercase">Your Column</span>
+              <span className="text-xs font-medium text-fq-muted uppercase">Maps To</span>
+            </div>
+            {sourceColumns.map(col => {
+              const currentMapping = mappings.find(m => m.sourceCol === col);
+              return (
+                <div key={col} className="grid grid-cols-2 gap-0 px-4 py-2 border-b border-fq-border last:border-b-0">
+                  <span className="text-sm text-fq-dark font-mono">{col}</span>
+                  <select
+                    value={currentMapping?.targetCol || ''}
+                    onChange={e => updateMapping(col, e.target.value)}
+                    className="text-sm px-2 py-1 border border-fq-border rounded bg-white text-fq-dark"
+                  >
+                    <option value="">— skip —</option>
+                    {allTargetCols.map(t => (
+                      <option key={t} value={t} disabled={mappedTargets.has(t) && currentMapping?.targetCol !== t}>
+                        {t} {TABLE_COLUMNS[table].required.includes(t) ? '*' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Preview */}
+          <div className="mt-4">
+            <p className="text-sm text-fq-muted mb-2">Preview (first 3 rows):</p>
+            <div className="overflow-x-auto">
+              <table className="text-xs border-collapse">
+                <thead>
+                  <tr>
+                    {mappings.map(m => (
+                      <th key={m.targetCol} className="px-3 py-1 bg-fq-light-accent border border-fq-border text-left font-medium text-fq-dark">
+                        {m.targetCol}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rawData.slice(0, 3).map((row, i) => (
+                    <tr key={i}>
+                      {mappings.map(m => (
+                        <td key={m.targetCol} className="px-3 py-1 border border-fq-border text-fq-dark font-mono">
+                          {row[m.sourceCol] || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Import */}
+      {sourceColumns.length > 0 && (
+        <div className="mb-8">
+          {missingRequired.length > 0 && (
+            <p className="text-fq-alert text-sm mb-3">
+              Missing required columns: {missingRequired.join(', ')}
+            </p>
+          )}
+          <button
+            onClick={handleImport}
+            disabled={importing || missingRequired.length > 0}
+            className="px-6 py-3 bg-fq-accent text-white rounded-lg font-medium hover:bg-fq-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importing ? 'Importing...' : `Import ${rawData.length} rows into ${table.replace(/_/g, ' ')}`}
+          </button>
+
+          {result && (
+            <div className={`mt-4 p-4 rounded-lg ${result.errors?.length ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+              {result.inserted !== undefined && (
+                <p className="text-green-800 font-medium">{result.inserted} rows imported successfully</p>
+              )}
+              {result.errors?.map((err, i) => (
+                <p key={i} className="text-red-700 text-sm mt-1">{err}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quick guide */}
+      <div className="bg-fq-light-accent rounded-xl p-6 mt-4">
+        <h3 className="font-heading text-lg text-fq-dark mb-3">Quick Guide</h3>
+        <div className="text-sm text-fq-muted space-y-2">
+          <p><strong>Tasks:</strong> Needs columns for task text and due_date at minimum. Select the project above or include a project_id column.</p>
+          <p><strong>Vendors:</strong> Needs category, vendor_name. Include email, phone, website, instagram as available.</p>
+          <p><strong>Template Tasks:</strong> For new client onboarding templates. Needs text, category, and weeks_before_event (number of weeks before the wedding).</p>
+          <p><strong>Projects:</strong> Needs type (client/shoot/proposal) and name. Include event_date, venue, budget, etc.</p>
+        </div>
+      </div>
+    </div>
+  );
+}

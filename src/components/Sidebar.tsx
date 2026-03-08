@@ -60,6 +60,16 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    label: 'Import',
+    href: '/import',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10 3v10M6 9l4 4 4-4" />
+        <path d="M3 15v2h14v-2" />
+      </svg>
+    ),
+  },
 ];
 
 const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'));

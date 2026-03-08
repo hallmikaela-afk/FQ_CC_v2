@@ -416,7 +416,7 @@ export default function AssistantPage() {
 
   const isTaskCompleted = (task: InlineTask) => taskStates[task.id] ?? task.completed;
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input.trim();
     if (!text) return;
 
@@ -431,8 +431,33 @@ export default function AssistantPage() {
     setInput('');
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    // Build conversation history for API
+    const allMessages = [...messages, userMsg];
+    const apiMessages = allMessages.map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    try {
+      const res = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: apiMessages }),
+      });
+
+      if (!res.ok) throw new Error('API error');
+
+      const data = await res.json();
+      const aiMsg: ChatMessage = {
+        id: `a-${Date.now()}`,
+        role: 'assistant',
+        content: data.content || data.error || 'Sorry, something went wrong.',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+        toolUses: getSimulatedTools(text),
+      };
+      setMessages(prev => [...prev, aiMsg]);
+    } catch {
+      // Fallback to simulated response if API not configured
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
@@ -441,8 +466,9 @@ export default function AssistantPage() {
         toolUses: getSimulatedTools(text),
       };
       setMessages(prev => [...prev, aiMsg]);
-      setIsTyping(false);
-    }, 1500 + Math.random() * 1500);
+    }
+
+    setIsTyping(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
