@@ -230,7 +230,7 @@ function EditableAgendaSection({ initialItems, tClasses }: { initialItems: strin
 
   return (
     <div className="mb-3">
-      <p className={`font-body text-[11px] font-medium ${tClasses.label} mb-1.5`}>Next Call Agenda</p>
+      <h3 className={`font-heading text-[15px] font-semibold ${tClasses.heading || tClasses.label} mb-2`}>Next Call Agenda</h3>
       <div className="space-y-1">
         {items.map((item, i) => (
           <div key={i} className="flex items-start gap-1 group/agenda">
@@ -376,7 +376,8 @@ export default function ClientCard({ project }: { project: Project }) {
           />
         </div>
 
-        {/* Metadata rows */}
+        {/* Venue section */}
+        <h3 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2 mt-4`}>Venue</h3>
         <div className="space-y-1.5 ml-5 mb-4 text-[13px] font-body">
           {/* Venue name only (no city/state) */}
           <div className="flex items-center gap-2">
