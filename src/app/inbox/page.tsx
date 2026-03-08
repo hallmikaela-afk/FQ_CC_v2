@@ -440,17 +440,23 @@ export default function InboxPage() {
             {getDraftText(selected) && selectedStatus !== 'responded' && selectedStatus !== 'dismissed' && (
               <>
                 <button
-                  onClick={() => {
-                    handleCopyDraft(selected);
-                    handleMarkResponded(selected.id);
-                  }}
+                  onClick={() => handleCopyDraft(selected)}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-fq-accent text-white font-body text-[13px] font-medium hover:bg-fq-accent/90 transition-colors"
                 >
                   <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 3l-7 8-3-2-5 5" />
-                    <path d="M17 3l-5 1 5-1zM17 3l-1 5" />
+                    <rect x="6" y="6" width="10" height="10" rx="1.5" />
+                    <path d="M6 14H5a1.5 1.5 0 01-1.5-1.5V5A1.5 1.5 0 015 3.5h7.5A1.5 1.5 0 0114 5v1" />
                   </svg>
                   {copiedId === selected.id ? 'Copied!' : 'Copy Draft'}
+                </button>
+                <button
+                  onClick={() => handleMarkResponded(selected.id)}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[13px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 10l3 3 7-7" />
+                  </svg>
+                  Mark Responded
                 </button>
                 <button
                   onClick={() => {
