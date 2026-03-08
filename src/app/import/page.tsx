@@ -188,6 +188,9 @@ export default function ImportPage() {
         if (m.targetCol === 'status' && typeof val === 'string') {
           const normalized = val.trim().toLowerCase().replace(/[\s-]+/g, '_');
           const statusMap: Record<string, string> = {
+            'not_started': 'not_started',
+            'not started': 'not_started',
+            'notstarted': 'not_started',
             'in_progress': 'in_progress',
             'inprogress': 'in_progress',
             'in progress': 'in_progress',
