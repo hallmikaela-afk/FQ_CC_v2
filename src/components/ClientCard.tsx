@@ -37,7 +37,7 @@ function EditableField({
           if (e.key === 'Enter') { onChange(draft); setEditing(false); }
           if (e.key === 'Escape') { setDraft(value); setEditing(false); }
         }}
-        className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 ${inputClassName || className}`}
+        className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 text-fq-dark ${inputClassName || className}`}
         placeholder={placeholder}
       />
     );

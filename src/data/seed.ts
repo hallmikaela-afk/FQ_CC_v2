@@ -36,6 +36,8 @@ export interface Task {
   text: string;
   completed: boolean;
   due_date?: string;
+  category?: string;
+  assigned_to?: string;
 }
 
 export interface Project {
@@ -71,6 +73,7 @@ export interface Project {
   location_street?: string;
   location_city_state_zip?: string;
   // Links & Resources
+  design_board_link?: string;
   canva_link?: string;
   internal_file_share?: string;
   client_shared_folder?: string;
@@ -118,21 +121,29 @@ export const projects: Project[] = [
     tasks_completed: 60,
     overdue_count: 2,
     tasks: [
-      { id: 'jf-t1', text: 'Check Wave Resort fire safety rules for sparkler exit', completed: false, due_date: '2026-03-10' },
-      { id: 'jf-t2', text: 'Schedule tasting at Wave Resort', completed: false, due_date: '2026-03-20' },
-      { id: 'jf-t3', text: 'Follow up with Julia on calligrapher Instagram handle', completed: false, due_date: '2026-03-07' },
-      { id: 'jf-t4', text: 'Flag room block deadline — April 15 final numbers', completed: false, due_date: '2026-04-10' },
-      { id: 'jf-t5', text: 'Finalize ceremony music selections', completed: false, due_date: '2026-03-15' },
-      { id: 'jf-t6', text: 'Confirm cocktail hour pianist booking', completed: false, due_date: '2026-03-18' },
-      { id: 'jf-t7', text: 'Review floral mockup with Lilysh', completed: false, due_date: '2026-03-22' },
-      { id: 'jf-t8', text: 'Send save-the-date proofs to Merci Studio', completed: false, due_date: '2026-03-12' },
-      { id: 'jf-t9', text: 'Coordinate rental delivery timeline with United Rent All', completed: false, due_date: '2026-04-01' },
-      { id: 'jf-t10', text: 'Schedule engagement shoot with Tay Tesvich', completed: false, due_date: '2026-03-25' },
-      { id: 'jf-t11', text: 'Finalize hair & makeup trial date with Artsi', completed: false, due_date: '2026-04-05' },
-      { id: 'jf-t12', text: 'Draft day-of timeline v1', completed: false, due_date: '2026-04-15' },
-      { id: 'jf-t13', text: 'Send venue contract addendum for sparkler exit', completed: false, due_date: '2026-03-28' },
-      { id: 'jf-t14', text: 'Confirm SCE Event Group availability for reception', completed: false, due_date: '2026-03-30' },
-      { id: 'jf-t15', text: 'Collect dietary restrictions from guest RSVPs', completed: false, due_date: '2026-05-01' },
+      { id: 'jf-t1', text: 'Check Wave Resort fire safety rules for sparkler exit', completed: false, due_date: '2026-03-10', category: 'Venue & Key Vendor Search', assigned_to: '2' },
+      { id: 'jf-t2', text: 'Schedule tasting at Wave Resort', completed: false, due_date: '2026-03-20', category: 'Venue & Key Vendor Search', assigned_to: '2' },
+      { id: 'jf-t3', text: 'Follow up with Julia on calligrapher Instagram handle', completed: false, due_date: '2026-03-07', category: 'Check in - Client', assigned_to: '2' },
+      { id: 'jf-t4', text: 'Flag room block deadline — April 15 final numbers', completed: false, due_date: '2026-04-10', category: 'Logistics', assigned_to: '2' },
+      { id: 'jf-t5', text: 'Finalize ceremony music selections', completed: false, due_date: '2026-03-15', category: 'Entertainment', assigned_to: '2' },
+      { id: 'jf-t6', text: 'Confirm cocktail hour pianist booking', completed: false, due_date: '2026-03-18', category: 'Entertainment', assigned_to: '2' },
+      { id: 'jf-t7', text: 'Review floral mockup with Lilysh', completed: false, due_date: '2026-03-22', category: 'Florals & Decor', assigned_to: '2' },
+      { id: 'jf-t8', text: 'Send save-the-date proofs to Merci Studio', completed: false, due_date: '2026-03-12', category: 'Stationery', assigned_to: '2' },
+      { id: 'jf-t9', text: 'Coordinate rental delivery timeline with United Rent All', completed: false, due_date: '2026-04-01', category: 'Logistics', assigned_to: '2' },
+      { id: 'jf-t10', text: 'Schedule engagement shoot with Tay Tesvich', completed: false, due_date: '2026-03-25', category: 'Photography', assigned_to: '2' },
+      { id: 'jf-t11', text: 'Finalize hair & makeup trial date with Artsi', completed: false, due_date: '2026-04-05', category: 'Hair & Makeup', assigned_to: '2' },
+      { id: 'jf-t12', text: 'Draft day-of timeline v1', completed: false, due_date: '2026-04-15', category: 'Logistics', assigned_to: '1' },
+      { id: 'jf-t13', text: 'Send venue contract addendum for sparkler exit', completed: false, due_date: '2026-03-28', category: 'Venue & Key Vendor Search', assigned_to: '2' },
+      { id: 'jf-t14', text: 'Confirm SCE Event Group availability for reception', completed: false, due_date: '2026-03-30', category: 'Entertainment', assigned_to: '2' },
+      { id: 'jf-t15', text: 'Collect dietary restrictions from guest RSVPs', completed: false, due_date: '2026-05-01', category: 'Check in - Client', assigned_to: '2' },
+      { id: 'jf-t16', text: 'Create wedding website', completed: false, due_date: '2026-03-14', category: 'Onboarding', assigned_to: '2' },
+      { id: 'jf-t17', text: 'Book hotel blocks for guests', completed: false, due_date: '2026-02-12', category: 'Venue & Key Vendor Search', assigned_to: '2' },
+      { id: 'jf-t18', text: 'Schedule ceremony rehearsal', completed: false, due_date: '2026-07-18', category: 'Venue & Key Vendor Search', assigned_to: '2' },
+      { id: 'jf-t19', text: 'Check in call with client (5.5 months)', completed: false, due_date: '2026-04-28', category: 'Check in - Client', assigned_to: '2' },
+      { id: 'jf-t20', text: 'Send client check in email', completed: false, due_date: '2026-05-28', category: 'Check in - Client', assigned_to: '2' },
+      { id: 'jf-t21', text: 'Schedule timeline call', completed: false, due_date: '2026-05-28', category: 'Check in - Client', assigned_to: '2' },
+      { id: 'jf-t22', text: 'Have timeline call with client', completed: false, due_date: '2026-07-18', category: 'Check in - Client', assigned_to: '2' },
+      { id: 'jf-t23', text: 'Check in call with client (7 weeks)', completed: false, due_date: '2026-08-22', category: 'Check in - Client', assigned_to: '2' },
     ],
     project_colors: ['#C4A97D', '#5B7A5E', '#A0522D', '#8B8FAE', '#C4A040', '#B8A060', '#C49870', '#6B5B4E', '#7B8B5E', '#4A5B8B', '#5B4B3E', '#C4A040', '#B87040', '#D4A0B0'],
     canva_link: 'https://canva.com/...',
@@ -299,6 +310,7 @@ export const projects: Project[] = [
     color: '#D4A574',
     concept: 'Golden, mimosa-toned, graphic black accents',
     location: 'EHP Hamptons or Wildflower Farms TBD',
+    design_board_link: 'https://canva.com/design/sun-steeped',
     assigned_to: ['1'],
     tasks_total: 12,
     tasks_completed: 4,
@@ -317,6 +329,10 @@ export const projects: Project[] = [
       { id: 'ss-t11', text: 'Research venue options', completed: true },
       { id: 'ss-t12', text: 'Create project timeline', completed: true },
     ],
+    vendors: [
+      { id: 'ss-v1', category: 'Photographer', vendor_name: 'TBD' },
+      { id: 'ss-v2', category: 'Florist', vendor_name: 'TBD' },
+    ],
   },
   {
     id: 'menorca',
@@ -327,6 +343,7 @@ export const projects: Project[] = [
     color: '#C4956A',
     concept: 'Vestige Son Vell + Lithica Quarry, Menorca Spain',
     location: 'Menorca, Spain',
+    design_board_link: 'https://canva.com/design/menorca-shoot',
     photographer: 'EFEGE',
     florist: 'Cassandra at Enrich Events',
     assigned_to: ['1', '3', '2'],
@@ -349,6 +366,11 @@ export const projects: Project[] = [
       { id: 'mn-t13', text: 'Connect with Cassandra at Enrich', completed: true },
       { id: 'mn-t14', text: 'Create project budget estimate', completed: true },
       { id: 'mn-t15', text: 'Build project timeline', completed: true },
+    ],
+    vendors: [
+      { id: 'mn-v1', category: 'Photographer', vendor_name: 'EFEGE', contact_name: 'EFEGE Photo', instagram: '@efegephoto' },
+      { id: 'mn-v2', category: 'Florist', vendor_name: 'Enrich Events', contact_name: 'Cassandra', email: 'cassandra@enrichevents.com', instagram: '@enrichevents' },
+      { id: 'mn-v3', category: 'Venue', vendor_name: 'Vestige Son Vell', website: 'https://vestigesonvell.com' },
     ],
   },
 ];

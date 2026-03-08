@@ -37,7 +37,7 @@ function EditableField({
           if (e.key === 'Enter') { onChange(draft); setEditing(false); }
           if (e.key === 'Escape') { setDraft(value); setEditing(false); }
         }}
-        className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 ${className}`}
+        className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 text-fq-dark ${className}`}
         placeholder={placeholder}
       />
     );
@@ -769,30 +769,31 @@ function NoteDetailModal({
   );
 }
 
-/* ─────────────── Editable Summary (click to edit) ─────────────── */
+/* ─────────────── Editable Summary (click to edit, rich text) ─────────────── */
 function EditableSummary({ value, onChange, bullets, textClass }: { value: string; onChange: (v: string) => void; bullets?: string[]; textClass: string }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value);
-  const t = { light: 'text-fq-muted/70' };
 
   if (editing) {
     return (
       <div className="mt-1" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => { onChange(draft); setEditing(false); }}
-          onKeyDown={(e) => { if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
-          className={`w-full ${textClass} bg-transparent border border-fq-accent/30 rounded-lg p-2 outline-none resize-none min-h-[80px]`}
-          autoFocus
+        <RichTextEditor
+          initialContent={value || (bullets ? bullets.map(b => `<p>${b}</p>`).join('') : '')}
+          onChange={onChange}
+          placeholder="Add summary..."
         />
+        <button
+          onClick={() => setEditing(false)}
+          className="mt-1 font-body text-[11px] text-fq-accent hover:text-fq-dark transition-colors"
+        >
+          Done editing
+        </button>
       </div>
     );
   }
 
   if (bullets && bullets.length > 0) {
     return (
-      <ul className="mt-1 space-y-0.5 cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors" onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}>
+      <ul className="mt-1 space-y-0.5 cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors" onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
         {bullets.map((bullet, i) => (
           <li key={i} className={`${textClass} flex gap-2`}>
             <span className="text-fq-accent shrink-0">•</span>
@@ -803,9 +804,19 @@ function EditableSummary({ value, onChange, bullets, textClass }: { value: strin
     );
   }
 
+  if (value) {
+    return (
+      <div
+        className={`${textClass} cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_strong]:font-semibold [&_em]:italic [&_u]:underline`}
+        onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+        dangerouslySetInnerHTML={{ __html: value }}
+      />
+    );
+  }
+
   return (
-    <p className={`${textClass} cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors`} onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}>
-      {value}
+    <p className={`${textClass} cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors text-fq-border italic`} onClick={(e) => { e.stopPropagation(); setEditing(true); }}>
+      Click to add summary...
     </p>
   );
 }
@@ -1057,6 +1068,298 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
   );
 }
 
+/* ─────────────── Task List Section ─────────────── */
+function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { tasks: Task[]; projectColor: string; assignedTo: string[] }) {
+  const [tasks, setTasks] = useState(initialTasks);
+  const [tab, setTab] = useState<'all' | 'open' | 'done'>('open');
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [teamFilter, setTeamFilter] = useState('all');
+  const [groupBy, setGroupBy] = useState<'category' | 'date'>('category');
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTaskText, setNewTaskText] = useState('');
+  const [newTaskDue, setNewTaskDue] = useState('');
+  const [newTaskCategory, setNewTaskCategory] = useState('');
+  const [newTaskAssigned, setNewTaskAssigned] = useState('');
+
+  const t = {
+    heading: 'text-fq-dark/90',
+    body: 'text-fq-muted/90',
+    light: 'text-fq-muted/70',
+    icon: 'text-fq-muted/60',
+  };
+
+  const toggleTask = (taskId: string) => {
+    setTasks(prev => prev.map(tk => tk.id === taskId ? { ...tk, completed: !tk.completed } : tk));
+  };
+
+  const addTask = () => {
+    if (!newTaskText.trim()) return;
+    const newTask: Task = {
+      id: `task-${Date.now()}`,
+      text: newTaskText.trim(),
+      completed: false,
+      due_date: newTaskDue || undefined,
+      category: newTaskCategory || undefined,
+      assigned_to: newTaskAssigned || undefined,
+    };
+    setTasks(prev => [...prev, newTask]);
+    setNewTaskText('');
+    setNewTaskDue('');
+    setNewTaskCategory('');
+    setNewTaskAssigned('');
+    setShowAddTask(false);
+  };
+
+  const allCount = tasks.length;
+  const openCount = tasks.filter(tk => !tk.completed).length;
+  const doneCount = tasks.filter(tk => tk.completed).length;
+
+  // Filter tasks
+  let filtered = tasks;
+  if (tab === 'open') filtered = filtered.filter(tk => !tk.completed);
+  if (tab === 'done') filtered = filtered.filter(tk => tk.completed);
+  if (search) filtered = filtered.filter(tk => tk.text.toLowerCase().includes(search.toLowerCase()));
+  if (categoryFilter !== 'all') filtered = filtered.filter(tk => tk.category === categoryFilter);
+  if (teamFilter !== 'all') filtered = filtered.filter(tk => tk.assigned_to === teamFilter);
+
+  // Get unique categories
+  const categories = Array.from(new Set(tasks.map(tk => tk.category).filter(Boolean))) as string[];
+
+  // Group tasks
+  const grouped: Record<string, Task[]> = {};
+  if (groupBy === 'category') {
+    filtered.forEach(tk => {
+      const key = tk.category || 'Uncategorized';
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(tk);
+    });
+  } else {
+    filtered.forEach(tk => {
+      const key = tk.due_date ? formatDate(tk.due_date) : 'No date';
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(tk);
+    });
+  }
+
+  // Check if a date is overdue
+  const isOverdue = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const now = new Date('2026-03-07');
+    const due = new Date(dateStr + 'T00:00:00');
+    return due < now;
+  };
+
+  return (
+    <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-6">
+      {/* Tabs */}
+      <div className="flex items-center gap-6 mb-5 border-b border-fq-border pb-3">
+        {([['all', allCount], ['open', openCount], ['done', doneCount]] as const).map(([key, count]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`font-body text-[14px] pb-1 transition-colors capitalize ${
+              tab === key
+                ? 'text-fq-dark font-semibold border-b-2 border-fq-dark -mb-[13px]'
+                : `${t.light} hover:text-fq-dark`
+            }`}
+          >
+            {key} <span className={`text-[12px] ${tab === key ? 'text-fq-dark' : t.light}`}>({count})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Filters row */}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-fq-muted/40 text-[13px]">🔍</span>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tasks..."
+            className={`w-full pl-9 pr-3 py-2 font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg outline-none focus:border-fq-accent/40`}
+          />
+        </div>
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className={`font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
+        >
+          <option value="all">All Categories</option>
+          {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+        </select>
+        <select
+          value={teamFilter}
+          onChange={(e) => setTeamFilter(e.target.value)}
+          className={`font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
+        >
+          <option value="all">All Team</option>
+          {assignedTo.map(id => {
+            const member = getTeamMember(id);
+            return member ? <option key={id} value={id}>{member.name}</option> : null;
+          })}
+        </select>
+        <button
+          onClick={() => setShowAddTask(true)}
+          className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors"
+        >
+          + Add Task
+        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => setGroupBy('category')}
+            className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+              groupBy === 'category' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
+            }`}
+          >
+            ⊞ Category
+          </button>
+          <button
+            onClick={() => setGroupBy('date')}
+            className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+              groupBy === 'date' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
+            }`}
+          >
+            📅 Date
+          </button>
+        </div>
+      </div>
+
+      {/* Add Task Form */}
+      {showAddTask && (
+        <div className="mb-5 border border-fq-accent/30 rounded-xl p-4 bg-fq-bg/30">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className={`font-body text-[14px] font-semibold ${t.heading}`}>New Task</h4>
+            <button onClick={() => setShowAddTask(false)} className={`font-body text-[12px] ${t.light} hover:text-fq-dark`}>Cancel</button>
+          </div>
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-end">
+            <div>
+              <label className={`font-body text-[11px] ${t.light} block mb-1`}>Task</label>
+              <input
+                value={newTaskText}
+                onChange={(e) => setNewTaskText(e.target.value)}
+                placeholder="What needs to be done?"
+                className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40`}
+                onKeyDown={(e) => { if (e.key === 'Enter') addTask(); }}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className={`font-body text-[11px] ${t.light} block mb-1`}>Due date</label>
+              <input
+                type="date"
+                value={newTaskDue}
+                onChange={(e) => setNewTaskDue(e.target.value)}
+                className={`font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`}
+              />
+            </div>
+            <div>
+              <label className={`font-body text-[11px] ${t.light} block mb-1`}>Category</label>
+              <input
+                value={newTaskCategory}
+                onChange={(e) => setNewTaskCategory(e.target.value)}
+                placeholder="Category..."
+                list="task-categories"
+                className={`font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none w-[160px]`}
+              />
+              <datalist id="task-categories">
+                {categories.map(cat => <option key={cat} value={cat} />)}
+              </datalist>
+            </div>
+            <button
+              onClick={addTask}
+              disabled={!newTaskText.trim()}
+              className="bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Task groups */}
+      <div className="space-y-6">
+        {Object.entries(grouped).map(([group, groupTasks]) => {
+          const groupCompleted = groupTasks.filter(tk => tk.completed).length;
+          return (
+            <div key={group}>
+              {/* Group header */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
+                  {group}
+                </span>
+                <span className={`font-body text-[11px] ${t.light}`}>
+                  {groupCompleted}/{groupTasks.length} complete
+                </span>
+              </div>
+
+              {/* Task rows */}
+              <div className="space-y-0">
+                {groupTasks.map((task) => {
+                  const overdue = !task.completed && isOverdue(task.due_date);
+                  const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+                  return (
+                    <div
+                      key={task.id}
+                      className={`flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors group/task ${
+                        overdue ? 'bg-fq-alert/5 border-l-2 border-fq-alert' : ''
+                      }`}
+                    >
+                      <button
+                        onClick={() => toggleTask(task.id)}
+                        className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                          task.completed
+                            ? 'bg-fq-accent border-fq-accent text-white'
+                            : 'border-fq-border hover:border-fq-accent'
+                        }`}
+                      >
+                        {task.completed && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M2 5l2.5 2.5L8 3" />
+                          </svg>
+                        )}
+                      </button>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${overdue ? 'bg-fq-alert' : 'bg-fq-accent/60'}`} />
+                      <span className={`font-body text-[13px] flex-1 ${
+                        task.completed ? 'text-fq-muted/50 line-through' : t.heading
+                      }`}>
+                        {task.text}
+                      </span>
+                      {task.due_date && (
+                        <span className={`font-body text-[12px] shrink-0 ${
+                          overdue ? 'text-fq-alert font-medium' : t.light
+                        }`}>
+                          {formatDate(task.due_date)}
+                        </span>
+                      )}
+                      {member && (
+                        <div
+                          className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0"
+                          title={member.name}
+                        >
+                          <span className="font-body text-[9px] font-semibold text-fq-accent">
+                            {member.initials}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {filtered.length === 0 && (
+        <p className={`font-body text-[13px] ${t.light} text-center py-8`}>
+          {search ? 'No tasks match your search.' : 'No tasks yet.'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────── Main Page ─────────────── */
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -1091,13 +1394,15 @@ export default function ProjectDetailPage() {
         <NextCallAgenda items={project.next_call_agenda || []} />
       </div>
 
-      {project.vendors && project.vendors.length > 0 && (
-        <div className="mb-8"><VendorContacts vendors={project.vendors} /></div>
-      )}
+      <div className="mb-8"><VendorContacts vendors={project.vendors || []} /></div>
 
       {project.call_notes && project.call_notes.length > 0 && (
         <div className="mb-8"><CallNotesSection notes={project.call_notes} tasks={project.tasks || []} /></div>
       )}
+
+      <div className="mb-8">
+        <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} />
+      </div>
     </div>
   );
 }
