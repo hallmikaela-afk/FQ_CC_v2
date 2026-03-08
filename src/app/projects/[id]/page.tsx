@@ -1352,75 +1352,108 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
           {search ? 'No tasks match your search.' : 'No tasks yet.'}
         </p>
       ) : viewMode === 'list' ? (
-        /* ── List View ── */
-        <div className="space-y-6">
-          {Object.entries(grouped).map(([group, groupTasks]) => {
-            const groupCompleted = groupTasks.filter(tk => tk.completed).length;
-            return (
-              <div key={group}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-                    {group}
-                  </span>
-                  <span className={`font-body text-[11px] ${t.light}`}>
-                    {groupCompleted}/{groupTasks.length} complete
-                  </span>
-                </div>
-                <div className="space-y-0">
-                  {groupTasks.map((task) => {
-                    const overdue = !task.completed && isOverdue(task.due_date);
-                    const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
-                    return (
-                      <div
-                        key={task.id}
-                        className={`flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors group/task ${
-                          overdue ? 'bg-fq-alert/5 border-l-2 border-fq-alert' : ''
-                        }`}
-                      >
-                        <button
-                          onClick={() => toggleTask(task.id)}
-                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                            task.completed
-                              ? 'bg-fq-accent border-fq-accent text-white'
-                              : 'border-fq-border hover:border-fq-accent'
+        /* ── List View (table-style) ── */
+        <div>
+          {/* Column headers */}
+          <div className="grid grid-cols-[24px_1fr_140px_100px_100px_36px] gap-3 px-3 pb-2 border-b border-fq-border mb-1">
+            <span />
+            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Task</span>
+            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Category</span>
+            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Status</span>
+            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Due Date</span>
+            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Person</span>
+          </div>
+
+          <div className="space-y-5 mt-3">
+            {Object.entries(grouped).map(([group, groupTasks]) => {
+              const groupCompleted = groupTasks.filter(tk => tk.completed).length;
+              return (
+                <div key={group}>
+                  <div className="flex items-center gap-2 mb-1.5 px-3">
+                    <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
+                      {group}
+                    </span>
+                    <span className={`font-body text-[11px] ${t.light}`}>
+                      {groupCompleted}/{groupTasks.length}
+                    </span>
+                  </div>
+                  <div>
+                    {groupTasks.map((task) => {
+                      const overdue = !task.completed && isOverdue(task.due_date);
+                      const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+                      return (
+                        <div
+                          key={task.id}
+                          className={`grid grid-cols-[24px_1fr_140px_100px_100px_36px] gap-3 items-center py-2 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors border-b border-fq-border/40 last:border-b-0 ${
+                            overdue ? 'bg-fq-alert/5' : ''
                           }`}
                         >
-                          {task.completed && (
-                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M2 5l2.5 2.5L8 3" />
-                            </svg>
-                          )}
-                        </button>
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${overdue ? 'bg-fq-alert' : 'bg-fq-accent/60'}`} />
-                        <span className={`font-body text-[13px] flex-1 ${
-                          task.completed ? 'text-fq-muted/50 line-through' : t.heading
-                        }`}>
-                          {task.text}
-                        </span>
-                        {task.due_date && (
-                          <span className={`font-body text-[12px] shrink-0 ${
+                          {/* Checkbox */}
+                          <button
+                            onClick={() => toggleTask(task.id)}
+                            className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                              task.completed
+                                ? 'bg-fq-accent border-fq-accent text-white'
+                                : 'border-fq-border hover:border-fq-accent'
+                            }`}
+                          >
+                            {task.completed && (
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2 5l2.5 2.5L8 3" />
+                              </svg>
+                            )}
+                          </button>
+                          {/* Task name */}
+                          <span className={`font-body text-[13px] truncate ${
+                            task.completed ? 'text-fq-muted/50 line-through' : t.heading
+                          }`}>
+                            {task.text}
+                          </span>
+                          {/* Category pill */}
+                          <span className="truncate">
+                            {task.category && (
+                              <span className="font-body text-[11px] text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full inline-block truncate max-w-full">
+                                {task.category}
+                              </span>
+                            )}
+                          </span>
+                          {/* Status */}
+                          <span>
+                            {task.completed ? (
+                              <span className="font-body text-[11px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Done</span>
+                            ) : overdue ? (
+                              <span className="font-body text-[11px] text-fq-alert bg-fq-alert/10 px-2 py-0.5 rounded-full font-medium">Overdue</span>
+                            ) : (
+                              <span className={`font-body text-[11px] ${t.light} bg-fq-bg px-2 py-0.5 rounded-full`}>Open</span>
+                            )}
+                          </span>
+                          {/* Due date */}
+                          <span className={`font-body text-[12px] ${
                             overdue ? 'text-fq-alert font-medium' : t.light
                           }`}>
-                            {formatDate(task.due_date)}
+                            {task.due_date ? formatDate(task.due_date) : '—'}
                           </span>
-                        )}
-                        {member && (
-                          <div
-                            className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0"
-                            title={member.name}
-                          >
-                            <span className="font-body text-[9px] font-semibold text-fq-accent">
-                              {member.initials}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                          {/* Person */}
+                          {member ? (
+                            <div
+                              className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0"
+                              title={member.name}
+                            >
+                              <span className="font-body text-[9px] font-semibold text-fq-accent">
+                                {member.initials}
+                              </span>
+                            </div>
+                          ) : (
+                            <span />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       ) : (
         /* ── Kanban / Board View ── */
