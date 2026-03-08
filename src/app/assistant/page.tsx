@@ -387,25 +387,34 @@ export default function AssistantPage() {
         body: JSON.stringify({ messages: apiMessages }),
       });
 
-      if (!res.ok) throw new Error('API error');
-
       const data = await res.json();
+
+      if (!res.ok) {
+        const errorMsg = data.error || `API error (${res.status})`;
+        const aiMsg: ChatMessage = {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          content: `**Something went wrong:** ${errorMsg}\n\nCheck that your Anthropic API key is configured correctly in your environment variables.`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+        };
+        setMessages(prev => [...prev, aiMsg]);
+        setIsTyping(false);
+        return;
+      }
+
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: data.content || data.error || 'Sorry, something went wrong.',
+        content: data.content || 'Sorry, I got an empty response. Please try again.',
         timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-        toolUses: getSimulatedTools(text),
       };
       setMessages(prev => [...prev, aiMsg]);
-    } catch {
-      // Fallback to simulated response if API not configured
+    } catch (err) {
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: getSimulatedResponse(text),
+        content: `**Connection error:** Could not reach the assistant API. Make sure the server is running and try again.`,
         timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-        toolUses: getSimulatedTools(text),
       };
       setMessages(prev => [...prev, aiMsg]);
     }
@@ -853,72 +862,3 @@ export default function AssistantPage() {
   );
 }
 
-/* ── Simulated responses for live demo ── */
-function getSimulatedResponse(input: string): string {
-  const lower = input.toLowerCase();
-
-  if (lower.includes('overdue') || lower.includes('behind')) {
-    return `Looking across all your active projects, here's the overdue summary:
-
-**Julia & Frank** — 2 overdue
-- Book hotel blocks for guests (was due Feb 12)
-- Follow up with Julia on calligrapher Instagram handle (was due Mar 7)
-
-**Elisabeth & JJ** — 4 overdue
-- Send band options to Elisabeth (was due Mar 1)
-- Follow up on venue deposit (was due Mar 5)
-- Schedule florist consultation (was due Mar 10)
-- Send save-the-date design concepts (was due Mar 18)
-
-**Tippi & Justin** — 0 overdue (great shape!)
-
-**Styled Shoots** — All on track
-
-Want me to help prioritize or draft follow-up messages for any of these?`;
-  }
-
-  if (lower.includes('vendor') || lower.includes('contact')) {
-    return `I can help with vendor information! Just let me know which project you're asking about, or upload a vendor sheet and I'll parse it and add the contacts to the right project.
-
-You can also use **@** to reference a specific project, like "@Julia & Frank vendors" or "@Menorca florist contact."`;
-  }
-
-  if (lower.includes('task') || lower.includes('to do') || lower.includes('todo')) {
-    return `I can help manage tasks! Here's what I can do:
-
-- **View tasks** — for any project or across all projects
-- **Create tasks** — just describe what needs to be done and I'll add it to the right project
-- **Update tasks** — mark complete, change due dates, reassign
-- **Break down tasks** — add subtasks to existing items
-
-Which would you like to do?`;
-  }
-
-  return `I'd be happy to help with that! I have access to all your Fox & Quinn projects, including:
-
-- **3 active client weddings** (Julia & Frank, Tippi & Justin, Elisabeth & JJ)
-- **2 styled shoots** (Sun-Steeped, Menorca)
-- **All call notes, tasks, vendors, and timelines**
-
-Could you give me a bit more detail about what you need? I can search through call notes, manage tasks, look up vendor contacts, or do research — just let me know!`;
-}
-
-function getSimulatedTools(input: string): ToolUse[] {
-  const lower = input.toLowerCase();
-  const tools: ToolUse[] = [];
-
-  if (lower.includes('overdue') || lower.includes('task') || lower.includes('behind')) {
-    tools.push({ label: 'Scanning tasks across all projects', icon: 'tasks' });
-  }
-  if (lower.includes('vendor') || lower.includes('contact')) {
-    tools.push({ label: 'Searching vendor contacts', icon: 'vendors' });
-  }
-  if (lower.includes('call') || lower.includes('note') || lower.includes('summar')) {
-    tools.push({ label: 'Reviewing call notes', icon: 'notes' });
-  }
-  if (lower.includes('research') || lower.includes('find') || lower.includes('recommend')) {
-    tools.push({ label: 'Searching the web', icon: 'web' });
-  }
-
-  return tools;
-}
