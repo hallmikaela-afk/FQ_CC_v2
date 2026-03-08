@@ -110,7 +110,8 @@ async function buildContext(): Promise<string> {
     });
   }
 
-  context += `\nIMPORTANT: When the user asks to update tasks, mark things complete, add vendors, etc., describe what you would do. The actual database operations happen through the app's UI. Focus on being a helpful planning assistant — summarize, prioritize, flag issues, and advise.`;
+  context += `\nYou have web search capability. When the user asks you to research vendors, find contacts, look up venues, or anything that requires current real-world information, USE your web search tool to find real results. Do not tell the user you can't search — you CAN.`;
+  context += `\nWhen the user asks to update tasks, mark things complete, add vendors, etc., describe what you would do. The actual database operations happen through the app's UI. Focus on being a helpful planning assistant — summarize, prioritize, flag issues, and advise.`;
 
   return context;
 }
@@ -134,18 +135,30 @@ export async function POST(req: NextRequest) {
 
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: context,
+      tools: [
+        {
+          type: 'web_search_20250305' as any,
+          name: 'web_search',
+          max_uses: 5,
+        } as any,
+      ],
       messages: messages.map((m: any) => ({
         role: m.role,
         content: m.content,
       })),
     });
 
-    const textContent = response.content.find((c: any) => c.type === 'text');
+    // Extract all text blocks from the response (web search may produce multiple)
+    const textParts = response.content
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text);
+    const fullText = textParts.join('\n\n');
+
     return NextResponse.json({
       role: 'assistant',
-      content: (textContent as any)?.text || '',
+      content: fullText || '',
     });
   } catch (err: any) {
     console.error('Assistant API error:', err);
