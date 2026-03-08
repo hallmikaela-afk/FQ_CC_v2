@@ -376,16 +376,15 @@ export default function ClientCard({ project }: { project: Project }) {
           />
         </div>
 
-        {/* Venue section */}
-        <h3 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2 mt-4`}>Venue</h3>
+        {/* Metadata rows */}
         <div className="space-y-1.5 ml-5 mb-4 text-[13px] font-body">
-          {/* Venue name only (no city/state) */}
+          {/* Venue name */}
           <div className="flex items-center gap-2">
             <span className={`${t.icon} w-4 text-center text-[12px]`}>◉</span>
             <EditableField
               value={venueName}
               onChange={setVenueName}
-              className={t.body}
+              className={`font-heading text-[15px] font-semibold ${t.heading}`}
               placeholder="Venue name..."
             />
           </div>
@@ -398,17 +397,6 @@ export default function ClientCard({ project }: { project: Project }) {
             onStreetChange={setVenueStreet}
             onCityStateZipChange={setVenueCityStateZip}
             streetPlaceholder="Venue street address..."
-            cityPlaceholder="City, State ZIP..."
-          />
-
-          {/* Client Address box */}
-          <EditableAddressBox
-            icon="⌂"
-            street={clientStreet}
-            cityStateZip={clientCityStateZip}
-            onStreetChange={setClientStreet}
-            onCityStateZipChange={setClientCityStateZip}
-            streetPlaceholder="Client street address..."
             cityPlaceholder="City, State ZIP..."
           />
 
@@ -558,6 +546,22 @@ export default function ClientCard({ project }: { project: Project }) {
                 onChange={setPartner2}
                 className={`font-body text-[13px] ${t.heading} font-medium`}
                 placeholder="Partner name..."
+              />
+            </div>
+          </div>
+
+          {/* Client Address */}
+          <div className="mb-4">
+            <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
+            <div className="text-[13px] font-body ml-1">
+              <EditableAddressBox
+                icon="⌂"
+                street={clientStreet}
+                cityStateZip={clientCityStateZip}
+                onStreetChange={setClientStreet}
+                onCityStateZipChange={setClientCityStateZip}
+                streetPlaceholder="Client street address..."
+                cityPlaceholder="City, State ZIP..."
               />
             </div>
           </div>
