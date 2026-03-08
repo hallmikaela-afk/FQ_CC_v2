@@ -317,7 +317,7 @@ function AddVendorModal({ open, onClose, onAdd }: { open: boolean; onClose: () =
 /* ─────────────── Vendor Contacts ─────────────── */
 function VendorContacts({ vendors: initialVendors }: { vendors: Vendor[] }) {
   const [vendors, setVendors] = useState(initialVendors);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [copiedCredits, setCopiedCredits] = useState(false);
   const removeVendor = (id: string) => setVendors(vendors.filter(v => v.id !== id));
@@ -628,6 +628,8 @@ function NoteDetailModal({
   onUpdate: (noteId: string, updates: Partial<CallNote>) => void;
 }) {
   const [editingContent, setEditingContent] = useState(false);
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState(note.summary || '');
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
   const autoSummaryBullets = !note.summary ? generateSummaryBullets(note.raw_text) : null;
 
@@ -665,37 +667,59 @@ function NoteDetailModal({
 
         {/* Content (scrollable) */}
         <div className="flex-1 overflow-y-auto p-6">
-          {/* Summary */}
+          {/* Summary — double-click to edit */}
           {(note.summary || (autoSummaryBullets && autoSummaryBullets.length > 0)) && (
             <div className="mb-5 bg-fq-light-accent/30 rounded-lg p-4 border border-fq-accent/20">
-              <p className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wider mb-2`}>
-                {note.summary ? 'Summary' : 'Auto-Generated Summary'}
-              </p>
-              {note.summary ? (
-                <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{note.summary}</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wider`}>
+                  {note.summary ? 'Summary' : 'Auto-Generated Summary'}
+                </p>
+                {editingSummary ? (
+                  <button onClick={() => { onUpdate(note.id, { summary: summaryDraft }); setEditingSummary(false); }} className={`font-body text-[11px] text-fq-accent hover:text-fq-dark transition-colors`}>✓ Done</button>
+                ) : (
+                  <span className={`font-body text-[10px] ${t.light}`}>Double-click to edit</span>
+                )}
+              </div>
+              {editingSummary ? (
+                <textarea
+                  value={summaryDraft || (autoSummaryBullets ? autoSummaryBullets.join('\n') : '')}
+                  onChange={(e) => setSummaryDraft(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} leading-relaxed bg-transparent border border-fq-accent/30 rounded-lg p-2 outline-none resize-none min-h-[100px]`}
+                  autoFocus
+                />
               ) : (
-                <ul className="space-y-1">
-                  {autoSummaryBullets!.map((bullet, i) => (
-                    <li key={i} className={`font-body text-[13px] ${t.body} leading-relaxed flex gap-2`}>
-                      <span className="text-fq-accent shrink-0">•</span>
-                      <span>{bullet}</span>
-                    </li>
-                  ))}
-                </ul>
+                <div onDoubleClick={() => { setSummaryDraft(note.summary || (autoSummaryBullets ? autoSummaryBullets.join('\n') : '')); setEditingSummary(true); }} className="cursor-default hover:bg-fq-light-accent/30 rounded p-1 -m-1 transition-colors">
+                  {note.summary ? (
+                    <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{note.summary}</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {autoSummaryBullets!.map((bullet, i) => (
+                        <li key={i} className={`font-body text-[13px] ${t.body} leading-relaxed flex gap-2`}>
+                          <span className="text-fq-accent shrink-0">•</span>
+                          <span>{bullet}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
             </div>
           )}
 
-          {/* Full Notes — editable */}
+          {/* Full Notes — double-click to edit */}
           <div className="mb-5">
             <div className="flex items-center justify-between mb-2">
               <p className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wider`}>Full Notes</p>
-              <button
-                onClick={() => setEditingContent(!editingContent)}
-                className={`font-body text-[11px] ${editingContent ? 'text-fq-accent' : t.light} hover:text-fq-dark transition-colors`}
-              >
-                {editingContent ? '✓ Done editing' : '✎ Edit'}
-              </button>
+              {editingContent ? (
+                <button
+                  onClick={() => setEditingContent(false)}
+                  className={`font-body text-[11px] text-fq-accent hover:text-fq-dark transition-colors`}
+                >
+                  ✓ Done editing
+                </button>
+              ) : (
+                <span className={`font-body text-[10px] ${t.light}`}>Double-click to edit</span>
+              )}
             </div>
             {editingContent ? (
               <RichTextEditor
@@ -704,7 +728,8 @@ function NoteDetailModal({
               />
             ) : (
               <div
-                className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
+                onDoubleClick={() => setEditingContent(true)}
+                className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap cursor-default hover:bg-fq-bg/30 rounded-lg p-2 -m-2 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
                 dangerouslySetInnerHTML={{ __html: note.raw_text }}
               />
             )}
@@ -737,10 +762,51 @@ function NoteDetailModal({
   );
 }
 
+/* ─────────────── Editable Summary (click to edit) ─────────────── */
+function EditableSummary({ value, onChange, bullets, textClass }: { value: string; onChange: (v: string) => void; bullets?: string[]; textClass: string }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const t = { light: 'text-fq-muted/70' };
+
+  if (editing) {
+    return (
+      <div className="mt-1" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => { onChange(draft); setEditing(false); }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
+          className={`w-full ${textClass} bg-transparent border border-fq-accent/30 rounded-lg p-2 outline-none resize-none min-h-[80px]`}
+          autoFocus
+        />
+      </div>
+    );
+  }
+
+  if (bullets && bullets.length > 0) {
+    return (
+      <ul className="mt-1 space-y-0.5 cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors" onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}>
+        {bullets.map((bullet, i) => (
+          <li key={i} className={`${textClass} flex gap-2`}>
+            <span className="text-fq-accent shrink-0">•</span>
+            <span>{bullet}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <p className={`${textClass} cursor-text hover:bg-fq-bg/30 rounded p-1 -m-1 transition-colors`} onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}>
+      {value}
+    </p>
+  );
+}
+
 /* ─────────────── Call Notes ─────────────── */
 function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; tasks: Task[] }) {
   const [notes, setNotes] = useState(initialNotes);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [showNewNote, setShowNewNote] = useState(false);
   const [newNoteContent, setNewNoteContent] = useState('');
   const [collapsedNotes, setCollapsedNotes] = useState<Set<string>>(new Set());
@@ -913,22 +979,24 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
 
                   {!isNoteCollapsed && (
                     <div onDoubleClick={() => setExpandedNote(note)} className="cursor-default" title="Double-click to expand">
-                      {/* Summary as bullets */}
+                      {/* Summary — click to edit inline */}
                       {note.summary ? (
                         <div className="mb-3">
-                          <p className={`font-body text-[13px] ${t.body} leading-relaxed`}>{note.summary}</p>
+                          <EditableSummary
+                            value={note.summary}
+                            onChange={(v) => updateNote(note.id, { summary: v })}
+                            textClass={`font-body text-[13px] ${t.body} leading-relaxed`}
+                          />
                         </div>
                       ) : autoSummaryBullets && autoSummaryBullets.length > 0 && (
                         <div className="mb-3">
                           <span className={`font-body text-[10px] ${t.light} uppercase tracking-wider`}>Auto-summary</span>
-                          <ul className="mt-1 space-y-0.5">
-                            {autoSummaryBullets.map((bullet, i) => (
-                              <li key={i} className={`font-body text-[13px] ${t.body} leading-relaxed flex gap-2`}>
-                                <span className="text-fq-accent shrink-0">•</span>
-                                <span>{bullet}</span>
-                              </li>
-                            ))}
-                          </ul>
+                          <EditableSummary
+                            value={autoSummaryBullets.join('\n')}
+                            onChange={(v) => updateNote(note.id, { summary: v })}
+                            bullets={autoSummaryBullets}
+                            textClass={`font-body text-[13px] ${t.body} leading-relaxed`}
+                          />
                         </div>
                       )}
 

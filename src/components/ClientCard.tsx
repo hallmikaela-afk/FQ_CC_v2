@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, ReactNode } from 'react';
 import Link from 'next/link';
-import { Project, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
+import { Project, CallNote, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
 
 /* ── Inline editable text field ── */
 function EditableField({
@@ -231,6 +231,9 @@ export default function ClientCard({ project }: { project: Project }) {
   const [clientWebsite, setClientWebsite] = useState(project.client_website || '');
   const [sharepointFolder, setSharepointFolder] = useState(project.sharepoint_folder || '');
   const [selectedColor, setSelectedColor] = useState(project.color);
+  const [expandedNote, setExpandedNote] = useState<CallNote | null>(null);
+  const [callNotes, setCallNotes] = useState(project.call_notes || []);
+  const [editingNoteContent, setEditingNoteContent] = useState(false);
 
   // Text color classes — lighter muted tones
   const t = {
@@ -507,30 +510,28 @@ export default function ClientCard({ project }: { project: Project }) {
             </div>
           </div>
 
-          {/* Latest Call Note — clickable to notes page */}
-          {project.call_notes && project.call_notes.length > 0 && (
+          {/* Latest Call Note — double-click to open editable modal */}
+          {callNotes.length > 0 && (
             <div className="mb-4">
-              <Link
-                href={`/projects/${project.id}/notes`}
-                className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5 hover:text-fq-accent transition-colors`}
-              >
+              <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
                 <span className="text-fq-accent/70">✦</span>
                 Latest Call Note
                 <span className={`font-body text-[11px] font-normal ${t.light}`}>
-                  ({project.call_notes.length} total)
+                  ({callNotes.length} total) — double-click to edit
                 </span>
-              </Link>
-              <Link
-                href={`/projects/${project.id}/notes`}
-                className="block bg-fq-bg rounded-lg p-3 border-l-[3px] border-fq-accent/60 hover:bg-fq-light-accent transition-colors mt-2"
+              </div>
+              <div
+                onDoubleClick={() => { setExpandedNote(callNotes[0]); setEditingNoteContent(false); }}
+                className="block bg-fq-bg rounded-lg p-3 border-l-[3px] border-fq-accent/60 hover:bg-fq-light-accent transition-colors mt-2 cursor-default"
               >
                 <p className={`font-body text-[12px] font-semibold ${t.heading} mb-1`}>
-                  {formatDate(project.call_notes[0].date)}
+                  {formatDate(callNotes[0].date)}
+                  {callNotes[0].title && <span className={`font-normal ${t.light} ml-2`}>— {callNotes[0].title}</span>}
                 </p>
-                <p className={`font-body text-[12px] ${t.light} leading-relaxed`}>
-                  {project.call_notes[0].raw_text}
+                <p className={`font-body text-[12px] ${t.light} leading-relaxed line-clamp-3`}>
+                  {callNotes[0].raw_text.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').substring(0, 200)}
                 </p>
-              </Link>
+              </div>
             </div>
           )}
 
@@ -552,6 +553,54 @@ export default function ClientCard({ project }: { project: Project }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Call Note Edit Modal */}
+      {expandedNote && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setExpandedNote(null)} />
+          <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[680px] max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-5 pb-3 border-b border-fq-border">
+              <div className="flex-1 min-w-0 mr-4">
+                <p className={`font-heading text-[16px] font-semibold ${t.heading}`}>
+                  {expandedNote.title || 'Call Note'}
+                </p>
+                <p className={`font-body text-[12px] ${t.light}`}>{formatDate(expandedNote.date)}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {editingNoteContent && (
+                  <button onClick={() => setEditingNoteContent(false)} className={`font-body text-[11px] text-fq-accent hover:text-fq-dark transition-colors`}>✓ Done editing</button>
+                )}
+                <button onClick={() => setExpandedNote(null)} className="text-fq-muted/40 hover:text-fq-dark text-[18px]">✕</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              {!editingNoteContent ? (
+                <div
+                  onDoubleClick={() => setEditingNoteContent(true)}
+                  className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap cursor-default hover:bg-fq-bg/30 rounded-lg p-2 -m-2 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
+                  dangerouslySetInnerHTML={{ __html: expandedNote.raw_text }}
+                />
+              ) : (
+                <div
+                  contentEditable
+                  suppressContentEditableWarning
+                  ref={(el) => { if (el && !el.innerHTML) el.innerHTML = expandedNote.raw_text; }}
+                  onInput={(e) => {
+                    const html = (e.target as HTMLDivElement).innerHTML;
+                    const updated = { ...expandedNote, raw_text: html };
+                    setExpandedNote(updated);
+                    setCallNotes(callNotes.map(n => n.id === expandedNote.id ? updated : n));
+                  }}
+                  className="min-h-[200px] font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none border border-fq-border rounded-lg p-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5"
+                />
+              )}
+              {!editingNoteContent && (
+                <p className={`font-body text-[10px] ${t.light} mt-3`}>Double-click to edit</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
