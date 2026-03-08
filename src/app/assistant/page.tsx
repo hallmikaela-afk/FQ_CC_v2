@@ -64,6 +64,55 @@ interface ChatMessage {
   vendorProject?: string; // project name for vendor additions
 }
 
+/* ── Chat History Types ── */
+interface SavedChat {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+const MAX_HISTORY = 25;
+const STORAGE_KEY = 'fq-assistant-history';
+
+/* ── localStorage helpers ── */
+function loadHistory(): SavedChat[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(chats: SavedChat[]) {
+  if (typeof window === 'undefined') return;
+  // Keep only the most recent MAX_HISTORY chats
+  const trimmed = chats.slice(0, MAX_HISTORY);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+}
+
+function generateTitle(messages: ChatMessage[]): string {
+  const firstUserMsg = messages.find(m => m.role === 'user');
+  if (!firstUserMsg) return 'New chat';
+  const text = firstUserMsg.content;
+  return text.length > 50 ? text.slice(0, 50) + '...' : text;
+}
+
+function formatHistoryDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 /* ── Icons ── */
 function ToolIcon({ icon }: { icon: ToolUse['icon'] }) {
   const cls = "w-3.5 h-3.5";
@@ -228,171 +277,64 @@ const SUGGESTIONS = [
 /* ── Project mention dropdown helper ── */
 const mentionableProjects = projects.filter(p => p.status === 'active');
 
-/* ── Demo conversation ── */
-const DEMO_MESSAGES: ChatMessage[] = [
-  {
-    id: 'demo-1',
-    role: 'user',
-    content: 'Can you summarize what happened in the last call with Julia & Frank? I need to remember what we discussed.',
-    timestamp: '10:15 AM',
-    projectRefs: [{ id: 'julia-frank', name: 'Julia & Frank', color: '#8B6F4E' }],
-  },
-  {
-    id: 'demo-2',
-    role: 'assistant',
-    content: `Here's a summary of your two most recent calls with **Julia & Frank**:
-
-**March 5 — Timeline & Logistics Review**
-The call focused on finalizing the wedding timeline. Key decisions:
-- Moving the first look earlier to 3:15 PM (consulting with Tay on timing)
-- Adding a photo booth during dinner
-- Reorganizing hair & makeup schedule to include Gabriella
-- Addressing ice luge and bar package costs with Mark
-- Reviewing seating, dinner timing, and well-wishing box placement
-- Julia is skipping the rehearsal dinner
-
-**March 3 — Floral Direction & Logistics**
-- Greenery + white/blush palette approved for florals
-- Jazz trio preference for cocktail hour
-- Room block deadline is **April 15** — potential late RSVPs from Italy
-- Sparkler exit request (needs venue fire safety check)
-- Tasting to be scheduled within 3 weeks
-- Budget note: florals may need trim
-- Calligrapher lead from Instagram pending follow-up
-
-There are **4 open action items** from these calls. Want me to show them?`,
-    timestamp: '10:15 AM',
-    toolUses: [
-      { label: 'Searching call notes for Julia & Frank', icon: 'notes' },
-    ],
-    projectRefs: [{ id: 'julia-frank', name: 'Julia & Frank', color: '#8B6F4E' }],
-  },
-  {
-    id: 'demo-3',
-    role: 'user',
-    content: 'Yes, show me the action items. And are any of them overdue?',
-    timestamp: '10:16 AM',
-  },
-  {
-    id: 'demo-4',
-    role: 'assistant',
-    content: `Here are the open action items from the recent Julia & Frank calls. I've flagged the overdue ones:`,
-    timestamp: '10:16 AM',
-    toolUses: [
-      { label: 'Reviewing tasks for Julia & Frank', icon: 'tasks' },
-    ],
-    inlineTasks: [
-      { id: 'at-1', text: 'Follow up with Julia on calligrapher Instagram handle', completed: false, due_date: 'Mar 7', project: 'Julia & Frank', category: 'Check in - Client' },
-      { id: 'at-2', text: 'Move first look to 3:15 and consult Tay on timing', completed: false, due_date: 'Mar 8', project: 'Julia & Frank', category: 'Logistics' },
-      { id: 'at-3', text: 'Check Wave Resort fire safety rules for sparkler exit', completed: false, due_date: 'Mar 10', project: 'Julia & Frank', category: 'Venue & Key Vendor Search' },
-      { id: 'at-4', text: 'Ask photo booth vendor about setup during dinner', completed: false, due_date: 'Mar 12', project: 'Julia & Frank', category: 'Logistics' },
-    ],
-  },
-  {
-    id: 'demo-5',
-    role: 'user',
-    content: 'The calligrapher one is done — Julia sent it over. Can you mark that complete and add a new task to research the calligrapher and get a quote?',
-    timestamp: '10:18 AM',
-  },
-  {
-    id: 'demo-6',
-    role: 'assistant',
-    content: `Done! I've marked the follow-up task as complete and added the new research task:`,
-    timestamp: '10:18 AM',
-    toolUses: [
-      { label: 'Updating tasks for Julia & Frank', icon: 'tasks' },
-    ],
-    inlineTasks: [
-      { id: 'at-1b', text: 'Follow up with Julia on calligrapher Instagram handle', completed: true, due_date: 'Mar 7', project: 'Julia & Frank', category: 'Check in - Client' },
-      { id: 'at-new1', text: 'Research calligrapher from Instagram and request quote', completed: false, due_date: 'Mar 14', project: 'Julia & Frank', category: 'Stationery', isNew: true },
-    ],
-  },
-  {
-    id: 'demo-7',
-    role: 'user',
-    content: 'I just got the vendor sheet from Cassandra for the Menorca shoot. Can you pull the vendor info from this and add them to the project?',
-    timestamp: '10:22 AM',
-    attachments: [
-      { name: 'Menorca_Vendors_Final.xlsx', type: 'xlsx', size: '24 KB' },
-    ],
-  },
-  {
-    id: 'demo-8',
-    role: 'assistant',
-    content: `I've reviewed the vendor spreadsheet. Here are the **4 new vendors** I found that aren't already in the Menorca project. I've added them:`,
-    timestamp: '10:22 AM',
-    toolUses: [
-      { label: 'Parsing Menorca_Vendors_Final.xlsx', icon: 'upload' },
-      { label: 'Comparing with existing Menorca vendors', icon: 'vendors' },
-    ],
-    vendorProject: 'Menorca',
-    projectRefs: [{ id: 'menorca', name: 'Menorca', color: '#C4956A' }],
-    inlineVendors: [
-      { category: 'Hair & Makeup', vendor_name: 'Maria Estela Beauty', contact_name: 'Maria Estela', email: 'maria@estelabeauty.es', phone: '+34 671 234 567', instagram: '@mariaestelabeauty', isNew: true },
-      { category: 'Rentals', vendor_name: 'Menorca Event Rentals', contact_name: 'Pau Gomila', email: 'info@menorcaeventrentals.com', phone: '+34 971 456 789', website: 'menorcaeventrentals.com', isNew: true },
-      { category: 'Catering', vendor_name: 'Sa Pedrera de\'s Pujol', contact_name: 'Chef Tomeu', email: 'events@sapedrera.com', phone: '+34 971 789 012', website: 'sapedrera.com', isNew: true },
-      { category: 'Lighting', vendor_name: 'Llum Menorca', contact_name: 'Joan Pons', email: 'joan@llummenorca.com', phone: '+34 671 345 678', isNew: true },
-    ],
-  },
-  {
-    id: 'demo-9',
-    role: 'user',
-    content: 'Perfect. Can you also research some good jazz trio options in the NJ area for Julia & Frank\'s cocktail hour? They want something classy but not too stuffy.',
-    timestamp: '10:25 AM',
-  },
-  {
-    id: 'demo-10',
-    role: 'assistant',
-    content: `Great taste! Here are some well-reviewed jazz trio options in the NJ/NYC area that would be perfect for a cocktail hour at Wave Resort:
-
-**1. The Matt Coffy Trio**
-- Based in Monmouth County, NJ — right near Wave Resort
-- Specializes in cocktail hour jazz with a modern, relaxed vibe
-- Known for blending standards with contemporary arrangements
-- Typical rate: $1,500–$2,200 for a 2-hour cocktail set
-
-**2. Arnie Abrams Jazz Ensemble**
-- Already in your vendor contacts! Arnie does trio configurations
-- Classic but approachable style, very experienced with wedding events
-- Could be a seamless choice since you have the relationship
-
-**3. Silver Arrow Band (Trio Configuration)**
-- NYC-based, frequently performs in NJ
-- Can scale from trio to full band — option to expand for reception
-- Modern jazz/soul cocktail sets, great energy without being overpowering
-- Typical rate: $2,000–$3,000 for cocktail hour
-
-**4. The Brad Fauci Trio**
-- Hoboken/Jersey City based
-- Sophisticated but fun — exactly the "classy not stuffy" vibe
-- Active on the NJ wedding circuit with strong reviews
-
-My recommendation would be to start with **Arnie Abrams** since he's already in your contacts and you know his work. If Julia & Frank want something more contemporary, **Matt Coffy** or **Brad Fauci** would be great alternatives.
-
-Want me to create tasks to reach out to any of these?`,
-    timestamp: '10:25 AM',
-    toolUses: [
-      { label: 'Checking existing vendor contacts', icon: 'vendors' },
-      { label: 'Researching NJ jazz trios for weddings', icon: 'web' },
-    ],
-    projectRefs: [{ id: 'julia-frank', name: 'Julia & Frank', color: '#8B6F4E' }],
-  },
-];
-
 /* ═══════════════════════════════════════════════════ */
 /*  MAIN COMPONENT                                     */
 /* ═══════════════════════════════════════════════════ */
 export default function AssistantPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>(DEMO_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [taskStates, setTaskStates] = useState<Record<string, boolean>>({});
-  const [showNewChat, setShowNewChat] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<SavedChat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load history from localStorage on mount
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
+
+  // Auto-save current chat to history whenever messages change
+  useEffect(() => {
+    if (messages.length === 0) return;
+
+    setHistory(prev => {
+      let updated: SavedChat[];
+      const now = new Date().toISOString();
+
+      if (activeChatId) {
+        // Update existing chat
+        updated = prev.map(chat =>
+          chat.id === activeChatId
+            ? { ...chat, messages, title: generateTitle(messages), updatedAt: now }
+            : chat
+        );
+      } else {
+        // Create new chat entry
+        const newId = `chat-${Date.now()}`;
+        const newChat: SavedChat = {
+          id: newId,
+          title: generateTitle(messages),
+          messages,
+          createdAt: now,
+          updatedAt: now,
+        };
+        setActiveChatId(newId);
+        updated = [newChat, ...prev];
+      }
+
+      // Sort by most recent and trim
+      updated.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      updated = updated.slice(0, MAX_HISTORY);
+      saveHistory(updated);
+      return updated;
+    });
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scrollToBottom = useCallback(() => {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
@@ -507,59 +449,38 @@ export default function AssistantPage() {
 
   const handleNewChat = () => {
     setMessages([]);
-    setShowNewChat(false);
+    setActiveChatId(null);
     setTaskStates({});
+    setShowHistory(false);
     inputRef.current?.focus();
+  };
+
+  const handleLoadChat = (chat: SavedChat) => {
+    setMessages(chat.messages);
+    setActiveChatId(chat.id);
+    setTaskStates({});
+    setShowHistory(false);
+  };
+
+  const handleDeleteChat = (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHistory(prev => {
+      const updated = prev.filter(c => c.id !== chatId);
+      saveHistory(updated);
+      return updated;
+    });
+    if (activeChatId === chatId) {
+      setMessages([]);
+      setActiveChatId(null);
+      setTaskStates({});
+    }
   };
 
   const filteredMentions = mentionableProjects.filter(p =>
     p.name.toLowerCase().includes(mentionFilter.toLowerCase())
   );
 
-  /* ── Empty state ── */
-  if (messages.length === 0) {
-    return (
-      <div className="flex flex-col h-screen">
-        <div className="flex-1 flex flex-col items-center justify-center px-6">
-          <div className="max-w-[560px] w-full text-center">
-            {/* Logo / greeting */}
-            <div className="mb-8">
-              <div className="w-12 h-12 rounded-2xl bg-fq-accent/10 flex items-center justify-center mx-auto mb-4">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent">
-                  <path d="M21 12c0 4.97-4.03 9-9 9-1.93 0-3.73-.6-5.2-1.64L3 21l1.64-3.8A8.96 8.96 0 013 12c0-4.97 4.03-9 9-9s9 4.03 9 9z"/>
-                </svg>
-              </div>
-              <h1 className={`font-heading text-[28px] font-semibold ${t.heading}`}>Fox & Quinn Assistant</h1>
-              <p className={`font-body text-[14px] ${t.light} mt-2 max-w-[400px] mx-auto`}>
-                I have access to all your projects, client notes, tasks, and vendor information. Ask me anything or upload a file to get started.
-              </p>
-            </div>
-
-            {/* Suggestion cards */}
-            <div className="grid grid-cols-2 gap-3 mb-8">
-              {SUGGESTIONS.map((s, i) => (
-                <button
-                  key={i}
-                  onClick={() => { setInput(s.text); inputRef.current?.focus(); }}
-                  className="flex items-start gap-3 px-4 py-3.5 rounded-xl border border-fq-border bg-fq-card hover:border-fq-accent/30 hover:shadow-sm transition-all duration-200 text-left group"
-                >
-                  <span className="mt-0.5 text-fq-muted/50 group-hover:text-fq-accent transition-colors">
-                    <ToolIcon icon={s.icon} />
-                  </span>
-                  <span className={`font-body text-[13px] ${t.body} group-hover:text-fq-dark/80 transition-colors`}>{s.text}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Input bar (empty state) */}
-        {renderInputBar()}
-      </div>
-    );
-  }
-
-  /* ── Chat thread ── */
+  /* ── Input bar ── */
   function renderInputBar() {
     return (
       <div className="border-t border-fq-border bg-fq-card px-4 py-3">
@@ -629,11 +550,172 @@ export default function AssistantPage() {
     );
   }
 
+  /* ── History sidebar ── */
+  function renderHistorySidebar() {
+    if (!showHistory) return null;
+    return (
+      <>
+        {/* Backdrop */}
+        <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setShowHistory(false)} />
+        {/* Sidebar */}
+        <div className="fixed left-0 top-0 h-full w-80 bg-fq-card border-r border-fq-border z-50 flex flex-col shadow-xl">
+          {/* Sidebar header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-fq-border">
+            <h3 className={`font-heading text-[15px] font-semibold ${t.heading}`}>Chat History</h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleNewChat}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-fq-accent text-white font-body text-[11px] font-medium hover:bg-fq-accent/90 transition-colors"
+              >
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M8 3v10M3 8h10"/>
+                </svg>
+                New chat
+              </button>
+              <button
+                onClick={() => setShowHistory(false)}
+                className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon}`}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M4 4l8 8M12 4l-8 8"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Chat list */}
+          <div className="flex-1 overflow-y-auto">
+            {history.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full px-6">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted/30 mb-3">
+                  <path d="M21 12c0 4.97-4.03 9-9 9-1.93 0-3.73-.6-5.2-1.64L3 21l1.64-3.8A8.96 8.96 0 013 12c0-4.97 4.03-9 9-9s9 4.03 9 9z"/>
+                </svg>
+                <p className={`font-body text-[13px] ${t.light} text-center`}>No chat history yet</p>
+                <p className={`font-body text-[11px] ${t.light} text-center mt-1`}>Your conversations will appear here</p>
+              </div>
+            ) : (
+              <div className="py-2">
+                {history.map(chat => (
+                  <button
+                    key={chat.id}
+                    onClick={() => handleLoadChat(chat)}
+                    className={`w-full flex items-start gap-3 px-4 py-3 hover:bg-fq-light-accent transition-colors text-left group ${
+                      activeChatId === chat.id ? 'bg-fq-light-accent' : ''
+                    }`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`${t.icon} shrink-0 mt-0.5`}>
+                      <path d="M21 12c0 4.97-4.03 9-9 9-1.93 0-3.73-.6-5.2-1.64L3 21l1.64-3.8A8.96 8.96 0 013 12c0-4.97 4.03-9 9-9s9 4.03 9 9z"/>
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-body text-[13px] ${t.heading} truncate`}>{chat.title}</p>
+                      <p className={`font-body text-[11px] ${t.light} mt-0.5`}>
+                        {chat.messages.length} messages · {formatHistoryDate(chat.updatedAt)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteChat(chat.id, e)}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-fq-border transition-all shrink-0"
+                      title="Delete chat"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M4 4l8 8M12 4l-8 8"/>
+                      </svg>
+                    </button>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sidebar footer */}
+          {history.length > 0 && (
+            <div className="px-4 py-3 border-t border-fq-border">
+              <p className={`font-body text-[11px] ${t.light} text-center`}>
+                {history.length} of {MAX_HISTORY} conversations saved
+              </p>
+            </div>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  /* ── Empty state ── */
+  if (messages.length === 0) {
+    return (
+      <div className="flex flex-col h-screen">
+        {renderHistorySidebar()}
+        <div className="flex-1 flex flex-col items-center justify-center px-6">
+          <div className="max-w-[560px] w-full text-center">
+            {/* Logo / greeting */}
+            <div className="mb-8">
+              <div className="w-12 h-12 rounded-2xl bg-fq-accent/10 flex items-center justify-center mx-auto mb-4">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent">
+                  <path d="M21 12c0 4.97-4.03 9-9 9-1.93 0-3.73-.6-5.2-1.64L3 21l1.64-3.8A8.96 8.96 0 013 12c0-4.97 4.03-9 9-9s9 4.03 9 9z"/>
+                </svg>
+              </div>
+              <h1 className={`font-heading text-[28px] font-semibold ${t.heading}`}>Fox & Quinn Assistant</h1>
+              <p className={`font-body text-[14px] ${t.light} mt-2 max-w-[400px] mx-auto`}>
+                I have access to all your projects, client notes, tasks, and vendor information. Ask me anything or upload a file to get started.
+              </p>
+            </div>
+
+            {/* Suggestion cards */}
+            <div className="grid grid-cols-2 gap-3 mb-8">
+              {SUGGESTIONS.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setInput(s.text); inputRef.current?.focus(); }}
+                  className="flex items-start gap-3 px-4 py-3.5 rounded-xl border border-fq-border bg-fq-card hover:border-fq-accent/30 hover:shadow-sm transition-all duration-200 text-left group"
+                >
+                  <span className="mt-0.5 text-fq-muted/50 group-hover:text-fq-accent transition-colors">
+                    <ToolIcon icon={s.icon} />
+                  </span>
+                  <span className={`font-body text-[13px] ${t.body} group-hover:text-fq-dark/80 transition-colors`}>{s.text}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* History button (only show if there's history) */}
+            {history.length > 0 && (
+              <button
+                onClick={() => setShowHistory(true)}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-fq-border font-body text-[12px] ${t.body} hover:bg-fq-light-accent transition-colors`}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="8" cy="8" r="6"/>
+                  <path d="M8 4.5V8l2.5 1.5"/>
+                </svg>
+                View chat history ({history.length})
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Input bar (empty state) */}
+        {renderInputBar()}
+      </div>
+    );
+  }
+
+  /* ── Chat thread ── */
   return (
     <div className="flex flex-col h-screen">
+      {renderHistorySidebar()}
+
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-fq-border bg-fq-card">
         <div className="flex items-center gap-3">
+          {/* History toggle */}
+          <button
+            onClick={() => setShowHistory(!showHistory)}
+            className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon} hover:text-fq-accent`}
+            title="Chat history"
+          >
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 3h12M2 8h12M2 13h12"/>
+            </svg>
+          </button>
           <div className="w-8 h-8 rounded-xl bg-fq-accent/10 flex items-center justify-center">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent">
               <path d="M21 12c0 4.97-4.03 9-9 9-1.93 0-3.73-.6-5.2-1.64L3 21l1.64-3.8A8.96 8.96 0 013 12c0-4.97 4.03-9 9-9s9 4.03 9 9z"/>
