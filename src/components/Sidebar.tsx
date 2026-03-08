@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { projects } from '@/data/seed';
 
 const navItems = [
   {
@@ -30,6 +32,7 @@ const navItems = [
   {
     label: 'Projects',
     href: '/projects',
+    hasDropdown: true,
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="4" width="14" height="12" rx="2" />
@@ -70,8 +73,11 @@ const navItems = [
   },
 ];
 
+const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'));
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-[220px] bg-fq-bg border-r border-fq-border flex flex-col z-50">
@@ -91,36 +97,81 @@ export default function Sidebar() {
         </button>
       </div>
 
-      <nav className="mt-8 flex flex-col gap-1 px-3">
+      <nav className="mt-8 flex flex-col gap-1 px-3 overflow-y-auto">
         {navItems.map((item) => {
           const isActive =
             item.href === '/'
               ? pathname === '/'
               : pathname.startsWith(item.href);
 
+          const isProjects = item.label === 'Projects';
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`
-                relative flex items-center gap-3 px-4 py-3 rounded-lg
-                font-body text-[14px] transition-all duration-200
-                ${isActive
-                  ? 'bg-fq-light-accent text-fq-dark font-medium'
-                  : 'text-fq-muted hover:text-fq-dark hover:bg-fq-light-accent/50'
-                }
-              `}
-            >
-              <span className={isActive ? 'text-fq-dark' : 'text-fq-muted'}>
-                {item.icon}
-              </span>
-              <span className="flex-1">{item.label}</span>
-              {item.badge != null && item.badge > 0 && (
-                <span className="bg-fq-accent text-white text-[11px] font-medium px-2 py-0.5 rounded-full min-w-[24px] text-center">
-                  {item.badge}
-                </span>
+            <div key={item.href}>
+              <div className="flex items-center">
+                <Link
+                  href={item.href}
+                  className={`
+                    relative flex items-center gap-3 px-4 py-3 rounded-lg flex-1
+                    font-body text-[14px] transition-all duration-200
+                    ${isActive
+                      ? 'bg-fq-light-accent text-fq-dark font-medium'
+                      : 'text-fq-muted hover:text-fq-dark hover:bg-fq-light-accent/50'
+                    }
+                  `}
+                >
+                  <span className={isActive ? 'text-fq-dark' : 'text-fq-muted'}>
+                    {item.icon}
+                  </span>
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge != null && item.badge > 0 && (
+                    <span className="bg-fq-accent text-white text-[11px] font-medium px-2 py-0.5 rounded-full min-w-[24px] text-center">
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+                {isProjects && (
+                  <button
+                    onClick={(e) => { e.preventDefault(); setProjectsOpen(!projectsOpen); }}
+                    className={`p-1.5 rounded hover:bg-fq-light-accent/50 transition-colors mr-1 ${isActive ? 'text-fq-dark' : 'text-fq-muted'}`}
+                  >
+                    <svg
+                      width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"
+                      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                      className={`transition-transform duration-200 ${projectsOpen ? '' : '-rotate-90'}`}
+                    >
+                      <path d="M3 5l3 3 3-3" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+
+              {/* Projects dropdown */}
+              {isProjects && projectsOpen && (
+                <div className="ml-8 mt-1 mb-1 space-y-0.5">
+                  {activeProjects.map(p => {
+                    const isProjectActive = pathname === `/projects/${p.id}`;
+                    return (
+                      <Link
+                        key={p.id}
+                        href={`/projects/${p.id}`}
+                        className={`
+                          flex items-center gap-2 px-3 py-1.5 rounded-md
+                          font-body text-[12px] transition-all duration-150
+                          ${isProjectActive
+                            ? 'text-fq-dark font-medium bg-fq-light-accent/60'
+                            : 'text-fq-muted hover:text-fq-dark hover:bg-fq-light-accent/30'
+                          }
+                        `}
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+                        <span className="truncate">{p.name}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
               )}
-            </Link>
+            </div>
           );
         })}
       </nav>

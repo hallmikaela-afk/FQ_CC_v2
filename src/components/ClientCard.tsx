@@ -201,6 +201,84 @@ function LinkRow({
   );
 }
 
+/* ── Editable Agenda Section (inline on card) ── */
+function EditableAgendaSection({ initialItems, tClasses }: { initialItems: string[]; tClasses: Record<string, string> }) {
+  const [items, setItems] = useState(initialItems);
+  const [newItem, setNewItem] = useState('');
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingIdx !== null) inputRef.current?.focus();
+  }, [editingIdx]);
+
+  const addItem = () => {
+    if (newItem.trim()) { setItems([...items, newItem.trim()]); setNewItem(''); }
+  };
+
+  const saveEdit = (idx: number) => {
+    if (!editDraft.trim()) {
+      setItems(items.filter((_, i) => i !== idx));
+    } else {
+      setItems(items.map((item, i) => i === idx ? editDraft.trim() : item));
+    }
+    setEditingIdx(null);
+  };
+
+  const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
+
+  return (
+    <div className="mb-3">
+      <p className={`font-body text-[11px] font-medium ${tClasses.label} mb-1.5`}>Next Call Agenda</p>
+      <div className="space-y-1">
+        {items.map((item, i) => (
+          <div key={i} className="flex items-start gap-1 group/agenda">
+            {editingIdx === i ? (
+              <div className="flex items-center gap-1 flex-1">
+                <span className={`font-body text-[12px] ${tClasses.light} shrink-0`}>-</span>
+                <input
+                  ref={inputRef}
+                  value={editDraft}
+                  onChange={(e) => setEditDraft(e.target.value)}
+                  onBlur={() => saveEdit(i)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveEdit(i);
+                    if (e.key === 'Escape') setEditingIdx(null);
+                  }}
+                  className={`flex-1 bg-transparent border-b border-fq-accent/40 outline-none font-body text-[12px] text-fq-dark py-0`}
+                />
+              </div>
+            ) : (
+              <>
+                <p
+                  onClick={() => { setEditDraft(item); setEditingIdx(i); }}
+                  className={`font-body text-[12px] ${tClasses.light} leading-snug flex-1 cursor-text hover:text-fq-dark transition-colors`}
+                >
+                  - {item}
+                </p>
+                <button
+                  onClick={() => removeItem(i)}
+                  className="text-fq-muted/30 hover:text-fq-alert text-[10px] opacity-0 group-hover/agenda:opacity-100 transition-opacity shrink-0 mt-0.5"
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      <input
+        value={newItem}
+        onChange={(e) => setNewItem(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') addItem(); }}
+        placeholder="+ Add agenda item..."
+        className={`w-full font-body text-[11px] ${tClasses.light} bg-transparent border-none outline-none placeholder:text-fq-muted/30 mt-1.5`}
+      />
+    </div>
+  );
+}
+
 /* ── Main card ── */
 export default function ClientCard({ project }: { project: Project }) {
   const [expanded, setExpanded] = useState(false);
@@ -427,20 +505,8 @@ export default function ClientCard({ project }: { project: Project }) {
           })}
         </div>
 
-        {/* Next Call Agenda */}
-        {project.next_call_agenda && project.next_call_agenda.length > 0 && (
-          <div className="mb-3">
-            <p className={`font-body text-[11px] font-medium ${t.label} mb-1.5`}>Next Call Agenda</p>
-            <div className="space-y-1">
-              {project.next_call_agenda.slice(0, 3).map((item, i) => (
-                <p key={i} className={`font-body text-[12px] ${t.light} leading-snug`}>- {item}</p>
-              ))}
-              {project.next_call_agenda.length > 3 && (
-                <p className={`font-body text-[11px] ${t.light}`}>+{project.next_call_agenda.length - 3} more</p>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Next Call Agenda — editable */}
+        <EditableAgendaSection initialItems={project.next_call_agenda || []} tClasses={t} />
 
         {/* View project link */}
         <Link

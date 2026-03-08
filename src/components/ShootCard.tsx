@@ -49,6 +49,22 @@ export default function ShootCard({ project }: { project: Project }) {
           {formatDate(project.event_date)}
         </p>
 
+        {/* Design Board Link */}
+        {project.design_board_link && (
+          <div className="mb-3">
+            <a
+              href={project.design_board_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={`inline-flex items-center gap-1.5 font-body text-[12px] text-fq-accent hover:underline`}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1.5" /><path d="M4 6h4M6 4v4" /></svg>
+              Design / Canva
+            </a>
+          </div>
+        )}
+
         {/* Venue / Location + Address */}
         {(project.location || project.venue_name) && (
           <div className="mb-3">
