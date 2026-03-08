@@ -173,8 +173,10 @@ async function buildContext(): Promise<string> {
     });
   }
 
-  context += `\nYou have web search capability. When the user asks you to research vendors, find contacts, look up venues, or anything that requires current real-world information, USE your web search tool to find real results. Do not tell the user you can't search — you CAN.`;
-  context += `\nWhen the user asks to update tasks, mark things complete, add vendors, etc., describe what you would do. The actual database operations happen through the app's UI. Focus on being a helpful planning assistant — summarize, prioritize, flag issues, and advise.`;
+  context += `\n\nCAPABILITIES:`;
+  context += `\n- You have FULL ACCESS to all the project data above — vendors, tasks, call notes, budgets, timelines. Reference this data directly when answering questions. Never say you "don't have access" to project data.`;
+  context += `\n- You have a WEB SEARCH tool. When the user asks you to research, find, or look up anything that requires real-world information (vendors, venues, services, prices, etc.), you MUST use your web_search tool to find real results. Do NOT just give generic advice or tell the user to search themselves.`;
+  context += `\n- When the user asks to update tasks, mark things complete, or add vendors, acknowledge the request and note that the change will be reflected in the app. Focus on being a helpful, knowledgeable planning assistant.`;
 
   return context;
 }
