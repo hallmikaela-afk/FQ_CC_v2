@@ -19,17 +19,6 @@ const navItems = [
     ),
   },
   {
-    label: 'Clients',
-    href: '/clients',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M10 4C10 5.66 8.66 7 7 7C5.34 7 4 5.66 4 4" />
-        <path d="M3.5 17v-1.5c0-2.5 2-4 4-4h5c2 0 4 1.5 4 4V17" />
-        <circle cx="10" cy="7" r="3" />
-      </svg>
-    ),
-  },
-  {
     label: 'Projects',
     href: '/projects',
     hasDropdown: true,

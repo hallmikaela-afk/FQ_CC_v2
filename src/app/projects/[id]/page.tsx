@@ -163,7 +163,7 @@ function AgendaItem({ value, onChange, onDelete }: { value: string; onChange: (v
         <input ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)}
           onBlur={() => { onChange(draft); setEditing(false); }}
           onKeyDown={(e) => { if (e.key === 'Enter') { onChange(draft); setEditing(false); } if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
-          className={`flex-1 bg-transparent border-b border-fq-accent/40 outline-none font-body text-[13px] ${t.body} py-0`}
+          className={`flex-1 bg-transparent border-b border-fq-accent/40 outline-none font-body text-[13px] text-fq-dark py-0`}
         />
       </div>
     );

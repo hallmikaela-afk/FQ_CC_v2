@@ -98,7 +98,7 @@ function EditableAddressBox({
             value={draftStreet}
             onChange={(e) => setDraftStreet(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[13px] ${t.body}`}
+            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[13px] text-fq-dark`}
             placeholder={streetPlaceholder}
           />
           <input
@@ -106,7 +106,7 @@ function EditableAddressBox({
             onChange={(e) => setDraftCity(e.target.value)}
             onBlur={save}
             onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[12px] ${t.light}`}
+            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[12px] text-fq-dark`}
             placeholder={cityPlaceholder}
           />
         </div>
@@ -172,7 +172,7 @@ function LinkRow({
             if (e.key === 'Enter') { onChange(draft); setEditing(false); }
             if (e.key === 'Escape') { setDraft(value); setEditing(false); }
           }}
-          className="flex-1 min-w-0 text-fq-muted bg-fq-bg border border-fq-border rounded px-2 py-1 text-[11px] outline-none focus:border-fq-accent/40"
+          className="flex-1 min-w-0 text-fq-dark bg-fq-bg border border-fq-border rounded px-2 py-1 text-[11px] outline-none focus:border-fq-accent/40"
           placeholder="https://..."
         />
       ) : (

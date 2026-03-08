@@ -401,3 +401,70 @@ export function formatDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00');
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
+
+/* Template tasks generated for new client weddings */
+export function generateTemplateTasks(eventDate: string): Task[] {
+  const event = new Date(eventDate + 'T00:00:00');
+  const offset = (weeks: number) => {
+    const d = new Date(event);
+    d.setDate(d.getDate() - weeks * 7);
+    return d.toISOString().split('T')[0];
+  };
+  const id = () => `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+  return [
+    // Onboarding (40+ weeks out)
+    { id: id(), text: 'Send welcome packet & questionnaire', completed: false, due_date: offset(40), category: 'Onboarding' },
+    { id: id(), text: 'Schedule kickoff call', completed: false, due_date: offset(39), category: 'Onboarding' },
+    { id: id(), text: 'Create wedding website', completed: false, due_date: offset(38), category: 'Onboarding' },
+    { id: id(), text: 'Set up shared planning folder', completed: false, due_date: offset(38), category: 'Onboarding' },
+    // Venue & Key Vendor Search (35-30 weeks)
+    { id: id(), text: 'Confirm venue contract & deposit', completed: false, due_date: offset(35), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book photographer', completed: false, due_date: offset(34), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book videographer', completed: false, due_date: offset(33), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book florist', completed: false, due_date: offset(32), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book caterer or confirm venue catering', completed: false, due_date: offset(31), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book band or DJ', completed: false, due_date: offset(30), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book hair & makeup artist', completed: false, due_date: offset(30), category: 'Venue & Key Vendor Search' },
+    { id: id(), text: 'Book hotel room blocks', completed: false, due_date: offset(28), category: 'Venue & Key Vendor Search' },
+    // Stationery (28-20 weeks)
+    { id: id(), text: 'Design & send save-the-dates', completed: false, due_date: offset(28), category: 'Stationery' },
+    { id: id(), text: 'Design invitation suite', completed: false, due_date: offset(20), category: 'Stationery' },
+    { id: id(), text: 'Send invitations', completed: false, due_date: offset(16), category: 'Stationery' },
+    // Florals & Decor (20-12 weeks)
+    { id: id(), text: 'Finalize floral palette & vision', completed: false, due_date: offset(20), category: 'Florals & Decor' },
+    { id: id(), text: 'Select table linens & rentals', completed: false, due_date: offset(18), category: 'Florals & Decor' },
+    { id: id(), text: 'Review floral mockup', completed: false, due_date: offset(14), category: 'Florals & Decor' },
+    { id: id(), text: 'Finalize ceremony decor plan', completed: false, due_date: offset(12), category: 'Florals & Decor' },
+    // Entertainment (16-10 weeks)
+    { id: id(), text: 'Finalize ceremony music selections', completed: false, due_date: offset(16), category: 'Entertainment' },
+    { id: id(), text: 'Confirm cocktail hour music', completed: false, due_date: offset(14), category: 'Entertainment' },
+    { id: id(), text: 'Create reception playlist / requests', completed: false, due_date: offset(10), category: 'Entertainment' },
+    // Hair & Makeup (12-6 weeks)
+    { id: id(), text: 'Schedule hair & makeup trial', completed: false, due_date: offset(12), category: 'Hair & Makeup' },
+    { id: id(), text: 'Complete hair & makeup trial', completed: false, due_date: offset(8), category: 'Hair & Makeup' },
+    { id: id(), text: 'Finalize hair & makeup timeline for wedding day', completed: false, due_date: offset(6), category: 'Hair & Makeup' },
+    // Logistics (10-2 weeks)
+    { id: id(), text: 'Draft day-of timeline v1', completed: false, due_date: offset(10), category: 'Logistics' },
+    { id: id(), text: 'Coordinate rental delivery & pickup', completed: false, due_date: offset(8), category: 'Logistics' },
+    { id: id(), text: 'Confirm transportation / shuttles', completed: false, due_date: offset(6), category: 'Logistics' },
+    { id: id(), text: 'Final venue walkthrough', completed: false, due_date: offset(4), category: 'Logistics' },
+    { id: id(), text: 'Finalize day-of timeline', completed: false, due_date: offset(3), category: 'Logistics' },
+    { id: id(), text: 'Distribute final timeline to vendors', completed: false, due_date: offset(2), category: 'Logistics' },
+    { id: id(), text: 'Confirm all vendor arrival times', completed: false, due_date: offset(1), category: 'Logistics' },
+    // Check in - Client (ongoing)
+    { id: id(), text: 'Check in call with client (6 months)', completed: false, due_date: offset(26), category: 'Check in - Client' },
+    { id: id(), text: 'Check in call with client (4 months)', completed: false, due_date: offset(17), category: 'Check in - Client' },
+    { id: id(), text: 'Collect dietary restrictions from RSVPs', completed: false, due_date: offset(10), category: 'Check in - Client' },
+    { id: id(), text: 'Schedule timeline call', completed: false, due_date: offset(8), category: 'Check in - Client' },
+    { id: id(), text: 'Final check in call (2 weeks)', completed: false, due_date: offset(2), category: 'Check in - Client' },
+    // Photography (8-4 weeks)
+    { id: id(), text: 'Schedule engagement shoot', completed: false, due_date: offset(20), category: 'Photography' },
+    { id: id(), text: 'Create shot list for wedding day', completed: false, due_date: offset(6), category: 'Photography' },
+    { id: id(), text: 'Confirm photographer timeline', completed: false, due_date: offset(4), category: 'Photography' },
+  ];
+}
+
+export function addProject(project: Project) {
+  projects.push(project);
+}
