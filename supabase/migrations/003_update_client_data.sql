@@ -66,7 +66,9 @@ UPDATE projects SET
 WHERE slug = 'elisabeth-jj';
 
 -- ============================================
--- Fix any remaining NULL task statuses
+-- Fix task statuses
 -- ============================================
-UPDATE tasks SET status = 'completed' WHERE completed = true AND status IS NULL;
-UPDATE tasks SET status = 'in_progress' WHERE completed = false AND status IS NULL;
+-- Set completed tasks that have no status
+UPDATE tasks SET status = 'completed' WHERE completed = true AND (status IS NULL OR status = 'not_started');
+-- Clear any not_started values back to NULL (no status)
+UPDATE tasks SET status = NULL WHERE status = 'not_started';

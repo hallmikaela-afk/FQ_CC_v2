@@ -41,7 +41,7 @@ export interface Task {
   id: string;
   text: string;
   completed: boolean;
-  status?: 'not_started' | 'in_progress' | 'delayed' | 'completed';
+  status?: 'in_progress' | 'delayed' | 'completed';
   due_date?: string;
   category?: string;
   assigned_to?: string;

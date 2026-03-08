@@ -1147,18 +1147,16 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
   const update = (patch: Partial<Task>) => onUpdate({ ...task, ...patch });
 
   const statusColors: Record<string, string> = {
-    not_started: 'bg-fq-muted/30 text-fq-dark',
     in_progress: 'bg-[#F5C242] text-white',
     delayed: 'bg-[#E8746A] text-white',
     completed: 'bg-[#4CAF6A] text-white',
   };
   const statusLabels: Record<string, string> = {
-    not_started: 'Not Started',
     in_progress: 'In Progress',
     delayed: 'Delayed',
     completed: 'Completed',
   };
-  const taskStatus = task.status || 'not_started';
+  const taskStatus = task.status || '';
 
   const addSubtask = () => {
     if (!newSubtask.trim()) return;
@@ -1198,11 +1196,11 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
         <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Status</span>
         <InlineCell
           value={taskStatus}
-          onSave={(v) => update({ status: (v as Task['status']) || 'not_started', completed: v === 'completed' })}
+          onSave={(v) => update({ status: (v as Task['status']) || undefined, completed: v === 'completed' })}
           type="select"
-          options={[{ value: 'not_started', label: 'Not Started' }, { value: 'in_progress', label: 'In Progress' }, { value: 'delayed', label: 'Delayed' }, { value: 'completed', label: 'Completed' }]}
-          displayValue={statusLabels[taskStatus]}
-          className={`font-body text-[11px] ${statusColors[taskStatus]} px-2.5 py-0.5 rounded-full inline-block`}
+          options={[{ value: '', label: '—' }, { value: 'in_progress', label: 'In Progress' }, { value: 'delayed', label: 'Delayed' }, { value: 'completed', label: 'Completed' }]}
+          displayValue={statusLabels[taskStatus] || '—'}
+          className={`font-body text-[11px] ${statusColors[taskStatus] || `text-fq-muted/70 bg-fq-bg`} px-2.5 py-0.5 rounded-full inline-block`}
           placeholder="Set status..."
         />
 
@@ -1374,7 +1372,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
       id: `task-${Date.now()}`,
       text: newTaskText.trim(),
       completed: newTaskStatus === 'completed',
-      status: (newTaskStatus as Task['status']) || 'not_started',
+      status: (newTaskStatus as Task['status']) || undefined,
       due_date: newTaskDue || undefined,
       category: newTaskCategory || undefined,
       assigned_to: newTaskAssigned || undefined,
@@ -1398,25 +1396,25 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   };
 
   const updateTaskField = (taskId: string, field: keyof Task, value: unknown) => {
+    const dbValue = value === '' ? null : value;
     setTasks(prev => prev.map(tk => {
       if (tk.id !== taskId) return tk;
-      const updated = { ...tk, [field]: value };
+      const updated = { ...tk, [field]: dbValue };
       if (field === 'status') {
-        updated.completed = value === 'completed';
+        updated.completed = dbValue === 'completed';
       }
       return updated;
     }));
     // Persist to database
-    const updates: Record<string, unknown> = { [field]: value };
-    if (field === 'status') updates.completed = value === 'completed';
+    const updates: Record<string, unknown> = { [field]: dbValue };
+    if (field === 'status') updates.completed = dbValue === 'completed';
     fetch('/api/tasks', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: taskId, ...updates }) });
   };
 
   const toggleTaskComplete = (taskId: string) => {
     const task = tasks.find(tk => tk.id === taskId);
     if (!task) return;
-    const isCompleted = (task.status || 'not_started') === 'completed';
-    const newStatus = isCompleted ? 'not_started' : 'completed';
+    const newStatus = task.status === 'completed' ? '' : 'completed';
     updateTaskField(taskId, 'status', newStatus);
   };
 
@@ -1435,18 +1433,18 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const selectedTask = selectedTaskId ? tasks.find(tk => tk.id === selectedTaskId) : null;
 
   const allCount = tasks.length;
-  const activeCount = tasks.filter(tk => (tk.status || 'not_started') !== 'completed').length;
-  const completedCount = tasks.filter(tk => (tk.status || 'not_started') === 'completed').length;
+  const activeCount = tasks.filter(tk => (tk.status || '') !== 'completed').length;
+  const completedCount = tasks.filter(tk => (tk.status || '') === 'completed').length;
 
   // Filter tasks
   let filtered = tasks;
-  if (tab === 'open') filtered = filtered.filter(tk => (tk.status || 'not_started') !== 'completed');
-  if (tab === 'done') filtered = filtered.filter(tk => (tk.status || 'not_started') === 'completed');
+  if (tab === 'open') filtered = filtered.filter(tk => (tk.status || '') !== 'completed');
+  if (tab === 'done') filtered = filtered.filter(tk => (tk.status || '') === 'completed');
   if (search) filtered = filtered.filter(tk => tk.text.toLowerCase().includes(search.toLowerCase()));
   if (categoryFilter !== 'all') filtered = filtered.filter(tk => tk.category === categoryFilter);
   if (teamFilter !== 'all') filtered = filtered.filter(tk => tk.assigned_to === teamFilter);
   if (priorityFilter !== 'all') filtered = filtered.filter(tk => tk.priority === priorityFilter);
-  if (statusFilter !== 'all') filtered = filtered.filter(tk => (tk.status || 'not_started') === statusFilter);
+  if (statusFilter !== 'all') filtered = filtered.filter(tk => (tk.status || '') === statusFilter);
 
   // Get unique categories
   const categories = Array.from(new Set(tasks.map(tk => tk.category).filter(Boolean))) as string[];
@@ -1504,7 +1502,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   } else {
     // status
     filtered.forEach(tk => {
-      const key = statusLabels[tk.status || 'not_started'];
+      const key = statusLabels[tk.status || ''] || 'No Status';
       if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
       kanbanGrouped[key].push(tk);
     });
@@ -1653,7 +1651,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                 <label className={`font-body text-[11px] ${t.light} block mb-1`}>Status</label>
                 <select value={newTaskStatus} onChange={(e) => setNewTaskStatus(e.target.value)}
                   className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}>
-                  <option value="not_started">Not Started</option><option value="in_progress">In Progress</option><option value="delayed">Delayed</option><option value="completed">Completed</option>
+                  <option value="in_progress">In Progress</option><option value="delayed">Delayed</option><option value="completed">Completed</option>
                 </select>
               </div>
             </div>
@@ -1697,7 +1695,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
                 className={`font-body text-[11px] font-medium ${statusFilter !== 'all' ? 'text-fq-accent' : t.light} uppercase tracking-wide bg-transparent outline-none cursor-pointer w-full appearance-none`}>
                 <option value="all">Status ▾</option>
-                <option value="not_started">Not Started</option><option value="in_progress">In Progress</option><option value="delayed">Delayed</option><option value="completed">Completed</option>
+                <option value="in_progress">In Progress</option><option value="delayed">Delayed</option><option value="completed">Completed</option>
               </select>
             </div>
             <div>
@@ -1727,7 +1725,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
 
           <div className="space-y-5 mt-3">
             {sortedGroupEntries.map(([group, groupTasks]) => {
-              const groupDone = groupTasks.filter(tk => (tk.status || 'not_started') === 'completed').length;
+              const groupDone = groupTasks.filter(tk => (tk.status || '') === 'completed').length;
               return (
                 <div key={group}>
                   <button
@@ -1757,7 +1755,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                       const subtasks = task.subtasks || [];
                       const stCount = subtasks.length;
                       const stDone = subtasks.filter(s => s.completed).length;
-                      const taskStatus = task.status || 'not_started';
+                      const taskStatus = task.status || '';
                       const isExpanded = expandedSubtasks.has(task.id);
                       const priorityColors: Record<string, string> = {
                         high: 'text-fq-rose bg-fq-rose-light',
@@ -1806,11 +1804,11 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                           <span onClick={(e) => e.stopPropagation()}>
                             <InlineCell
                               value={taskStatus}
-                              onSave={(v) => updateTaskField(task.id, 'status', v || 'not_started')}
+                              onSave={(v) => updateTaskField(task.id, 'status', v)}
                               type="select"
-                              options={[{ value: 'not_started', label: 'Not Started' }, { value: 'in_progress', label: 'In Progress' }, { value: 'delayed', label: 'Delayed' }, { value: 'completed', label: 'Completed' }]}
-                              displayValue={statusLabels[taskStatus]}
-                              className={`font-body text-[11px] ${statusColors[taskStatus]} px-2 py-0.5 rounded-full inline-block`}
+                              options={[{ value: '', label: '—' }, { value: 'in_progress', label: 'In Progress' }, { value: 'delayed', label: 'Delayed' }, { value: 'completed', label: 'Completed' }]}
+                              displayValue={statusLabels[taskStatus] || '—'}
+                              className={`font-body text-[11px] ${statusColors[taskStatus] || `text-fq-muted/70 bg-fq-bg`} px-2 py-0.5 rounded-full inline-block`}
                               placeholder="—"
                             />
                           </span>
@@ -1905,7 +1903,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
         /* ── Kanban / Board View ── */
         <div className="flex gap-4 overflow-x-auto pb-2 -mx-2 px-2">
           {Object.entries(kanbanGrouped).map(([column, columnTasks]) => {
-            const colDone = columnTasks.filter(tk => (tk.status || 'not_started') === 'completed').length;
+            const colDone = columnTasks.filter(tk => (tk.status || '') === 'completed').length;
             return (
               <div key={column} className="flex-shrink-0 w-[260px]">
                 <div className="flex items-center justify-between mb-3 px-1">
@@ -1921,7 +1919,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                 <div className="space-y-2">
                   {columnTasks.map((task) => {
                     const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
-                    const taskStatus = task.status || 'not_started';
+                    const taskStatus = task.status || '';
                     return (
                       <div
                         key={task.id}
@@ -1940,7 +1938,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                           </span>
                         </div>
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
-                          <span className={`font-body text-[10px] ${statusColors[taskStatus]} px-1.5 py-0.5 rounded`}>{statusLabels[taskStatus]}</span>
+                          {taskStatus && <span className={`font-body text-[10px] ${statusColors[taskStatus]} px-1.5 py-0.5 rounded`}>{statusLabels[taskStatus]}</span>}
                           {task.due_date && <span className={`font-body text-[10px] ${t.light} bg-fq-bg px-1.5 py-0.5 rounded`}>{formatDate(task.due_date)}</span>}
                           {task.category && kanbanGroupField !== 'category' && (() => {
                             const cc = getCategoryColor(task.category!);
