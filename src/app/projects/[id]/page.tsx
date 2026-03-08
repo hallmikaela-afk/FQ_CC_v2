@@ -3,8 +3,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { projects, getTeamMember, formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
-import type { Project, Vendor, CallNote, Task, SubTask } from '@/data/seed';
+import { useFullProjects } from '@/lib/hooks';
+import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
+import type { Project, Vendor, CallNote, Task, SubTask, TeamMember } from '@/data/seed';
+
+// Module-level team lookup — set by the main component after data loads
+let getTeamMember: (id: string) => TeamMember | undefined = () => undefined;
 
 /* ─────────────── Inline Editable Field ─────────────── */
 function EditableField({
@@ -1962,9 +1966,21 @@ export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = params.id as string;
+  const { projects, getTeamMember: teamLookup, loading } = useFullProjects();
+
+  // Update the module-level lookup so sub-components can use it
+  getTeamMember = teamLookup;
 
   const project = projects.find(p => p.id === projectId);
   const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'));
+
+  if (loading) {
+    return (
+      <div className="px-10 py-10">
+        <p className="font-body text-fq-muted">Loading...</p>
+      </div>
+    );
+  }
 
   if (!project) {
     return (

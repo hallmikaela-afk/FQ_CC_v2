@@ -2,11 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { projects, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
-import type { Project } from '@/data/seed';
+import { useFullProjects } from '@/lib/hooks';
+import { formatCountdown, formatDate } from '@/data/seed';
+import type { Project, TeamMember } from '@/data/seed';
 
 /* ── Compact project card for the grid ── */
-function ProjectCard({ project }: { project: Project }) {
+function ProjectCard({ project, getTeamMember }: { project: Project; getTeamMember: (id: string) => TeamMember | undefined }) {
   const countdown = formatCountdown(project.event_date);
   const progressPct = project.tasks_total > 0
     ? (project.tasks_completed / project.tasks_total) * 100
@@ -106,6 +107,8 @@ function ProjectCard({ project }: { project: Project }) {
 }
 
 export default function ProjectsPage() {
+  const { projects, getTeamMember, loading } = useFullProjects();
+
   const clients = projects.filter(p => p.type === 'client' && p.status === 'active');
   const shoots = projects.filter(p => p.type === 'shoot');
 
@@ -113,6 +116,14 @@ export default function ProjectsPage() {
     heading: 'text-fq-dark',
     light: 'text-fq-muted/70',
   };
+
+  if (loading) {
+    return (
+      <div className="py-10 px-10">
+        <p className="font-body text-[14px] text-fq-muted">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="py-10 px-10">
@@ -132,7 +143,7 @@ export default function ProjectsPage() {
         </div>
         <div className="grid grid-cols-3 gap-5">
           {clients.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} getTeamMember={getTeamMember} />
           ))}
         </div>
       </div>
@@ -148,7 +159,7 @@ export default function ProjectsPage() {
         </div>
         <div className="grid grid-cols-3 gap-5">
           {shoots.map((project) => (
-            <ProjectCard key={project.id} project={project} />
+            <ProjectCard key={project.id} project={project} getTeamMember={getTeamMember} />
           ))}
         </div>
       </div>

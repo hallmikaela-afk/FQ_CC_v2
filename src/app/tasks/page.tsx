@@ -1,42 +1,16 @@
 'use client';
 /* Master task view — aggregates tasks from all projects */
-import { useState, useRef, useEffect } from 'react';
-import { projects, getTeamMember, formatDate, formatMonthYear, team } from '@/data/seed';
-import type { Task, SubTask } from '@/data/seed';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import { useFullProjects } from '@/lib/hooks';
+import { formatDate, formatMonthYear } from '@/data/seed';
+import type { Task, SubTask, TeamMember } from '@/data/seed';
+
+// Module-level variables — set by the main component after data loads
+let getTeamMember: (id: string) => TeamMember | undefined = () => undefined;
+let allAssignedTo: string[] = [];
 
 /* ── Gather all tasks with project context ── */
 type TaskWithProject = Task & { projectId: string; projectName: string };
-
-function getAllTasks(): TaskWithProject[] {
-  const all: TaskWithProject[] = [];
-  projects.forEach(p => {
-    (p.tasks || []).forEach(tk => {
-      all.push({ ...tk, projectId: p.id, projectName: p.name });
-    });
-  });
-  return all;
-}
-
-const allAssignedTo = Array.from(new Set(projects.flatMap(p => p.assigned_to)));
-
-/* ── Preset tabs config ── */
-function getPresetTabs() {
-  const clientProjects = projects.filter(p => p.type === 'client' && p.status === 'active');
-  const tabs: { id: string; label: string; filter: (tk: TaskWithProject) => boolean }[] = [
-    { id: 'all-open', label: 'All Open', filter: (tk) => (tk.status || 'in_progress') !== 'completed' },
-  ];
-  // Add project name tabs
-  clientProjects.forEach(p => {
-    tabs.push({ id: `project-${p.id}`, label: p.name, filter: (tk) => tk.projectId === p.id });
-  });
-  // Add some category tabs
-  const allCategories = Array.from(new Set(getAllTasks().map(tk => tk.category).filter(Boolean))) as string[];
-  const categoryTabs = ['Logistics', 'Entertainment', 'Florals & Decor', 'Stationery', 'Photography'].filter(c => allCategories.includes(c));
-  categoryTabs.forEach(cat => {
-    tabs.push({ id: `cat-${cat}`, label: cat, filter: (tk) => tk.category === cat });
-  });
-  return tabs;
-}
 
 /* ── Inline Cell Editor ── */
 function InlineCell({ value, onSave, className = '', type = 'text', options, placeholder, displayValue }: {
@@ -215,7 +189,44 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories }: {
 
 /* ═══════════════ Main Tasks Page ═══════════════ */
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<TaskWithProject[]>(getAllTasks);
+  const { projects, team, getTeamMember: teamLookup, loading } = useFullProjects();
+
+  // Update module-level lookups so sub-components can use them
+  getTeamMember = teamLookup;
+
+  // Compute all tasks from projects
+  const allTasksFromProjects = useMemo(() => {
+    const all: TaskWithProject[] = [];
+    projects.forEach(p => {
+      (p.tasks || []).forEach(tk => {
+        all.push({ ...tk, projectId: p.id, projectName: p.name });
+      });
+    });
+    return all;
+  }, [projects]);
+
+  const computedAssignedTo = useMemo(() => Array.from(new Set(projects.flatMap(p => p.assigned_to))), [projects]);
+  allAssignedTo = computedAssignedTo;
+
+  // Compute preset tabs
+  const presetTabsMemo = useMemo(() => {
+    const clientProjects = projects.filter(p => p.type === 'client' && p.status === 'active');
+    const tabs: { id: string; label: string; filter: (tk: TaskWithProject) => boolean }[] = [
+      { id: 'all-open', label: 'All Open', filter: (tk) => (tk.status || 'in_progress') !== 'completed' },
+    ];
+    clientProjects.forEach(p => {
+      tabs.push({ id: `project-${p.id}`, label: p.name, filter: (tk) => tk.projectId === p.id });
+    });
+    const allCategories = Array.from(new Set(allTasksFromProjects.map(tk => tk.category).filter(Boolean))) as string[];
+    const categoryTabs = ['Logistics', 'Entertainment', 'Florals & Decor', 'Stationery', 'Photography'].filter(c => allCategories.includes(c));
+    categoryTabs.forEach(cat => {
+      tabs.push({ id: `cat-${cat}`, label: cat, filter: (tk) => tk.category === cat });
+    });
+    return tabs;
+  }, [projects, allTasksFromProjects]);
+
+  const [tasks, setTasks] = useState<TaskWithProject[]>([]);
+  const [tasksInitialized, setTasksInitialized] = useState(false);
   const [activePreset, setActivePreset] = useState('all-open');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -239,7 +250,24 @@ export default function TasksPage() {
   const [newTaskPriority, setNewTaskPriority] = useState('');
   const [newTaskNotes, setNewTaskNotes] = useState('');
   const [newTaskStatus, setNewTaskStatus] = useState('in_progress');
-  const [newTaskProject, setNewTaskProject] = useState(projects[0]?.id || '');
+  const [newTaskProject, setNewTaskProject] = useState('');
+
+  // Initialize tasks from hook data
+  useEffect(() => {
+    if (!loading && allTasksFromProjects.length > 0 && !tasksInitialized) {
+      setTasks(allTasksFromProjects);
+      setNewTaskProject(projects[0]?.id || '');
+      setTasksInitialized(true);
+    }
+  }, [loading, allTasksFromProjects, projects, tasksInitialized]);
+
+  if (loading) {
+    return (
+      <div className="px-10 py-8">
+        <p className="font-body text-[14px] text-fq-muted">Loading...</p>
+      </div>
+    );
+  }
 
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
@@ -270,7 +298,7 @@ export default function TasksPage() {
     return categoryColorMap.get(cat)!;
   };
 
-  const presetTabs = getPresetTabs();
+  const presetTabs = presetTabsMemo;
   const activePresetTab = presetTabs.find(tab => tab.id === activePreset);
 
   const updateTask = (updated: TaskWithProject) => {

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { projects } from '@/data/seed';
+import { useProjects } from '@/lib/hooks';
 
 const navItems = [
   {
@@ -72,11 +72,12 @@ const navItems = [
   },
 ];
 
-const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'));
-
 export default function Sidebar() {
   const pathname = usePathname();
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const { projects } = useProjects();
+  const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'))
+    .map(p => ({ id: p.slug || p.id, name: p.name, color: p.color }));
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-[220px] bg-fq-bg border-r border-fq-border flex flex-col z-50">

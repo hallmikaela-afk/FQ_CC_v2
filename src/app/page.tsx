@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { projects, team, generateTemplateTasks, addProject } from '@/data/seed';
+import { useFullProjects } from '@/lib/hooks';
+import { formatCountdown, formatDate } from '@/data/seed';
 import type { Project } from '@/data/seed';
 import ClientCard from '@/components/ClientCard';
 import ShootCard from '@/components/ShootCard';
@@ -10,7 +11,7 @@ import ShootCard from '@/components/ShootCard';
 const SERVICE_TIERS = ['Harmony Planning', 'Full Planning', 'Month-Of Coordination', 'Day-Of Coordination'];
 const PROJECT_COLORS = ['#8B6F4E', '#6B7F5E', '#A0522D', '#C4956A', '#D4A574', '#9B8E82', '#C4A97D', '#7B8B5E'];
 
-function NewClientModal({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (project: Project) => void }) {
+function NewClientModal({ open, onClose, onCreate, team }: { open: boolean; onClose: () => void; onCreate: (data: any) => void; team: { id: string; name: string }[] }) {
   const [name, setName] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [venueName, setVenueName] = useState('');
@@ -28,32 +29,23 @@ function NewClientModal({ open, onClose, onCreate }: { open: boolean; onClose: (
 
   const handleSubmit = () => {
     if (!name.trim() || !eventDate) return;
-    const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    const tasks = generateTemplateTasks(eventDate);
-    const newProject: Project = {
-      id,
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    onCreate({
+      slug,
       type: 'client',
       name: name.trim(),
       status: 'active',
       event_date: eventDate,
       contract_signed_date: new Date().toISOString().split('T')[0],
       color,
-      concept: concept.trim() || undefined,
+      concept: concept.trim() || null,
       service_tier: serviceTier,
-      venue_name: venueName.trim() || undefined,
-      venue_location: venueLocation.trim() || undefined,
-      guest_count: guestCount ? parseInt(guestCount) : undefined,
-      estimated_budget: budget.trim() || undefined,
-      assigned_to: assignedTo.length > 0 ? assignedTo : ['1'],
-      tasks_total: tasks.length,
-      tasks_completed: 0,
-      overdue_count: 0,
-      tasks,
-      vendors: [],
-      call_notes: [],
-      next_call_agenda: [],
-    };
-    onCreate(newProject);
+      venue_name: venueName.trim() || null,
+      venue_location: venueLocation.trim() || null,
+      guest_count: guestCount ? parseInt(guestCount) : null,
+      estimated_budget: budget.trim() || null,
+      assigned_to: assignedTo.length > 0 ? assignedTo : [team[0]?.id].filter(Boolean),
+    });
     onClose();
   };
 
@@ -200,15 +192,44 @@ function NewClientModal({ open, onClose, onCreate }: { open: boolean; onClose: (
 
 export default function HomePage() {
   const router = useRouter();
+  const { projects, team, getTeamMember, loading } = useFullProjects();
   const [showNewClient, setShowNewClient] = useState(false);
-  const [clientList, setClientList] = useState(() => projects.filter(p => p.type === 'client' && p.status === 'active'));
+
+  const clients = projects.filter(p => p.type === 'client' && p.status === 'active');
   const shoots = projects.filter(p => p.type === 'shoot');
 
-  const handleCreateProject = (project: Project) => {
-    addProject(project);
-    setClientList(prev => [...prev, project]);
-    router.push(`/projects/${project.id}`);
+  const handleCreateProject = async (data: any) => {
+    try {
+      const { assigned_to, ...projectData } = data;
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...projectData, assigned_to }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        // Generate template tasks
+        if (data.event_date) {
+          await fetch('/api/template-tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_id: created.id, event_date: data.event_date }),
+          });
+        }
+        router.push(`/projects/${created.slug || created.id}`);
+      }
+    } catch (err) {
+      console.error('Failed to create project:', err);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="py-10 px-10">
+        <p className="font-body text-[14px] text-fq-muted">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="py-10 px-10">
@@ -234,9 +255,9 @@ export default function HomePage() {
 
         <div className="overflow-x-auto pb-4 -mx-2 px-2">
           <div className="flex gap-5" style={{ minWidth: 'min-content' }}>
-            {clientList.map((project) => (
+            {clients.map((project) => (
               <div key={project.id} className="w-[360px] shrink-0">
-                <ClientCard project={project} />
+                <ClientCard project={project} getTeamMember={getTeamMember} />
               </div>
             ))}
           </div>
@@ -257,14 +278,14 @@ export default function HomePage() {
           <div className="flex gap-5" style={{ minWidth: 'min-content' }}>
             {shoots.map((project) => (
               <div key={project.id} className="w-[360px] shrink-0">
-                <ShootCard project={project} />
+                <ShootCard project={project} getTeamMember={getTeamMember} />
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <NewClientModal open={showNewClient} onClose={() => setShowNewClient(false)} onCreate={handleCreateProject} />
+      <NewClientModal open={showNewClient} onClose={() => setShowNewClient(false)} onCreate={handleCreateProject} team={team} />
     </div>
   );
 }

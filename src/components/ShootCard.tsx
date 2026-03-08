@@ -2,9 +2,12 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Project, Task, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
+import { formatCountdown, formatDate } from '@/data/seed';
+import type { Project, Task, TeamMember } from '@/data/seed';
 
-export default function ShootCard({ project }: { project: Project }) {
+const defaultGetTeamMember = (_id: string): TeamMember | undefined => undefined;
+
+export default function ShootCard({ project, getTeamMember = defaultGetTeamMember }: { project: Project; getTeamMember?: (id: string) => TeamMember | undefined }) {
   const countdown = formatCountdown(project.event_date);
   const [tasks, setTasks] = useState<Task[]>(project.tasks || []);
 

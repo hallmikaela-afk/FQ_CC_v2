@@ -2,7 +2,8 @@
 
 import { useState, useRef, useEffect, ReactNode } from 'react';
 import Link from 'next/link';
-import { Project, CallNote, getTeamMember, formatCountdown, formatDate } from '@/data/seed';
+import { formatCountdown, formatDate } from '@/data/seed';
+import type { Project, CallNote, TeamMember } from '@/data/seed';
 
 /* ── Inline editable text field ── */
 function EditableField({
@@ -280,7 +281,9 @@ function EditableAgendaSection({ initialItems, tClasses }: { initialItems: strin
 }
 
 /* ── Main card ── */
-export default function ClientCard({ project }: { project: Project }) {
+const defaultLookup = (_id: string): TeamMember | undefined => undefined;
+
+export default function ClientCard({ project, getTeamMember = defaultLookup }: { project: Project; getTeamMember?: (id: string) => TeamMember | undefined }) {
   const [expanded, setExpanded] = useState(false);
   const countdown = formatCountdown(project.event_date);
   const progressPct = project.tasks_total > 0

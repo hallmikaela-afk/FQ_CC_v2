@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ProjectRow, TaskRow, TeamMemberRow, VendorRow, CallNoteRow, TemplateTaskRow } from './database.types';
+import type { Project, Task, Vendor, CallNote, TeamMember } from '@/data/seed';
 
 // Re-export types that match the seed.ts interfaces for compatibility
 export interface ProjectWithCounts extends ProjectRow {
@@ -112,6 +113,28 @@ export function useVendors(projectId?: string) {
   return { vendors, loading };
 }
 
+export function useCallNotes(projectId?: string) {
+  const [callNotes, setCallNotes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetch_ = useCallback(async () => {
+    setLoading(true);
+    const params = projectId ? `?project_id=${projectId}` : '';
+    try {
+      const res = await fetch(`${API_BASE}/api/call-notes${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCallNotes(data);
+      }
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [projectId]);
+
+  useEffect(() => { fetch_(); }, [fetch_]);
+
+  return { callNotes, loading, refetch: fetch_ };
+}
+
 export function useTemplateTasks() {
   const [templates, setTemplates] = useState<TemplateTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -133,4 +156,139 @@ export function useTemplateTasks() {
   }, []);
 
   return { templates, loading, generateForProject };
+}
+
+// ─── Composite hook: fetches all data and returns full Project objects ───
+
+export function useFullProjects() {
+  const { projects: rawProjects, loading: pLoading, error: pError, refetch: refetchProjects } = useProjects();
+  const { tasks: allTasks, loading: tLoading } = useTasks();
+  const { vendors: allVendors, loading: vLoading } = useVendors();
+  const { callNotes: allCallNotes, loading: cnLoading } = useCallNotes();
+  const { team, loading: tmLoading } = useTeam();
+
+  const loading = pLoading || tLoading || vLoading || cnLoading || tmLoading;
+
+  const projects: Project[] = useMemo(() => {
+    if (loading) return [];
+    return rawProjects.map((p) => {
+      const projectTasks: Task[] = allTasks
+        .filter(t => t.project_id === p.id)
+        .map(t => ({
+          id: t.id,
+          text: t.text,
+          completed: t.completed,
+          status: t.status || undefined,
+          due_date: t.due_date || undefined,
+          category: t.category || undefined,
+          assigned_to: t.assigned_to || undefined,
+          priority: t.priority || undefined,
+          notes: t.notes || undefined,
+          subtasks: (t.subtasks || []).map(st => ({
+            id: st.id,
+            text: st.text,
+            completed: st.completed,
+          })),
+        }));
+
+      const projectVendors: Vendor[] = allVendors
+        .filter(v => v.project_id === p.id)
+        .map(v => ({
+          id: v.id,
+          category: v.category,
+          vendor_name: v.vendor_name,
+          contact_name: v.contact_name || undefined,
+          email: v.email || undefined,
+          phone: v.phone || undefined,
+          website: v.website || undefined,
+          instagram: v.instagram || undefined,
+        }));
+
+      const projectCallNotes: CallNote[] = allCallNotes
+        .filter(cn => cn.project_id === p.id)
+        .map((cn: any) => ({
+          id: cn.id,
+          date: cn.date,
+          title: cn.title || undefined,
+          summary: cn.summary || undefined,
+          raw_text: cn.raw_text,
+          extracted_actions: (cn.extracted_actions || []).map((ea: any) => ({
+            id: ea.id,
+            text: ea.text,
+            due_date: ea.due_date || '',
+            accepted: ea.accepted,
+            dismissed: ea.dismissed,
+          })),
+        }));
+
+      const today = new Date().toISOString().split('T')[0];
+
+      return {
+        id: p.slug || p.id,
+        type: p.type,
+        name: p.name,
+        status: p.status,
+        event_date: p.event_date || '',
+        contract_signed_date: p.contract_signed_date || undefined,
+        color: p.color,
+        concept: p.concept || undefined,
+        assigned_to: p.assigned_to || [],
+        service_tier: p.service_tier || undefined,
+        client1_name: p.client1_name || undefined,
+        client2_name: p.client2_name || undefined,
+        venue_name: p.venue_name || undefined,
+        venue_location: p.venue_location || undefined,
+        venue_street: p.venue_street || undefined,
+        venue_city_state_zip: p.venue_city_state_zip || undefined,
+        client_street: p.client_street || undefined,
+        client_city_state_zip: p.client_city_state_zip || undefined,
+        guest_count: p.guest_count || undefined,
+        estimated_budget: p.estimated_budget || undefined,
+        photographer: p.photographer || undefined,
+        florist: p.florist || undefined,
+        location: p.location || undefined,
+        location_street: p.location_street || undefined,
+        location_city_state_zip: p.location_city_state_zip || undefined,
+        design_board_link: p.design_board_link || undefined,
+        canva_link: p.canva_link || undefined,
+        internal_file_share: p.internal_file_share || undefined,
+        client_shared_folder: p.client_shared_folder || undefined,
+        client_portal_link: p.client_portal_link || undefined,
+        client_website: p.client_website || undefined,
+        sharepoint_folder: p.sharepoint_folder || undefined,
+        project_colors: p.project_colors || undefined,
+        next_call_agenda: p.next_call_agenda || undefined,
+        tasks_total: projectTasks.length,
+        tasks_completed: projectTasks.filter(t => t.completed).length,
+        overdue_count: projectTasks.filter(t => !t.completed && t.due_date && t.due_date < today).length,
+        tasks: projectTasks,
+        vendors: projectVendors,
+        call_notes: projectCallNotes,
+        // Store the real UUID for API calls
+        _supabaseId: p.id,
+      } as Project & { _supabaseId: string };
+    });
+  }, [rawProjects, allTasks, allVendors, allCallNotes, loading]);
+
+  const teamMembers: TeamMember[] = useMemo(() => {
+    return team.map(t => ({
+      id: t.id,
+      name: t.name,
+      initials: t.initials,
+      role: t.role,
+    }));
+  }, [team]);
+
+  const getTeamMember = useCallback((id: string): TeamMember | undefined => {
+    return teamMembers.find(m => m.id === id);
+  }, [teamMembers]);
+
+  return {
+    projects,
+    team: teamMembers,
+    getTeamMember,
+    loading,
+    error: pError,
+    refetch: refetchProjects,
+  };
 }
