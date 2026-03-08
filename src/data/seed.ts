@@ -31,6 +31,12 @@ export interface CallNote {
   }[];
 }
 
+export interface SubTask {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
 export interface Task {
   id: string;
   text: string;
@@ -38,6 +44,9 @@ export interface Task {
   due_date?: string;
   category?: string;
   assigned_to?: string;
+  priority?: 'low' | 'medium' | 'high';
+  notes?: string;
+  subtasks?: SubTask[];
 }
 
 export interface Project {

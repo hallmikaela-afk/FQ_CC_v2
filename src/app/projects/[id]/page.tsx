@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { projects, getTeamMember, formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
-import type { Project, Vendor, CallNote, Task } from '@/data/seed';
+import type { Project, Vendor, CallNote, Task, SubTask } from '@/data/seed';
 
 /* ─────────────── Inline Editable Field ─────────────── */
 function EditableField({
@@ -1068,6 +1068,229 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
   );
 }
 
+/* ─────────────── Inline Cell Editor ─────────────── */
+function InlineCell({ value, onSave, className = '', type = 'text', options, placeholder }: {
+  value: string;
+  onSave: (v: string) => void;
+  className?: string;
+  type?: 'text' | 'date' | 'select';
+  options?: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLInputElement | HTMLSelectElement>(null);
+  useEffect(() => { if (editing) ref.current?.focus(); }, [editing]);
+
+  if (!editing) {
+    return (
+      <span
+        onDoubleClick={() => { setDraft(value); setEditing(true); }}
+        className={`cursor-default select-none ${className}`}
+        title="Double-click to edit"
+      >
+        {value || <span className="text-fq-muted/30 italic">{placeholder || '—'}</span>}
+      </span>
+    );
+  }
+
+  const commit = () => { onSave(draft); setEditing(false); };
+  const cancel = () => { setDraft(value); setEditing(false); };
+
+  if (type === 'select' && options) {
+    return (
+      <select
+        ref={ref as React.RefObject<HTMLSelectElement>}
+        value={draft}
+        onChange={(e) => { onSave(e.target.value); setEditing(false); }}
+        onBlur={cancel}
+        className="font-body text-[12px] bg-white border border-fq-accent/40 rounded px-1 py-0.5 outline-none w-full"
+      >
+        <option value="">—</option>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    );
+  }
+
+  return (
+    <input
+      ref={ref as React.RefObject<HTMLInputElement>}
+      type={type}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
+      className="font-body text-[12px] bg-white border border-fq-accent/40 rounded px-1 py-0.5 outline-none w-full"
+      placeholder={placeholder}
+    />
+  );
+}
+
+/* ─────────────── Task Detail Panel ─────────────── */
+function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
+  task: Task;
+  onClose: () => void;
+  onUpdate: (updated: Task) => void;
+  categories: string[];
+  assignedTo: string[];
+}) {
+  const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70' };
+  const [notes, setNotes] = useState(task.notes || '');
+  const [newSubtask, setNewSubtask] = useState('');
+  const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+
+  const update = (patch: Partial<Task>) => onUpdate({ ...task, ...patch });
+
+  const addSubtask = () => {
+    if (!newSubtask.trim()) return;
+    const st: SubTask = { id: `st-${Date.now()}`, text: newSubtask.trim(), completed: false };
+    update({ subtasks: [...(task.subtasks || []), st] });
+    setNewSubtask('');
+  };
+
+  const toggleSubtask = (stId: string) => {
+    update({ subtasks: (task.subtasks || []).map(s => s.id === stId ? { ...s, completed: !s.completed } : s) });
+  };
+
+  const removeSubtask = (stId: string) => {
+    update({ subtasks: (task.subtasks || []).filter(s => s.id !== stId) });
+  };
+
+  const saveNotes = () => update({ notes });
+
+  const subtasks = task.subtasks || [];
+  const stDone = subtasks.filter(s => s.completed).length;
+
+  return (
+    <div className="w-[380px] border-l border-fq-border bg-white p-5 overflow-y-auto flex flex-col gap-5 shrink-0">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2 flex-1 min-w-0">
+          <button
+            onClick={() => update({ completed: !task.completed })}
+            className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+              task.completed ? 'bg-fq-accent border-fq-accent text-white' : 'border-fq-border hover:border-fq-accent'
+            }`}
+          >
+            {task.completed && (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>
+            )}
+          </button>
+          <InlineCell
+            value={task.text}
+            onSave={(v) => update({ text: v })}
+            className={`font-body text-[15px] font-medium flex-1 ${task.completed ? 'text-fq-muted/50 line-through' : t.heading}`}
+            placeholder="Task name..."
+          />
+        </div>
+        <button onClick={onClose} className="text-fq-muted/40 hover:text-fq-dark text-[16px] shrink-0 mt-0.5">✕</button>
+      </div>
+
+      {/* Fields */}
+      <div className="grid grid-cols-[90px_1fr] gap-y-3 gap-x-2 items-center">
+        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Category</span>
+        <InlineCell
+          value={task.category || ''}
+          onSave={(v) => update({ category: v || undefined })}
+          type="select"
+          options={categories.map(c => ({ value: c, label: c }))}
+          className={`font-body text-[12px] ${t.body}`}
+          placeholder="Select..."
+        />
+
+        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Due Date</span>
+        <InlineCell
+          value={task.due_date || ''}
+          onSave={(v) => update({ due_date: v || undefined })}
+          type="date"
+          className={`font-body text-[12px] ${t.body}`}
+          placeholder="Set date..."
+        />
+
+        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Priority</span>
+        <InlineCell
+          value={task.priority || ''}
+          onSave={(v) => update({ priority: (v as Task['priority']) || undefined })}
+          type="select"
+          options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]}
+          className={`font-body text-[12px] ${t.body}`}
+          placeholder="Set priority..."
+        />
+
+        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Assigned</span>
+        <InlineCell
+          value={task.assigned_to || ''}
+          onSave={(v) => update({ assigned_to: v || undefined })}
+          type="select"
+          options={assignedTo.map(id => { const m = getTeamMember(id); return { value: id, label: m?.name || id }; })}
+          className={`font-body text-[12px] ${t.body}`}
+          placeholder="Assign..."
+        />
+
+        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Status</span>
+        <span className="font-body text-[12px]">
+          {task.completed
+            ? <span className="text-fq-sage bg-fq-sage-light px-2 py-0.5 rounded-full">Done</span>
+            : <span className="text-fq-blue bg-fq-blue-light px-2 py-0.5 rounded-full">Open</span>
+          }
+        </span>
+      </div>
+
+      {/* Subtasks */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className={`font-body text-[12px] font-semibold ${t.heading}`}>
+            Subtasks {subtasks.length > 0 && <span className={`font-normal ${t.light}`}>{stDone}/{subtasks.length}</span>}
+          </span>
+        </div>
+        {subtasks.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {subtasks.map(st => (
+              <div key={st.id} className="flex items-center gap-2 group/st py-1 px-1 rounded hover:bg-fq-bg/50">
+                <button
+                  onClick={() => toggleSubtask(st.id)}
+                  className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                    st.completed ? 'bg-fq-accent border-fq-accent text-white' : 'border-fq-border hover:border-fq-accent'
+                  }`}
+                >
+                  {st.completed && (
+                    <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>
+                  )}
+                </button>
+                <span className={`font-body text-[12px] flex-1 ${st.completed ? 'text-fq-muted/50 line-through' : t.body}`}>{st.text}</span>
+                <button onClick={() => removeSubtask(st.id)} className="text-fq-muted/30 hover:text-fq-alert text-[10px] opacity-0 group-hover/st:opacity-100 transition-opacity">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            value={newSubtask}
+            onChange={(e) => setNewSubtask(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addSubtask(); }}
+            placeholder="Add subtask..."
+            className={`flex-1 font-body text-[12px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-2.5 py-1.5 outline-none focus:border-fq-accent/40 placeholder:text-fq-muted/40`}
+          />
+          <button onClick={addSubtask} disabled={!newSubtask.trim()} className="font-body text-[11px] text-fq-accent hover:text-fq-dark disabled:opacity-30 transition-colors">+ Add</button>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div>
+        <span className={`font-body text-[12px] font-semibold ${t.heading} block mb-2`}>Notes</span>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={saveNotes}
+          placeholder="Add notes..."
+          rows={4}
+          className={`w-full font-body text-[12px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40 resize-none placeholder:text-fq-muted/40`}
+        />
+      </div>
+    </div>
+  );
+}
+
 /* ─────────────── Task List Section ─────────────── */
 function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { tasks: Task[]; projectColor: string; assignedTo: string[] }) {
   const [tasks, setTasks] = useState(initialTasks);
@@ -1075,6 +1298,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
   const [groupBy, setGroupBy] = useState<'category' | 'date'>('date');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [kanbanGroupField, setKanbanGroupField] = useState<'category' | 'date' | 'assigned_to' | 'status'>('category');
@@ -1084,6 +1308,11 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const [newTaskDue, setNewTaskDue] = useState('');
   const [newTaskCategory, setNewTaskCategory] = useState('');
   const [newTaskAssigned, setNewTaskAssigned] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState('');
+  const [newTaskNotes, setNewTaskNotes] = useState('');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [addingSubtaskFor, setAddingSubtaskFor] = useState<string | null>(null);
+  const [inlineSubtaskText, setInlineSubtaskText] = useState('');
 
   const t = {
     heading: 'text-fq-dark/90',
@@ -1124,14 +1353,37 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
       due_date: newTaskDue || undefined,
       category: newTaskCategory || undefined,
       assigned_to: newTaskAssigned || undefined,
+      priority: (newTaskPriority as Task['priority']) || undefined,
+      notes: newTaskNotes || undefined,
+      subtasks: [],
     };
     setTasks(prev => [...prev, newTask]);
     setNewTaskText('');
     setNewTaskDue('');
     setNewTaskCategory('');
     setNewTaskAssigned('');
+    setNewTaskPriority('');
+    setNewTaskNotes('');
     setShowAddTask(false);
   };
+
+  const updateTask = (updated: Task) => {
+    setTasks(prev => prev.map(tk => tk.id === updated.id ? updated : tk));
+  };
+
+  const updateTaskField = (taskId: string, field: keyof Task, value: string | undefined) => {
+    setTasks(prev => prev.map(tk => tk.id === taskId ? { ...tk, [field]: value } : tk));
+  };
+
+  const addInlineSubtask = (taskId: string) => {
+    if (!inlineSubtaskText.trim()) return;
+    const st: SubTask = { id: `st-${Date.now()}`, text: inlineSubtaskText.trim(), completed: false };
+    setTasks(prev => prev.map(tk => tk.id === taskId ? { ...tk, subtasks: [...(tk.subtasks || []), st] } : tk));
+    setInlineSubtaskText('');
+    setAddingSubtaskFor(null);
+  };
+
+  const selectedTask = selectedTaskId ? tasks.find(tk => tk.id === selectedTaskId) : null;
 
   const allCount = tasks.length;
   const openCount = tasks.filter(tk => !tk.completed).length;
@@ -1144,6 +1396,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   if (search) filtered = filtered.filter(tk => tk.text.toLowerCase().includes(search.toLowerCase()));
   if (categoryFilter !== 'all') filtered = filtered.filter(tk => tk.category === categoryFilter);
   if (teamFilter !== 'all') filtered = filtered.filter(tk => tk.assigned_to === teamFilter);
+  if (priorityFilter !== 'all') filtered = filtered.filter(tk => tk.priority === priorityFilter);
 
   // Get unique categories
   const categories = Array.from(new Set(tasks.map(tk => tk.category).filter(Boolean))) as string[];
@@ -1223,7 +1476,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
 
       {/* Filters row */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-[320px]">
+        <div className="relative flex-1 min-w-[180px] max-w-[280px]">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-fq-muted/40 text-[13px]">🔍</span>
           <input
             value={search}
@@ -1250,6 +1503,16 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
             const member = getTeamMember(id);
             return member ? <option key={id} value={id}>{member.name}</option> : null;
           })}
+        </select>
+        <select
+          value={priorityFilter}
+          onChange={(e) => setPriorityFilter(e.target.value)}
+          className={`font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
+        >
+          <option value="all">All Priorities</option>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
         </select>
         <button
           onClick={() => setShowAddTask(true)}
@@ -1322,7 +1585,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
             <h4 className={`font-body text-[14px] font-semibold ${t.heading}`}>New Task</h4>
             <button onClick={() => setShowAddTask(false)} className={`font-body text-[12px] ${t.light} hover:text-fq-dark`}>Cancel</button>
           </div>
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-end">
+          <div className="space-y-3">
             <div>
               <label className={`font-body text-[11px] ${t.light} block mb-1`}>Task</label>
               <input
@@ -1334,39 +1597,83 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                 autoFocus
               />
             </div>
-            <div>
-              <label className={`font-body text-[11px] ${t.light} block mb-1`}>Due date</label>
-              <input
-                type="date"
-                value={newTaskDue}
-                onChange={(e) => setNewTaskDue(e.target.value)}
-                className={`font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`}
-              />
+            <div className="grid grid-cols-4 gap-3">
+              <div>
+                <label className={`font-body text-[11px] ${t.light} block mb-1`}>Due date</label>
+                <input
+                  type="date"
+                  value={newTaskDue}
+                  onChange={(e) => setNewTaskDue(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`}
+                />
+              </div>
+              <div>
+                <label className={`font-body text-[11px] ${t.light} block mb-1`}>Category</label>
+                <input
+                  value={newTaskCategory}
+                  onChange={(e) => setNewTaskCategory(e.target.value)}
+                  placeholder="Category..."
+                  list="task-categories"
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`}
+                />
+                <datalist id="task-categories">
+                  {categories.map(cat => <option key={cat} value={cat} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className={`font-body text-[11px] ${t.light} block mb-1`}>Assigned to</label>
+                <select
+                  value={newTaskAssigned}
+                  onChange={(e) => setNewTaskAssigned(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
+                >
+                  <option value="">Unassigned</option>
+                  {assignedTo.map(id => {
+                    const member = getTeamMember(id);
+                    return member ? <option key={id} value={id}>{member.name}</option> : null;
+                  })}
+                </select>
+              </div>
+              <div>
+                <label className={`font-body text-[11px] ${t.light} block mb-1`}>Priority</label>
+                <select
+                  value={newTaskPriority}
+                  onChange={(e) => setNewTaskPriority(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
+                >
+                  <option value="">None</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </div>
             </div>
             <div>
-              <label className={`font-body text-[11px] ${t.light} block mb-1`}>Category</label>
-              <input
-                value={newTaskCategory}
-                onChange={(e) => setNewTaskCategory(e.target.value)}
-                placeholder="Category..."
-                list="task-categories"
-                className={`font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none w-[160px]`}
+              <label className={`font-body text-[11px] ${t.light} block mb-1`}>Notes</label>
+              <textarea
+                value={newTaskNotes}
+                onChange={(e) => setNewTaskNotes(e.target.value)}
+                placeholder="Optional notes..."
+                rows={2}
+                className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40 resize-none placeholder:text-fq-muted/40`}
               />
-              <datalist id="task-categories">
-                {categories.map(cat => <option key={cat} value={cat} />)}
-              </datalist>
             </div>
-            <button
-              onClick={addTask}
-              disabled={!newTaskText.trim()}
-              className="bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors disabled:opacity-40"
-            >
-              Add
-            </button>
+            <div className="flex justify-end">
+              <button
+                onClick={addTask}
+                disabled={!newTaskText.trim()}
+                className="bg-fq-dark text-white font-body text-[13px] font-medium px-5 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors disabled:opacity-40"
+              >
+                Add Task
+              </button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Main content with optional detail panel */}
+      <div className="flex gap-0">
+        <div className="flex-1 min-w-0">
       {filtered.length === 0 ? (
         <p className={`font-body text-[13px] ${t.light} text-center py-8`}>
           {search ? 'No tasks match your search.' : 'No tasks yet.'}
@@ -1375,11 +1682,12 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
         /* ── List View (table-style) ── */
         <div>
           {/* Column headers */}
-          <div className="grid grid-cols-[24px_1fr_140px_100px_100px_36px] gap-3 px-3 pb-2 border-b border-fq-border mb-1">
+          <div className="grid grid-cols-[24px_1fr_130px_80px_80px_90px_36px] gap-2 px-3 pb-2 border-b border-fq-border mb-1">
             <span />
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Task</span>
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Category</span>
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Status</span>
+            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Priority</span>
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Due Date</span>
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Person</span>
           </div>
@@ -1414,16 +1722,24 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                     {groupTasks.map((task) => {
                       const overdue = !task.completed && isOverdue(task.due_date);
                       const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+                      const stCount = (task.subtasks || []).length;
+                      const stDone = (task.subtasks || []).filter(s => s.completed).length;
+                      const priorityColors: Record<string, string> = {
+                        high: 'text-fq-rose bg-fq-rose-light',
+                        medium: 'text-fq-amber bg-fq-amber-light',
+                        low: 'text-fq-sage bg-fq-sage-light',
+                      };
                       return (
+                        <div key={task.id}>
                         <div
-                          key={task.id}
-                          className={`grid grid-cols-[24px_1fr_140px_100px_100px_36px] gap-3 items-center py-2 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors border-b border-fq-border/40 last:border-b-0 ${
+                          onClick={() => setSelectedTaskId(task.id)}
+                          className={`grid grid-cols-[24px_1fr_130px_80px_80px_90px_36px] gap-2 items-center py-2 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors border-b border-fq-border/40 last:border-b-0 cursor-pointer ${
                             overdue ? 'bg-fq-alert/5' : ''
-                          }`}
+                          } ${selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''}`}
                         >
                           {/* Checkbox */}
                           <button
-                            onClick={() => toggleTask(task.id)}
+                            onClick={(e) => { e.stopPropagation(); toggleTask(task.id); }}
                             className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
                               task.completed
                                 ? 'bg-fq-accent border-fq-accent text-white'
@@ -1436,22 +1752,27 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                               </svg>
                             )}
                           </button>
-                          {/* Task name */}
-                          <span className={`font-body text-[13px] truncate ${
-                            task.completed ? 'text-fq-muted/50 line-through' : t.heading
-                          }`}>
-                            {task.text}
-                          </span>
-                          {/* Category pill */}
-                          <span className="truncate">
-                            {task.category && (() => {
-                              const cc = getCategoryColor(task.category!);
-                              return (
-                              <span className={`font-body text-[11px] ${cc.text} ${cc.bg} px-2 py-0.5 rounded-full inline-block truncate max-w-full`}>
-                                {task.category}
-                              </span>
-                              );
-                            })()}
+                          {/* Task name - double click to edit */}
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <InlineCell
+                              value={task.text}
+                              onSave={(v) => updateTaskField(task.id, 'text', v)}
+                              className={`font-body text-[13px] truncate ${task.completed ? 'text-fq-muted/50 line-through' : t.heading}`}
+                            />
+                            {stCount > 0 && (
+                              <span className={`font-body text-[10px] ${t.light} shrink-0`}>{stDone}/{stCount}</span>
+                            )}
+                          </div>
+                          {/* Category pill - double click to edit */}
+                          <span className="truncate" onClick={(e) => e.stopPropagation()}>
+                            <InlineCell
+                              value={task.category || ''}
+                              onSave={(v) => updateTaskField(task.id, 'category', v || undefined)}
+                              type="select"
+                              options={categories.map(c => ({ value: c, label: c }))}
+                              className={`font-body text-[11px] ${task.category ? (() => { const cc = getCategoryColor(task.category!); return `${cc.text} ${cc.bg} px-2 py-0.5 rounded-full`; })() : t.light}`}
+                              placeholder="—"
+                            />
                           </span>
                           {/* Status */}
                           <span>
@@ -1463,25 +1784,62 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                               <span className="font-body text-[11px] text-fq-blue bg-fq-blue-light px-2 py-0.5 rounded-full">Open</span>
                             )}
                           </span>
-                          {/* Due date */}
-                          <span className={`font-body text-[12px] ${
-                            overdue ? 'text-fq-alert font-medium' : t.light
-                          }`}>
-                            {task.due_date ? formatDate(task.due_date) : '—'}
+                          {/* Priority - double click to edit */}
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <InlineCell
+                              value={task.priority || ''}
+                              onSave={(v) => updateTaskField(task.id, 'priority', v || undefined)}
+                              type="select"
+                              options={[{ value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }]}
+                              className={`font-body text-[11px] ${task.priority ? `${priorityColors[task.priority]} px-2 py-0.5 rounded-full` : t.light}`}
+                              placeholder="—"
+                            />
                           </span>
-                          {/* Person */}
-                          {member ? (
-                            <div
-                              className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0"
-                              title={member.name}
-                            >
-                              <span className="font-body text-[9px] font-semibold text-fq-accent">
-                                {member.initials}
-                              </span>
-                            </div>
-                          ) : (
-                            <span />
-                          )}
+                          {/* Due date - double click to edit */}
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <InlineCell
+                              value={task.due_date || ''}
+                              onSave={(v) => updateTaskField(task.id, 'due_date', v || undefined)}
+                              type="date"
+                              className={`font-body text-[12px] ${overdue ? 'text-fq-alert font-medium' : t.light}`}
+                              placeholder="—"
+                            />
+                          </span>
+                          {/* Person - double click to edit */}
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <InlineCell
+                              value={task.assigned_to || ''}
+                              onSave={(v) => updateTaskField(task.id, 'assigned_to', v || undefined)}
+                              type="select"
+                              options={assignedTo.map(id => { const m = getTeamMember(id); return { value: id, label: m?.initials || id }; })}
+                              className={`font-body text-[10px] ${member ? 'font-semibold text-fq-accent' : t.light}`}
+                              placeholder="—"
+                            />
+                          </span>
+                        </div>
+                        {/* Inline subtask add */}
+                        {addingSubtaskFor === task.id && (
+                          <div className="flex items-center gap-2 ml-10 py-1 px-3">
+                            <input
+                              value={inlineSubtaskText}
+                              onChange={(e) => setInlineSubtaskText(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') addInlineSubtask(task.id); if (e.key === 'Escape') { setAddingSubtaskFor(null); setInlineSubtaskText(''); } }}
+                              placeholder="Subtask name..."
+                              autoFocus
+                              className={`flex-1 font-body text-[12px] ${t.body} bg-white border border-fq-border rounded px-2 py-1 outline-none focus:border-fq-accent/40`}
+                            />
+                            <button onClick={() => addInlineSubtask(task.id)} className="font-body text-[11px] text-fq-accent hover:text-fq-dark">Add</button>
+                            <button onClick={() => { setAddingSubtaskFor(null); setInlineSubtaskText(''); }} className={`font-body text-[11px] ${t.light}`}>Cancel</button>
+                          </div>
+                        )}
+                        {addingSubtaskFor !== task.id && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setAddingSubtaskFor(task.id); setInlineSubtaskText(''); }}
+                            className={`font-body text-[10px] ${t.light} hover:text-fq-accent ml-10 px-3 py-0.5 opacity-0 hover:opacity-100 transition-opacity`}
+                          >
+                            + subtask
+                          </button>
+                        )}
                         </div>
                       );
                     })}
@@ -1523,9 +1881,10 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                     return (
                       <div
                         key={task.id}
-                        className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow ${
+                        onClick={() => setSelectedTaskId(task.id)}
+                        className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
                           overdue ? 'border-fq-alert/40 bg-fq-alert/5' : 'border-fq-border'
-                        }`}
+                        } ${selectedTaskId === task.id ? 'ring-1 ring-fq-blue' : ''}`}
                       >
                         <div className="flex items-start gap-2">
                           <button
@@ -1584,6 +1943,18 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
           })}
         </div>
       )}
+        </div>
+        {/* Detail panel */}
+        {selectedTask && (
+          <TaskDetailPanel
+            task={selectedTask}
+            onClose={() => setSelectedTaskId(null)}
+            onUpdate={updateTask}
+            categories={categories}
+            assignedTo={assignedTo}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -1617,7 +1988,7 @@ export default function ProjectDetailPage() {
         </select>
       </div>
 
-      <div className="grid grid-cols-[1fr_340px] gap-5 mb-8">
+      <div className="grid grid-cols-[1fr_440px] gap-5 mb-8">
         <HeaderCard project={project} />
         <NextCallAgenda items={project.next_call_agenda || []} />
       </div>
