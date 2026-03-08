@@ -31,79 +31,142 @@ async function buildContext(): Promise<string> {
   const supabase = tryGetSupabase();
 
   if (supabase) {
-    // Use live Supabase data
-    const [projectsRes, tasksRes, teamRes] = await Promise.all([
-      supabase.from('projects').select('id, name, type, status, event_date, venue_name, venue_location, concept, service_tier, guest_count, estimated_budget').order('event_date'),
-      supabase.from('tasks').select('id, project_id, text, completed, status, due_date, category, priority, assigned_to').eq('completed', false).order('due_date'),
+    // Use live Supabase data — fetch everything for full context
+    const [projectsRes, tasksRes, teamRes, vendorsRes] = await Promise.all([
+      supabase.from('projects').select('*').order('event_date'),
+      supabase.from('tasks').select('*').order('due_date'),
       supabase.from('team_members').select('*'),
+      supabase.from('vendors').select('*'),
     ]);
 
     const projects: any[] = projectsRes.data || [];
     const tasks: any[] = tasksRes.data || [];
     const team: any[] = teamRes.data || [];
-
-    const overdue = tasks.filter((t: any) => t.due_date && t.due_date < today);
+    const vendors: any[] = vendorsRes.data || [];
 
     context += `TEAM:\n`;
     team.forEach((t: any) => { context += `- ${t.name} (${t.role}) [ID: ${t.id}]\n`; });
 
-    context += `\nACTIVE PROJECTS:\n`;
     projects.forEach((p: any) => {
       const projectTasks = tasks.filter((t: any) => t.project_id === p.id);
-      context += `- ${p.name} (${p.type}, ${p.status}) — ${p.event_date || 'no date'}, ${p.venue_name || p.concept || ''} [ID: ${p.id}]\n`;
-      context += `  Open tasks: ${projectTasks.length}\n`;
-    });
+      const openTasks = projectTasks.filter((t: any) => !t.completed);
+      const overdueTasks = openTasks.filter((t: any) => t.due_date && t.due_date < today);
+      const projectVendors = vendors.filter((v: any) => v.project_id === p.id);
 
-    if (overdue.length > 0) {
-      context += `\nOVERDUE TASKS (${overdue.length}):\n`;
-      overdue.forEach((t: any) => {
-        const proj = projects.find((p: any) => p.id === t.project_id);
-        context += `- "${t.text}" — due ${t.due_date} (${proj?.name || 'unknown project'})\n`;
-      });
-    }
+      context += `\n${'='.repeat(60)}\n`;
+      context += `PROJECT: ${p.name}\n`;
+      context += `Type: ${p.type} | Status: ${p.status} | Event date: ${p.event_date || 'TBD'}\n`;
+      if (p.venue_name) context += `Venue: ${p.venue_name}${p.venue_location ? ` — ${p.venue_location}` : ''}\n`;
+      if (p.concept) context += `Concept: ${p.concept}\n`;
+      if (p.service_tier) context += `Service tier: ${p.service_tier}\n`;
+      if (p.guest_count) context += `Guest count: ${p.guest_count}\n`;
+      if (p.estimated_budget) context += `Budget: ${p.estimated_budget}\n`;
+
+      if (projectVendors.length > 0) {
+        context += `\nVENDORS (${projectVendors.length}):\n`;
+        projectVendors.forEach((v: any) => {
+          context += `  - ${v.vendor_name} [${v.category}]`;
+          if (v.contact_name) context += ` | Contact: ${v.contact_name}`;
+          if (v.email) context += ` | Email: ${v.email}`;
+          if (v.phone) context += ` | Phone: ${v.phone}`;
+          if (v.website) context += ` | Web: ${v.website}`;
+          if (v.instagram) context += ` | IG: ${v.instagram}`;
+          context += `\n`;
+        });
+      } else {
+        context += `\nVENDORS: None added yet\n`;
+      }
+
+      if (openTasks.length > 0) {
+        context += `\nOPEN TASKS (${openTasks.length}):\n`;
+        openTasks.forEach((t: any) => {
+          const overdue = t.due_date && t.due_date < today ? ' [OVERDUE]' : '';
+          context += `  - ${t.text}`;
+          if (t.due_date) context += ` | Due: ${t.due_date}${overdue}`;
+          if (t.category) context += ` | Category: ${t.category}`;
+          if (t.priority) context += ` | Priority: ${t.priority}`;
+          if (t.assigned_to) {
+            const member = team.find((m: any) => m.id === t.assigned_to);
+            if (member) context += ` | Assigned: ${member.name}`;
+          }
+          context += `\n`;
+        });
+      }
+    });
   } else {
-    // Fall back to seed data
+    // Fall back to seed data — include FULL detail so the assistant has complete context
     context += `TEAM:\n`;
     seedTeam.forEach(t => { context += `- ${t.name} (${t.role})\n`; });
 
-    context += `\nACTIVE PROJECTS:\n`;
+    // Full project details
     seedProjects.forEach(p => {
-      const openTasks = (p.tasks || []).filter(t => !t.completed);
-      const overdueTasks = openTasks.filter(t => t.due_date && t.due_date < today);
-      context += `- ${p.name} (${p.type}, ${p.status}) — ${p.event_date || 'no date'}, ${p.venue_name || p.concept || ''}\n`;
-      context += `  Open tasks: ${openTasks.length}${overdueTasks.length > 0 ? ` (${overdueTasks.length} overdue)` : ''}\n`;
+      context += `\n${'='.repeat(60)}\n`;
+      context += `PROJECT: ${p.name}\n`;
+      context += `Type: ${p.type} | Status: ${p.status} | Event date: ${p.event_date || 'TBD'}\n`;
+      if (p.venue_name) context += `Venue: ${p.venue_name}${p.venue_location ? ` — ${p.venue_location}` : ''}\n`;
+      if (p.concept) context += `Concept: ${p.concept}\n`;
+      if (p.service_tier) context += `Service tier: ${p.service_tier}\n`;
+      if (p.guest_count) context += `Guest count: ${p.guest_count}\n`;
+      if (p.estimated_budget) context += `Budget: ${p.estimated_budget}\n`;
+      if (p.client1_name || p.client2_name) context += `Clients: ${[p.client1_name, p.client2_name].filter(Boolean).join(' & ')}\n`;
 
+      // Full vendor details
       if (p.vendors && p.vendors.length > 0) {
-        context += `  Vendors: ${p.vendors.map(v => `${v.vendor_name} (${v.category})`).join(', ')}\n`;
+        context += `\nVENDORS (${p.vendors.length}):\n`;
+        p.vendors.forEach(v => {
+          context += `  - ${v.vendor_name} [${v.category}]`;
+          if (v.contact_name) context += ` | Contact: ${v.contact_name}`;
+          if (v.email) context += ` | Email: ${v.email}`;
+          if (v.phone) context += ` | Phone: ${v.phone}`;
+          if (v.website) context += ` | Web: ${v.website}`;
+          if (v.instagram) context += ` | IG: ${v.instagram}`;
+          context += `\n`;
+        });
+      } else {
+        context += `\nVENDORS: None added yet\n`;
       }
-    });
 
-    // Aggregate overdue tasks across all projects
-    const allOverdue: { text: string; due_date: string; project: string }[] = [];
-    seedProjects.forEach(p => {
-      (p.tasks || []).forEach(t => {
-        if (!t.completed && t.due_date && t.due_date < today) {
-          allOverdue.push({ text: t.text, due_date: t.due_date, project: p.name });
-        }
-      });
-    });
+      // Full task details (open tasks)
+      const openTasks = (p.tasks || []).filter(t => !t.completed);
+      const completedTasks = (p.tasks || []).filter(t => t.completed);
+      if (openTasks.length > 0) {
+        context += `\nOPEN TASKS (${openTasks.length}):\n`;
+        openTasks.forEach(t => {
+          const overdue = t.due_date && t.due_date < today ? ' [OVERDUE]' : '';
+          context += `  - ${t.text}`;
+          if (t.due_date) context += ` | Due: ${t.due_date}${overdue}`;
+          if (t.category) context += ` | Category: ${t.category}`;
+          if (t.priority) context += ` | Priority: ${t.priority}`;
+          if (t.assigned_to) {
+            const member = seedTeam.find(m => m.id === t.assigned_to);
+            if (member) context += ` | Assigned: ${member.name}`;
+          }
+          if (t.notes) context += ` | Notes: ${t.notes}`;
+          context += `\n`;
+          if (t.subtasks && t.subtasks.length > 0) {
+            t.subtasks.forEach(st => {
+              context += `    ${st.completed ? '[x]' : '[ ]'} ${st.text}\n`;
+            });
+          }
+        });
+      }
+      context += `Completed tasks: ${completedTasks.length}\n`;
 
-    if (allOverdue.length > 0) {
-      context += `\nOVERDUE TASKS (${allOverdue.length}):\n`;
-      allOverdue.forEach(t => {
-        context += `- "${t.text}" — due ${t.due_date} (${t.project})\n`;
-      });
-    }
-
-    // Include call notes summaries
-    seedProjects.forEach(p => {
+      // Full call notes with raw text
       if (p.call_notes && p.call_notes.length > 0) {
-        context += `\nRECENT CALL NOTES — ${p.name}:\n`;
+        context += `\nCALL NOTES:\n`;
         p.call_notes.forEach(cn => {
-          context += `- ${cn.date}${cn.title ? ` — ${cn.title}` : ''}: ${cn.summary || cn.raw_text.slice(0, 200)}\n`;
+          context += `  --- ${cn.date}${cn.title ? ` — ${cn.title}` : ''} ---\n`;
+          if (cn.summary) context += `  Summary: ${cn.summary}\n`;
+          // Include raw text (truncate very long notes to keep context manageable)
+          const rawText = cn.raw_text.length > 1500 ? cn.raw_text.slice(0, 1500) + '...' : cn.raw_text;
+          context += `  Notes: ${rawText}\n`;
           const openActions = cn.extracted_actions.filter(a => a.accepted && !a.dismissed);
           if (openActions.length > 0) {
-            context += `  Action items: ${openActions.map(a => a.text).join('; ')}\n`;
+            context += `  Open action items:\n`;
+            openActions.forEach(a => {
+              context += `    - ${a.text} (due: ${a.due_date})\n`;
+            });
           }
         });
       }
