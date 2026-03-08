@@ -561,7 +561,6 @@ function findMatchingTask(actionText: string, tasks: Task[]): Task | null {
 /* ─────────────── Action Items Panel ─────────────── */
 function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: string; tasks: Task[]; onAccept: (item: string, parentTaskId?: string) => void }) {
   const [items, setItems] = useState<string[]>([]);
-  const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
 
   const analyze = () => {
@@ -572,6 +571,13 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
       setAnalyzing(false);
     }, 600);
   };
+
+  const acceptItem = (item: string) => {
+    const matchedTask = findMatchingTask(item, tasks);
+    onAccept(item, matchedTask?.id);
+    setItems(items.filter(i => i !== item));
+  };
+
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
   if (items.length === 0) {
@@ -592,15 +598,16 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
       <div className="space-y-2">
         {items.map((item, i) => {
           const matchedTask = findMatchingTask(item, tasks);
-          const isAccepted = accepted.has(item);
           return (
-            <div key={i} className="flex items-start gap-2">
-              <button onClick={() => { if (!isAccepted) { onAccept(item, matchedTask?.id); setAccepted(new Set([...accepted, item])); } }}
-                className={`w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 transition-colors ${isAccepted ? 'bg-fq-accent text-white' : 'border border-fq-border hover:border-fq-accent'}`}>
-                {isAccepted && (<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>)}
+            <div key={i} className="flex items-start gap-2 group/action">
+              <button onClick={() => acceptItem(item)}
+                className="w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 transition-colors border border-fq-border hover:border-fq-accent hover:bg-fq-accent hover:text-white"
+                title="Add to task list"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-0 group-hover/action:opacity-100"><path d="M2 5h6M5 2v6" /></svg>
               </button>
               <div className="flex-1 min-w-0">
-                <span className={`font-body text-[12px] ${isAccepted ? 'text-fq-muted/50' : t.body}`}>{item}</span>
+                <span className={`font-body text-[12px] ${t.body}`}>{item}</span>
                 {matchedTask && <span className={`font-body text-[11px] ${t.light} block mt-0.5`}>↳ Sub-task of: {matchedTask.text}</span>}
               </div>
             </div>
@@ -651,7 +658,7 @@ function NoteDetailModal({
             </div>
             <div className="ml-8">
               <EditableField
-                value={note.date}
+                value={formatDate(note.date)}
                 onChange={(v) => onUpdate(note.id, { date: v })}
                 className={`font-body text-[13px] ${t.light}`}
                 placeholder="YYYY-MM-DD"
@@ -944,7 +951,7 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
                       </button>
                       <div className="flex items-center gap-2 flex-1 min-w-0">
                         <EditableField
-                          value={note.date}
+                          value={formatDate(note.date)}
                           onChange={(v) => updateNote(note.id, { date: v })}
                           className={`font-body text-[14px] font-semibold ${t.heading} shrink-0`}
                           placeholder="YYYY-MM-DD"
