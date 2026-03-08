@@ -1075,7 +1075,9 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
-  const [groupBy, setGroupBy] = useState<'category' | 'date'>('category');
+  const [groupBy, setGroupBy] = useState<'category' | 'date'>('date');
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
+  const [kanbanGroupField, setKanbanGroupField] = useState<'category' | 'date' | 'assigned_to' | 'status'>('category');
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskDue, setNewTaskDue] = useState('');
@@ -1142,6 +1144,36 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     });
   }
 
+  // Kanban grouping
+  const kanbanGrouped: Record<string, Task[]> = {};
+  if (kanbanGroupField === 'category') {
+    filtered.forEach(tk => {
+      const key = tk.category || 'Uncategorized';
+      if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
+      kanbanGrouped[key].push(tk);
+    });
+  } else if (kanbanGroupField === 'date') {
+    filtered.forEach(tk => {
+      const key = tk.due_date ? formatDate(tk.due_date) : 'No date';
+      if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
+      kanbanGrouped[key].push(tk);
+    });
+  } else if (kanbanGroupField === 'assigned_to') {
+    filtered.forEach(tk => {
+      const member = tk.assigned_to ? getTeamMember(tk.assigned_to) : null;
+      const key = member ? member.name : 'Unassigned';
+      if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
+      kanbanGrouped[key].push(tk);
+    });
+  } else {
+    // status
+    filtered.forEach(tk => {
+      const key = tk.completed ? 'Done' : 'Open';
+      if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
+      kanbanGrouped[key].push(tk);
+    });
+  }
+
   // Check if a date is overdue
   const isOverdue = (dateStr?: string) => {
     if (!dateStr) return false;
@@ -1205,23 +1237,61 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
         >
           + Add Task
         </button>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => setGroupBy('category')}
-            className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
-              groupBy === 'category' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
-            }`}
-          >
-            ⊞ Category
-          </button>
-          <button
-            onClick={() => setGroupBy('date')}
-            className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
-              groupBy === 'date' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
-            }`}
-          >
-            📅 Date
-          </button>
+        <div className="ml-auto flex items-center gap-2">
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 mr-2">
+            <button
+              onClick={() => setViewMode('list')}
+              className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+                viewMode === 'list' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
+              }`}
+            >
+              ☰ List
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+                viewMode === 'kanban' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
+              }`}
+            >
+              ▦ Board
+            </button>
+          </div>
+          {/* Group-by controls */}
+          {viewMode === 'list' ? (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setGroupBy('category')}
+                className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+                  groupBy === 'category' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
+                }`}
+              >
+                ⊞ Category
+              </button>
+              <button
+                onClick={() => setGroupBy('date')}
+                className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+                  groupBy === 'date' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
+                }`}
+              >
+                📅 Date
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className={`font-body text-[11px] ${t.light}`}>Group by</span>
+              <select
+                value={kanbanGroupField}
+                onChange={(e) => setKanbanGroupField(e.target.value as 'category' | 'date' | 'assigned_to' | 'status')}
+                className={`font-body text-[12px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-2.5 py-1.5 outline-none cursor-pointer`}
+              >
+                <option value="category">Category</option>
+                <option value="date">Date</option>
+                <option value="assigned_to">Team Member</option>
+                <option value="status">Status</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1277,84 +1347,165 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
         </div>
       )}
 
-      {/* Task groups */}
-      <div className="space-y-6">
-        {Object.entries(grouped).map(([group, groupTasks]) => {
-          const groupCompleted = groupTasks.filter(tk => tk.completed).length;
-          return (
-            <div key={group}>
-              {/* Group header */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-                  {group}
-                </span>
-                <span className={`font-body text-[11px] ${t.light}`}>
-                  {groupCompleted}/{groupTasks.length} complete
-                </span>
-              </div>
-
-              {/* Task rows */}
-              <div className="space-y-0">
-                {groupTasks.map((task) => {
-                  const overdue = !task.completed && isOverdue(task.due_date);
-                  const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
-                  return (
-                    <div
-                      key={task.id}
-                      className={`flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors group/task ${
-                        overdue ? 'bg-fq-alert/5 border-l-2 border-fq-alert' : ''
-                      }`}
-                    >
-                      <button
-                        onClick={() => toggleTask(task.id)}
-                        className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                          task.completed
-                            ? 'bg-fq-accent border-fq-accent text-white'
-                            : 'border-fq-border hover:border-fq-accent'
-                        }`}
-                      >
-                        {task.completed && (
-                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M2 5l2.5 2.5L8 3" />
-                          </svg>
-                        )}
-                      </button>
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${overdue ? 'bg-fq-alert' : 'bg-fq-accent/60'}`} />
-                      <span className={`font-body text-[13px] flex-1 ${
-                        task.completed ? 'text-fq-muted/50 line-through' : t.heading
-                      }`}>
-                        {task.text}
-                      </span>
-                      {task.due_date && (
-                        <span className={`font-body text-[12px] shrink-0 ${
-                          overdue ? 'text-fq-alert font-medium' : t.light
-                        }`}>
-                          {formatDate(task.due_date)}
-                        </span>
-                      )}
-                      {member && (
-                        <div
-                          className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0"
-                          title={member.name}
-                        >
-                          <span className="font-body text-[9px] font-semibold text-fq-accent">
-                            {member.initials}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {filtered.length === 0 && (
+      {filtered.length === 0 ? (
         <p className={`font-body text-[13px] ${t.light} text-center py-8`}>
           {search ? 'No tasks match your search.' : 'No tasks yet.'}
         </p>
+      ) : viewMode === 'list' ? (
+        /* ── List View ── */
+        <div className="space-y-6">
+          {Object.entries(grouped).map(([group, groupTasks]) => {
+            const groupCompleted = groupTasks.filter(tk => tk.completed).length;
+            return (
+              <div key={group}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
+                    {group}
+                  </span>
+                  <span className={`font-body text-[11px] ${t.light}`}>
+                    {groupCompleted}/{groupTasks.length} complete
+                  </span>
+                </div>
+                <div className="space-y-0">
+                  {groupTasks.map((task) => {
+                    const overdue = !task.completed && isOverdue(task.due_date);
+                    const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+                    return (
+                      <div
+                        key={task.id}
+                        className={`flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors group/task ${
+                          overdue ? 'bg-fq-alert/5 border-l-2 border-fq-alert' : ''
+                        }`}
+                      >
+                        <button
+                          onClick={() => toggleTask(task.id)}
+                          className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                            task.completed
+                              ? 'bg-fq-accent border-fq-accent text-white'
+                              : 'border-fq-border hover:border-fq-accent'
+                          }`}
+                        >
+                          {task.completed && (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M2 5l2.5 2.5L8 3" />
+                            </svg>
+                          )}
+                        </button>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${overdue ? 'bg-fq-alert' : 'bg-fq-accent/60'}`} />
+                        <span className={`font-body text-[13px] flex-1 ${
+                          task.completed ? 'text-fq-muted/50 line-through' : t.heading
+                        }`}>
+                          {task.text}
+                        </span>
+                        {task.due_date && (
+                          <span className={`font-body text-[12px] shrink-0 ${
+                            overdue ? 'text-fq-alert font-medium' : t.light
+                          }`}>
+                            {formatDate(task.due_date)}
+                          </span>
+                        )}
+                        {member && (
+                          <div
+                            className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0"
+                            title={member.name}
+                          >
+                            <span className="font-body text-[9px] font-semibold text-fq-accent">
+                              {member.initials}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        /* ── Kanban / Board View ── */
+        <div className="flex gap-4 overflow-x-auto pb-2 -mx-2 px-2">
+          {Object.entries(kanbanGrouped).map(([column, columnTasks]) => {
+            const colCompleted = columnTasks.filter(tk => tk.completed).length;
+            return (
+              <div key={column} className="flex-shrink-0 w-[260px]">
+                {/* Column header */}
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-body text-[12px] font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
+                      {column}
+                    </span>
+                    <span className={`font-body text-[11px] ${t.light}`}>{columnTasks.length}</span>
+                  </div>
+                  <span className={`font-body text-[10px] ${t.light}`}>
+                    {colCompleted}/{columnTasks.length}
+                  </span>
+                </div>
+                {/* Column cards */}
+                <div className="space-y-2">
+                  {columnTasks.map((task) => {
+                    const overdue = !task.completed && isOverdue(task.due_date);
+                    const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+                    return (
+                      <div
+                        key={task.id}
+                        className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow ${
+                          overdue ? 'border-fq-alert/40 bg-fq-alert/5' : 'border-fq-border'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2">
+                          <button
+                            onClick={() => toggleTask(task.id)}
+                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                              task.completed
+                                ? 'bg-fq-accent border-fq-accent text-white'
+                                : 'border-fq-border hover:border-fq-accent'
+                            }`}
+                          >
+                            {task.completed && (
+                              <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M2 5l2.5 2.5L8 3" />
+                              </svg>
+                            )}
+                          </button>
+                          <span className={`font-body text-[12px] leading-snug flex-1 ${
+                            task.completed ? 'text-fq-muted/50 line-through' : t.heading
+                          }`}>
+                            {task.text}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-2 ml-6">
+                          {task.due_date && (
+                            <span className={`font-body text-[10px] px-1.5 py-0.5 rounded ${
+                              overdue ? 'text-fq-alert bg-fq-alert/10 font-medium' : `${t.light} bg-fq-bg`
+                            }`}>
+                              {formatDate(task.due_date)}
+                            </span>
+                          )}
+                          {task.category && kanbanGroupField !== 'category' && (
+                            <span className={`font-body text-[10px] ${t.light} bg-fq-bg px-1.5 py-0.5 rounded`}>
+                              {task.category}
+                            </span>
+                          )}
+                          {member && kanbanGroupField !== 'assigned_to' && (
+                            <div
+                              className="w-5 h-5 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0 ml-auto"
+                              title={member.name}
+                            >
+                              <span className="font-body text-[8px] font-semibold text-fq-accent">
+                                {member.initials}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
