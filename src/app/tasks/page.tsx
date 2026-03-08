@@ -312,6 +312,18 @@ export default function TasksPage() {
       if (field === 'status') updated.completed = value === 'completed';
       return updated;
     }));
+    // Persist to database
+    const updates: Record<string, unknown> = { [field]: value };
+    if (field === 'status') updates.completed = value === 'completed';
+    fetch('/api/tasks', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: taskId, ...updates }) });
+  };
+
+  const toggleTaskComplete = (taskId: string) => {
+    const task = tasks.find(tk => tk.id === taskId);
+    if (!task) return;
+    const isCompleted = (task.status || 'in_progress') === 'completed';
+    const newStatus = isCompleted ? 'in_progress' : 'completed';
+    updateTaskField(taskId, 'status', newStatus);
   };
 
   const toggleSubtaskInline = (taskId: string, stId: string) => {
@@ -620,10 +632,10 @@ export default function TasksPage() {
                               selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''
                             }`}>
                             <div className="flex items-center">
-                              {stCount > 0 ? (
-                                <button onClick={(e) => { e.stopPropagation(); setExpandedSubtasks(prev => { const n = new Set(prev); n.has(task.id) ? n.delete(task.id) : n.add(task.id); return n; }); }}
-                                  className={`text-[9px] ${t.light} transition-transform w-5 h-5 flex items-center justify-center ${isExpanded ? 'rotate-90' : ''}`}>▶</button>
-                              ) : <span className="w-5" />}
+                              <button onClick={(e) => { e.stopPropagation(); toggleTaskComplete(task.id); }}
+                                className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${taskStatus === 'completed' ? 'bg-[#4CAF6A] border-[#4CAF6A] text-white' : 'border-fq-border hover:border-fq-accent'}`}>
+                                {taskStatus === 'completed' && <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>}
+                              </button>
                             </div>
                             <div className="flex items-center gap-1.5 min-w-0">
                               <InlineCell value={task.text} onSave={(v) => updateTaskField(task.id, 'text', v)}
@@ -739,7 +751,13 @@ export default function TasksPage() {
                       return (
                         <div key={task.id} onClick={() => setSelectedTaskId(task.id)}
                           className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-fq-border ${selectedTaskId === task.id ? 'ring-1 ring-fq-blue' : ''}`}>
-                          <span className={`font-body text-[12px] leading-snug ${ts === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}>{task.text}</span>
+                          <div className="flex items-start gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); toggleTaskComplete(task.id); }}
+                              className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${ts === 'completed' ? 'bg-[#4CAF6A] border-[#4CAF6A] text-white' : 'border-fq-border hover:border-fq-accent'}`}>
+                              {ts === 'completed' && <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>}
+                            </button>
+                            <span className={`font-body text-[12px] leading-snug ${ts === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}>{task.text}</span>
+                          </div>
                           <div className="flex items-center gap-2 mt-2 flex-wrap">
                             <span className={`font-body text-[10px] ${statusColors[ts]} px-1.5 py-0.5 rounded`}>{statusLabels[ts]}</span>
                             <span className={`font-body text-[10px] ${t.light} bg-fq-bg px-1.5 py-0.5 rounded`}>{task.projectName}</span>
