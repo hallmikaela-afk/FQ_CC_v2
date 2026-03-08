@@ -21,7 +21,7 @@ const config: Config = {
       },
       fontFamily: {
         heading: ['Cormorant Garamond', 'serif'],
-        body: ['DM Sans', 'sans-serif'],
+        body: ['Optima', 'Candara', 'Segoe UI', 'sans-serif'],
       },
     },
   },
