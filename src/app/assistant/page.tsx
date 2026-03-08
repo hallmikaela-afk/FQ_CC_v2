@@ -228,22 +228,32 @@ function AttachmentBadge({ att }: { att: Attachment }) {
   );
 }
 
-/* ── Render markdown-lite (bold, italic, line breaks, bullet points) ── */
+/* ── Render markdown-lite (headers, bold, italic, line breaks, bullet points) ── */
 function renderContent(text: string) {
   const lines = text.split('\n');
   return lines.map((line, i) => {
-    // Bullet points
-    if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
-      const content = line.trim().replace(/^[-•]\s*/, '');
+    const trimmed = line.trim();
+    // Headers
+    const h2Match = trimmed.match(/^##\s+(.*)/);
+    if (h2Match) {
+      return <h3 key={i} className="font-semibold text-fq-dark/90 text-[15px] mt-3 mb-1" dangerouslySetInnerHTML={{ __html: formatInline(h2Match[1]) }} />;
+    }
+    const h3Match = trimmed.match(/^###\s+(.*)/);
+    if (h3Match) {
+      return <h4 key={i} className="font-semibold text-fq-dark/80 text-[14px] mt-2 mb-0.5" dangerouslySetInnerHTML={{ __html: formatInline(h3Match[1]) }} />;
+    }
+    // Bullet points (must have content after the dash)
+    const bulletMatch = trimmed.match(/^[-•]\s+(.+)/);
+    if (bulletMatch) {
       return (
         <div key={i} className="flex gap-2 ml-1 my-0.5">
           <span className="text-fq-accent mt-0.5">•</span>
-          <span dangerouslySetInnerHTML={{ __html: formatInline(content) }} />
+          <span dangerouslySetInnerHTML={{ __html: formatInline(bulletMatch[1]) }} />
         </div>
       );
     }
     // Numbered lists
-    const numMatch = line.trim().match(/^(\d+)\.\s+(.*)/);
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
     if (numMatch) {
       return (
         <div key={i} className="flex gap-2 ml-1 my-0.5">
@@ -252,10 +262,10 @@ function renderContent(text: string) {
         </div>
       );
     }
-    // Empty line
-    if (line.trim() === '') return <div key={i} className="h-2" />;
+    // Empty line or standalone punctuation (stray dashes, etc.)
+    if (trimmed === '' || trimmed === '-') return <div key={i} className="h-1" />;
     // Normal text
-    return <p key={i} dangerouslySetInnerHTML={{ __html: formatInline(line) }} />;
+    return <p key={i} className="my-0.5" dangerouslySetInnerHTML={{ __html: formatInline(trimmed) }} />;
   });
 }
 
