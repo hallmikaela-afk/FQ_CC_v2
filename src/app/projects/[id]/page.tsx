@@ -1069,13 +1069,14 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
 }
 
 /* ─────────────── Inline Cell Editor ─────────────── */
-function InlineCell({ value, onSave, className = '', type = 'text', options, placeholder }: {
+function InlineCell({ value, onSave, className = '', type = 'text', options, placeholder, displayValue }: {
   value: string;
   onSave: (v: string) => void;
   className?: string;
   type?: 'text' | 'date' | 'select';
   options?: { value: string; label: string }[];
   placeholder?: string;
+  displayValue?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -1085,11 +1086,10 @@ function InlineCell({ value, onSave, className = '', type = 'text', options, pla
   if (!editing) {
     return (
       <span
-        onDoubleClick={() => { setDraft(value); setEditing(true); }}
-        className={`cursor-default select-none ${className}`}
-        title="Double-click to edit"
+        onClick={(e) => { e.stopPropagation(); setDraft(value); setEditing(true); }}
+        className={`cursor-pointer select-none hover:ring-1 hover:ring-fq-accent/30 hover:rounded px-0.5 -mx-0.5 ${className}`}
       >
-        {value || <span className="text-fq-muted/30 italic">{placeholder || '—'}</span>}
+        {(displayValue || value) || <span className="text-fq-muted/30 italic">{placeholder || '—'}</span>}
       </span>
     );
   }
@@ -1137,9 +1137,22 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70' };
   const [notes, setNotes] = useState(task.notes || '');
   const [newSubtask, setNewSubtask] = useState('');
-  const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+
+  useEffect(() => { setNotes(task.notes || ''); }, [task.id, task.notes]);
 
   const update = (patch: Partial<Task>) => onUpdate({ ...task, ...patch });
+
+  const statusColors: Record<string, string> = {
+    in_progress: 'bg-[#F5C242] text-white',
+    delayed: 'bg-[#E8746A] text-white',
+    completed: 'bg-[#4CAF6A] text-white',
+  };
+  const statusLabels: Record<string, string> = {
+    in_progress: 'In Progress',
+    delayed: 'Delayed',
+    completed: 'Completed',
+  };
+  const taskStatus = task.status || 'in_progress';
 
   const addSubtask = () => {
     if (!newSubtask.trim()) return;
@@ -1165,29 +1178,28 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
     <div className="w-[380px] border-l border-fq-border bg-white p-5 overflow-y-auto flex flex-col gap-5 shrink-0">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2 flex-1 min-w-0">
-          <button
-            onClick={() => update({ completed: !task.completed })}
-            className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-              task.completed ? 'bg-fq-accent border-fq-accent text-white' : 'border-fq-border hover:border-fq-accent'
-            }`}
-          >
-            {task.completed && (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>
-            )}
-          </button>
-          <InlineCell
-            value={task.text}
-            onSave={(v) => update({ text: v })}
-            className={`font-body text-[15px] font-medium flex-1 ${task.completed ? 'text-fq-muted/50 line-through' : t.heading}`}
-            placeholder="Task name..."
-          />
-        </div>
+        <InlineCell
+          value={task.text}
+          onSave={(v) => update({ text: v })}
+          className={`font-body text-[15px] font-medium flex-1 ${task.status === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}
+          placeholder="Task name..."
+        />
         <button onClick={onClose} className="text-fq-muted/40 hover:text-fq-dark text-[16px] shrink-0 mt-0.5">✕</button>
       </div>
 
       {/* Fields */}
       <div className="grid grid-cols-[90px_1fr] gap-y-3 gap-x-2 items-center">
+        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Status</span>
+        <InlineCell
+          value={taskStatus}
+          onSave={(v) => update({ status: (v as Task['status']) || 'in_progress', completed: v === 'completed' })}
+          type="select"
+          options={[{ value: 'in_progress', label: 'In Progress' }, { value: 'delayed', label: 'Delayed' }, { value: 'completed', label: 'Completed' }]}
+          displayValue={statusLabels[taskStatus]}
+          className={`font-body text-[11px] ${statusColors[taskStatus]} px-2.5 py-0.5 rounded-full inline-block`}
+          placeholder="Set status..."
+        />
+
         <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Category</span>
         <InlineCell
           value={task.category || ''}
@@ -1203,6 +1215,7 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
           value={task.due_date || ''}
           onSave={(v) => update({ due_date: v || undefined })}
           type="date"
+          displayValue={task.due_date ? formatDate(task.due_date) : ''}
           className={`font-body text-[12px] ${t.body}`}
           placeholder="Set date..."
         />
@@ -1223,17 +1236,10 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
           onSave={(v) => update({ assigned_to: v || undefined })}
           type="select"
           options={assignedTo.map(id => { const m = getTeamMember(id); return { value: id, label: m?.name || id }; })}
+          displayValue={task.assigned_to ? (getTeamMember(task.assigned_to)?.name || task.assigned_to) : ''}
           className={`font-body text-[12px] ${t.body}`}
           placeholder="Assign..."
         />
-
-        <span className={`font-body text-[11px] ${t.light} uppercase tracking-wide`}>Status</span>
-        <span className="font-body text-[12px]">
-          {task.completed
-            ? <span className="text-fq-sage bg-fq-sage-light px-2 py-0.5 rounded-full">Done</span>
-            : <span className="text-fq-blue bg-fq-blue-light px-2 py-0.5 rounded-full">Open</span>
-          }
-        </span>
       </div>
 
       {/* Subtasks */}
@@ -1299,10 +1305,12 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [groupBy, setGroupBy] = useState<'category' | 'date'>('date');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [kanbanGroupField, setKanbanGroupField] = useState<'category' | 'date' | 'assigned_to' | 'status'>('category');
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [expandedSubtasks, setExpandedSubtasks] = useState<Set<string>>(new Set());
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskText, setNewTaskText] = useState('');
   const [newTaskDue, setNewTaskDue] = useState('');
@@ -1310,6 +1318,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const [newTaskAssigned, setNewTaskAssigned] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('');
   const [newTaskNotes, setNewTaskNotes] = useState('');
+  const [newTaskStatus, setNewTaskStatus] = useState('in_progress');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [addingSubtaskFor, setAddingSubtaskFor] = useState<string | null>(null);
   const [inlineSubtaskText, setInlineSubtaskText] = useState('');
@@ -1319,6 +1328,17 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     body: 'text-fq-muted/90',
     light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
+  };
+
+  const statusColors: Record<string, string> = {
+    in_progress: 'bg-[#F5C242] text-white',
+    delayed: 'bg-[#E8746A] text-white',
+    completed: 'bg-[#4CAF6A] text-white',
+  };
+  const statusLabels: Record<string, string> = {
+    in_progress: 'In Progress',
+    delayed: 'Delayed',
+    completed: 'Completed',
   };
 
   // Category color palette
@@ -1340,16 +1360,13 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     return categoryColorMap.get(cat)!;
   };
 
-  const toggleTask = (taskId: string) => {
-    setTasks(prev => prev.map(tk => tk.id === taskId ? { ...tk, completed: !tk.completed } : tk));
-  };
-
   const addTask = () => {
     if (!newTaskText.trim()) return;
     const newTask: Task = {
       id: `task-${Date.now()}`,
       text: newTaskText.trim(),
-      completed: false,
+      completed: newTaskStatus === 'completed',
+      status: (newTaskStatus as Task['status']) || 'in_progress',
       due_date: newTaskDue || undefined,
       category: newTaskCategory || undefined,
       assigned_to: newTaskAssigned || undefined,
@@ -1364,6 +1381,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     setNewTaskAssigned('');
     setNewTaskPriority('');
     setNewTaskNotes('');
+    setNewTaskStatus('in_progress');
     setShowAddTask(false);
   };
 
@@ -1371,8 +1389,19 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     setTasks(prev => prev.map(tk => tk.id === updated.id ? updated : tk));
   };
 
-  const updateTaskField = (taskId: string, field: keyof Task, value: string | undefined) => {
-    setTasks(prev => prev.map(tk => tk.id === taskId ? { ...tk, [field]: value } : tk));
+  const updateTaskField = (taskId: string, field: keyof Task, value: unknown) => {
+    setTasks(prev => prev.map(tk => {
+      if (tk.id !== taskId) return tk;
+      const updated = { ...tk, [field]: value };
+      if (field === 'status') {
+        updated.completed = value === 'completed';
+      }
+      return updated;
+    }));
+  };
+
+  const toggleSubtaskInline = (taskId: string, stId: string) => {
+    setTasks(prev => prev.map(tk => tk.id === taskId ? { ...tk, subtasks: (tk.subtasks || []).map(s => s.id === stId ? { ...s, completed: !s.completed } : s) } : tk));
   };
 
   const addInlineSubtask = (taskId: string) => {
@@ -1386,20 +1415,28 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   const selectedTask = selectedTaskId ? tasks.find(tk => tk.id === selectedTaskId) : null;
 
   const allCount = tasks.length;
-  const openCount = tasks.filter(tk => !tk.completed).length;
-  const doneCount = tasks.filter(tk => tk.completed).length;
+  const activeCount = tasks.filter(tk => (tk.status || 'in_progress') !== 'completed').length;
+  const completedCount = tasks.filter(tk => (tk.status || 'in_progress') === 'completed').length;
 
   // Filter tasks
   let filtered = tasks;
-  if (tab === 'open') filtered = filtered.filter(tk => !tk.completed);
-  if (tab === 'done') filtered = filtered.filter(tk => tk.completed);
+  if (tab === 'open') filtered = filtered.filter(tk => (tk.status || 'in_progress') !== 'completed');
+  if (tab === 'done') filtered = filtered.filter(tk => (tk.status || 'in_progress') === 'completed');
   if (search) filtered = filtered.filter(tk => tk.text.toLowerCase().includes(search.toLowerCase()));
   if (categoryFilter !== 'all') filtered = filtered.filter(tk => tk.category === categoryFilter);
   if (teamFilter !== 'all') filtered = filtered.filter(tk => tk.assigned_to === teamFilter);
   if (priorityFilter !== 'all') filtered = filtered.filter(tk => tk.priority === priorityFilter);
+  if (statusFilter !== 'all') filtered = filtered.filter(tk => (tk.status || 'in_progress') === statusFilter);
 
   // Get unique categories
   const categories = Array.from(new Set(tasks.map(tk => tk.category).filter(Boolean))) as string[];
+
+  // Sort helper for date groups (chronological)
+  const dateGroupSortKey = (key: string) => {
+    if (key === 'No date') return '9999-99';
+    const d = new Date(key + ' 1');
+    return isNaN(d.getTime()) ? key : d.toISOString().slice(0, 7);
+  };
 
   // Group tasks
   const grouped: Record<string, Task[]> = {};
@@ -1415,6 +1452,12 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(tk);
     });
+  }
+
+  // Sort grouped entries chronologically if grouping by date
+  const sortedGroupEntries = Object.entries(grouped);
+  if (groupBy === 'date') {
+    sortedGroupEntries.sort((a, b) => dateGroupSortKey(a[0]).localeCompare(dateGroupSortKey(b[0])));
   }
 
   // Kanban grouping
@@ -1441,91 +1484,56 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   } else {
     // status
     filtered.forEach(tk => {
-      const key = tk.completed ? 'Done' : 'Open';
+      const key = statusLabels[tk.status || 'in_progress'];
       if (!kanbanGrouped[key]) kanbanGrouped[key] = [];
       kanbanGrouped[key].push(tk);
     });
   }
 
-  // Check if a date is overdue
-  const isOverdue = (dateStr?: string) => {
-    if (!dateStr) return false;
-    const now = new Date('2026-03-07');
-    const due = new Date(dateStr + 'T00:00:00');
-    return due < now;
-  };
+  const hasActiveFilters = categoryFilter !== 'all' || teamFilter !== 'all' || priorityFilter !== 'all' || statusFilter !== 'all';
+  const clearFilters = () => { setCategoryFilter('all'); setTeamFilter('all'); setPriorityFilter('all'); setStatusFilter('all'); };
+
+  const gridCols = 'grid-cols-[24px_1fr_140px_110px_90px_100px_50px]';
 
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-6">
-      {/* Tabs */}
-      <div className="flex items-center gap-6 mb-5 border-b border-fq-border pb-3">
-        {([['all', allCount], ['open', openCount], ['done', doneCount]] as const).map(([key, count]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`font-body text-[14px] pb-1 transition-colors capitalize ${
-              tab === key
-                ? 'text-fq-dark font-semibold border-b-2 border-fq-dark -mb-[13px]'
-                : `${t.light} hover:text-fq-dark`
-            }`}
-          >
-            {key} <span className={`text-[12px] ${tab === key ? 'text-fq-dark' : t.light}`}>({count})</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Filters row */}
-      <div className="flex items-center gap-3 mb-5 flex-wrap">
-        <div className="relative flex-1 min-w-[180px] max-w-[280px]">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-fq-muted/40 text-[13px]">🔍</span>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tasks..."
-            className={`w-full pl-9 pr-3 py-2 font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg outline-none focus:border-fq-accent/40`}
-          />
+      {/* Top bar: tabs + actions */}
+      <div className="flex items-center justify-between mb-5 border-b border-fq-border pb-3">
+        <div className="flex items-center gap-6">
+          {([['all', allCount], ['open', activeCount], ['done', completedCount]] as const).map(([key, count]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`font-body text-[14px] pb-1 transition-colors capitalize ${
+                tab === key
+                  ? 'text-fq-dark font-semibold border-b-2 border-fq-dark -mb-[13px]'
+                  : `${t.light} hover:text-fq-dark`
+              }`}
+            >
+              {key === 'open' ? 'Active' : key === 'done' ? 'Completed' : key} <span className={`text-[12px] ${tab === key ? 'text-fq-dark' : t.light}`}>({count})</span>
+            </button>
+          ))}
         </div>
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className={`font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
-        >
-          <option value="all">All Categories</option>
-          {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-        </select>
-        <select
-          value={teamFilter}
-          onChange={(e) => setTeamFilter(e.target.value)}
-          className={`font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
-        >
-          <option value="all">All Team</option>
-          {assignedTo.map(id => {
-            const member = getTeamMember(id);
-            return member ? <option key={id} value={id}>{member.name}</option> : null;
-          })}
-        </select>
-        <select
-          value={priorityFilter}
-          onChange={(e) => setPriorityFilter(e.target.value)}
-          className={`font-body text-[13px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
-        >
-          <option value="all">All Priorities</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
-        <button
-          onClick={() => setShowAddTask(true)}
-          className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors"
-        >
-          + Add Task
-        </button>
-        <div className="ml-auto flex items-center gap-2">
-          {/* View mode toggle */}
-          <div className="flex items-center gap-1 mr-2">
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fq-muted/40 text-[12px]">🔍</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              className={`pl-8 pr-3 py-1.5 font-body text-[12px] ${t.body} bg-fq-bg border border-fq-border rounded-lg outline-none focus:border-fq-accent/40 w-[180px]`}
+            />
+          </div>
+          <button
+            onClick={() => setShowAddTask(true)}
+            className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[12px] font-medium px-3.5 py-1.5 rounded-lg hover:bg-fq-dark/90 transition-colors"
+          >
+            + Add Task
+          </button>
+          <div className="flex items-center gap-1 ml-2">
             <button
               onClick={() => setViewMode('list')}
-              className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+              className={`font-body text-[11px] px-2.5 py-1.5 rounded-lg transition-colors ${
                 viewMode === 'list' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
               }`}
             >
@@ -1533,19 +1541,18 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
             </button>
             <button
               onClick={() => setViewMode('kanban')}
-              className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+              className={`font-body text-[11px] px-2.5 py-1.5 rounded-lg transition-colors ${
                 viewMode === 'kanban' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
               }`}
             >
               ▦ Board
             </button>
           </div>
-          {/* Group-by controls */}
           {viewMode === 'list' ? (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setGroupBy('category')}
-                className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+                className={`font-body text-[11px] px-2.5 py-1.5 rounded-lg transition-colors ${
                   groupBy === 'category' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
                 }`}
               >
@@ -1553,7 +1560,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
               </button>
               <button
                 onClick={() => setGroupBy('date')}
-                className={`font-body text-[12px] px-3 py-1.5 rounded-lg transition-colors ${
+                className={`font-body text-[11px] px-2.5 py-1.5 rounded-lg transition-colors ${
                   groupBy === 'date' ? 'bg-fq-dark text-white' : `${t.light} bg-fq-bg border border-fq-border hover:text-fq-dark`
                 }`}
               >
@@ -1561,19 +1568,16 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5">
-              <span className={`font-body text-[11px] ${t.light}`}>Group by</span>
-              <select
-                value={kanbanGroupField}
-                onChange={(e) => setKanbanGroupField(e.target.value as 'category' | 'date' | 'assigned_to' | 'status')}
-                className={`font-body text-[12px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-2.5 py-1.5 outline-none cursor-pointer`}
-              >
-                <option value="category">Category</option>
-                <option value="date">Date</option>
-                <option value="assigned_to">Team Member</option>
-                <option value="status">Status</option>
-              </select>
-            </div>
+            <select
+              value={kanbanGroupField}
+              onChange={(e) => setKanbanGroupField(e.target.value as 'category' | 'date' | 'assigned_to' | 'status')}
+              className={`font-body text-[11px] ${t.body} bg-fq-bg border border-fq-border rounded-lg px-2 py-1.5 outline-none cursor-pointer`}
+            >
+              <option value="category">Category</option>
+              <option value="date">Date</option>
+              <option value="assigned_to">Team Member</option>
+              <option value="status">Status</option>
+            </select>
           )}
         </div>
       </div>
@@ -1597,73 +1601,50 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                 autoFocus
               />
             </div>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-5 gap-3">
               <div>
                 <label className={`font-body text-[11px] ${t.light} block mb-1`}>Due date</label>
-                <input
-                  type="date"
-                  value={newTaskDue}
-                  onChange={(e) => setNewTaskDue(e.target.value)}
-                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`}
-                />
+                <input type="date" value={newTaskDue} onChange={(e) => setNewTaskDue(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`} />
               </div>
               <div>
                 <label className={`font-body text-[11px] ${t.light} block mb-1`}>Category</label>
-                <input
-                  value={newTaskCategory}
-                  onChange={(e) => setNewTaskCategory(e.target.value)}
-                  placeholder="Category..."
-                  list="task-categories"
-                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`}
-                />
-                <datalist id="task-categories">
-                  {categories.map(cat => <option key={cat} value={cat} />)}
-                </datalist>
+                <input value={newTaskCategory} onChange={(e) => setNewTaskCategory(e.target.value)} placeholder="Category..." list="task-categories"
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none`} />
+                <datalist id="task-categories">{categories.map(cat => <option key={cat} value={cat} />)}</datalist>
               </div>
               <div>
                 <label className={`font-body text-[11px] ${t.light} block mb-1`}>Assigned to</label>
-                <select
-                  value={newTaskAssigned}
-                  onChange={(e) => setNewTaskAssigned(e.target.value)}
-                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
-                >
+                <select value={newTaskAssigned} onChange={(e) => setNewTaskAssigned(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}>
                   <option value="">Unassigned</option>
-                  {assignedTo.map(id => {
-                    const member = getTeamMember(id);
-                    return member ? <option key={id} value={id}>{member.name}</option> : null;
-                  })}
+                  {assignedTo.map(id => { const m = getTeamMember(id); return m ? <option key={id} value={id}>{m.name}</option> : null; })}
                 </select>
               </div>
               <div>
                 <label className={`font-body text-[11px] ${t.light} block mb-1`}>Priority</label>
-                <select
-                  value={newTaskPriority}
-                  onChange={(e) => setNewTaskPriority(e.target.value)}
-                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}
-                >
+                <select value={newTaskPriority} onChange={(e) => setNewTaskPriority(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}>
                   <option value="">None</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
+                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
+                </select>
+              </div>
+              <div>
+                <label className={`font-body text-[11px] ${t.light} block mb-1`}>Status</label>
+                <select value={newTaskStatus} onChange={(e) => setNewTaskStatus(e.target.value)}
+                  className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none cursor-pointer`}>
+                  <option value="in_progress">In Progress</option><option value="delayed">Delayed</option><option value="completed">Completed</option>
                 </select>
               </div>
             </div>
             <div>
               <label className={`font-body text-[11px] ${t.light} block mb-1`}>Notes</label>
-              <textarea
-                value={newTaskNotes}
-                onChange={(e) => setNewTaskNotes(e.target.value)}
-                placeholder="Optional notes..."
-                rows={2}
-                className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40 resize-none placeholder:text-fq-muted/40`}
-              />
+              <textarea value={newTaskNotes} onChange={(e) => setNewTaskNotes(e.target.value)} placeholder="Optional notes..." rows={2}
+                className={`w-full font-body text-[13px] ${t.body} bg-white border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40 resize-none placeholder:text-fq-muted/40`} />
             </div>
             <div className="flex justify-end">
-              <button
-                onClick={addTask}
-                disabled={!newTaskText.trim()}
-                className="bg-fq-dark text-white font-body text-[13px] font-medium px-5 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors disabled:opacity-40"
-              >
+              <button onClick={addTask} disabled={!newTaskText.trim()}
+                className="bg-fq-dark text-white font-body text-[13px] font-medium px-5 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors disabled:opacity-40">
                 Add Task
               </button>
             </div>
@@ -1681,20 +1662,52 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
       ) : viewMode === 'list' ? (
         /* ── List View (table-style) ── */
         <div>
-          {/* Column headers */}
-          <div className="grid grid-cols-[24px_1fr_130px_80px_80px_90px_36px] gap-2 px-3 pb-2 border-b border-fq-border mb-1">
+          {/* Column headers with inline filters */}
+          <div className={`grid ${gridCols} gap-2 px-3 pb-2 border-b border-fq-border mb-1`}>
             <span />
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Task</span>
-            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Category</span>
-            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Status</span>
-            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Priority</span>
+            <div>
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}
+                className={`font-body text-[11px] font-medium ${categoryFilter !== 'all' ? 'text-fq-accent' : t.light} uppercase tracking-wide bg-transparent outline-none cursor-pointer w-full appearance-none`}>
+                <option value="all">Category ▾</option>
+                {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
+            </div>
+            <div>
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+                className={`font-body text-[11px] font-medium ${statusFilter !== 'all' ? 'text-fq-accent' : t.light} uppercase tracking-wide bg-transparent outline-none cursor-pointer w-full appearance-none`}>
+                <option value="all">Status ▾</option>
+                <option value="in_progress">In Progress</option><option value="delayed">Delayed</option><option value="completed">Completed</option>
+              </select>
+            </div>
+            <div>
+              <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}
+                className={`font-body text-[11px] font-medium ${priorityFilter !== 'all' ? 'text-fq-accent' : t.light} uppercase tracking-wide bg-transparent outline-none cursor-pointer w-full appearance-none`}>
+                <option value="all">Priority ▾</option>
+                <option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+              </select>
+            </div>
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Due Date</span>
-            <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Person</span>
+            <div>
+              <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}
+                className={`font-body text-[11px] font-medium ${teamFilter !== 'all' ? 'text-fq-accent' : t.light} uppercase tracking-wide bg-transparent outline-none cursor-pointer w-full appearance-none`}>
+                <option value="all">Person ▾</option>
+                {assignedTo.map(id => { const m = getTeamMember(id); return m ? <option key={id} value={id}>{m.initials}</option> : null; })}
+              </select>
+            </div>
           </div>
 
+          {/* Active filters indicator */}
+          {hasActiveFilters && (
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <span className={`font-body text-[11px] ${t.light}`}>Filtered</span>
+              <button onClick={clearFilters} className="font-body text-[11px] text-fq-accent hover:text-fq-dark transition-colors">Clear all</button>
+            </div>
+          )}
+
           <div className="space-y-5 mt-3">
-            {Object.entries(grouped).map(([group, groupTasks]) => {
-              const groupCompleted = groupTasks.filter(tk => tk.completed).length;
+            {sortedGroupEntries.map(([group, groupTasks]) => {
+              const groupDone = groupTasks.filter(tk => (tk.status || 'in_progress') === 'completed').length;
               return (
                 <div key={group}>
                   <button
@@ -1715,55 +1728,54 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                       );
                     })()}
                     <span className={`font-body text-[11px] ${t.light}`}>
-                      {groupCompleted}/{groupTasks.length}
+                      {groupDone}/{groupTasks.length}
                     </span>
                   </button>
                   {!collapsedGroups.has(group) && <div>
                     {groupTasks.map((task) => {
-                      const overdue = !task.completed && isOverdue(task.due_date);
                       const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
-                      const stCount = (task.subtasks || []).length;
-                      const stDone = (task.subtasks || []).filter(s => s.completed).length;
+                      const subtasks = task.subtasks || [];
+                      const stCount = subtasks.length;
+                      const stDone = subtasks.filter(s => s.completed).length;
+                      const taskStatus = task.status || 'in_progress';
+                      const isExpanded = expandedSubtasks.has(task.id);
                       const priorityColors: Record<string, string> = {
                         high: 'text-fq-rose bg-fq-rose-light',
                         medium: 'text-fq-amber bg-fq-amber-light',
                         low: 'text-fq-sage bg-fq-sage-light',
                       };
                       return (
-                        <div key={task.id}>
+                        <div key={task.id} className="group/row">
+                        {/* Main task row */}
                         <div
                           onClick={() => setSelectedTaskId(task.id)}
-                          className={`grid grid-cols-[24px_1fr_130px_80px_80px_90px_36px] gap-2 items-center py-2 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors border-b border-fq-border/40 last:border-b-0 cursor-pointer ${
-                            overdue ? 'bg-fq-alert/5' : ''
-                          } ${selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''}`}
+                          className={`grid ${gridCols} gap-2 items-center py-2 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors border-b border-fq-border/40 cursor-pointer ${
+                            selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''
+                          }`}
                         >
-                          {/* Checkbox */}
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleTask(task.id); }}
-                            className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                              task.completed
-                                ? 'bg-fq-accent border-fq-accent text-white'
-                                : 'border-fq-border hover:border-fq-accent'
-                            }`}
-                          >
-                            {task.completed && (
-                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M2 5l2.5 2.5L8 3" />
-                              </svg>
+                          {/* Expand / checkbox */}
+                          <div className="flex items-center">
+                            {stCount > 0 ? (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setExpandedSubtasks(prev => { const n = new Set(prev); n.has(task.id) ? n.delete(task.id) : n.add(task.id); return n; }); }}
+                                className={`text-[9px] ${t.light} transition-transform w-5 h-5 flex items-center justify-center ${isExpanded ? 'rotate-90' : ''}`}
+                              >▶</button>
+                            ) : (
+                              <span className="w-5" />
                             )}
-                          </button>
-                          {/* Task name - double click to edit */}
+                          </div>
+                          {/* Task name */}
                           <div className="flex items-center gap-1.5 min-w-0">
                             <InlineCell
                               value={task.text}
                               onSave={(v) => updateTaskField(task.id, 'text', v)}
-                              className={`font-body text-[13px] truncate ${task.completed ? 'text-fq-muted/50 line-through' : t.heading}`}
+                              className={`font-body text-[13px] truncate ${taskStatus === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}
                             />
                             {stCount > 0 && (
                               <span className={`font-body text-[10px] ${t.light} shrink-0`}>{stDone}/{stCount}</span>
                             )}
                           </div>
-                          {/* Category pill - double click to edit */}
+                          {/* Category */}
                           <span className="truncate" onClick={(e) => e.stopPropagation()}>
                             <InlineCell
                               value={task.category || ''}
@@ -1775,16 +1787,18 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                             />
                           </span>
                           {/* Status */}
-                          <span>
-                            {task.completed ? (
-                              <span className="font-body text-[11px] text-fq-sage bg-fq-sage-light px-2 py-0.5 rounded-full">Done</span>
-                            ) : overdue ? (
-                              <span className="font-body text-[11px] text-fq-rose bg-fq-rose-light px-2 py-0.5 rounded-full font-medium">Overdue</span>
-                            ) : (
-                              <span className="font-body text-[11px] text-fq-blue bg-fq-blue-light px-2 py-0.5 rounded-full">Open</span>
-                            )}
+                          <span onClick={(e) => e.stopPropagation()}>
+                            <InlineCell
+                              value={taskStatus}
+                              onSave={(v) => updateTaskField(task.id, 'status', v || 'in_progress')}
+                              type="select"
+                              options={[{ value: 'in_progress', label: 'In Progress' }, { value: 'delayed', label: 'Delayed' }, { value: 'completed', label: 'Completed' }]}
+                              displayValue={statusLabels[taskStatus]}
+                              className={`font-body text-[11px] ${statusColors[taskStatus]} px-2 py-0.5 rounded-full inline-block`}
+                              placeholder="—"
+                            />
                           </span>
-                          {/* Priority - double click to edit */}
+                          {/* Priority */}
                           <span onClick={(e) => e.stopPropagation()}>
                             <InlineCell
                               value={task.priority || ''}
@@ -1795,28 +1809,50 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                               placeholder="—"
                             />
                           </span>
-                          {/* Due date - double click to edit */}
+                          {/* Due date */}
                           <span onClick={(e) => e.stopPropagation()}>
                             <InlineCell
                               value={task.due_date || ''}
                               onSave={(v) => updateTaskField(task.id, 'due_date', v || undefined)}
                               type="date"
-                              className={`font-body text-[12px] ${overdue ? 'text-fq-alert font-medium' : t.light}`}
+                              displayValue={task.due_date ? formatDate(task.due_date) : ''}
+                              className={`font-body text-[12px] ${t.light}`}
                               placeholder="—"
                             />
                           </span>
-                          {/* Person - double click to edit */}
+                          {/* Person */}
                           <span onClick={(e) => e.stopPropagation()}>
                             <InlineCell
                               value={task.assigned_to || ''}
                               onSave={(v) => updateTaskField(task.id, 'assigned_to', v || undefined)}
                               type="select"
                               options={assignedTo.map(id => { const m = getTeamMember(id); return { value: id, label: m?.initials || id }; })}
+                              displayValue={member?.initials || ''}
                               className={`font-body text-[10px] ${member ? 'font-semibold text-fq-accent' : t.light}`}
                               placeholder="—"
                             />
                           </span>
                         </div>
+
+                        {/* Subtasks (collapsible) */}
+                        {isExpanded && subtasks.length > 0 && (
+                          <div className="ml-10 border-l-2 border-fq-border/40 pl-3 py-1">
+                            {subtasks.map(st => (
+                              <div key={st.id} className="flex items-center gap-2 py-1 group/st">
+                                <button
+                                  onClick={() => toggleSubtaskInline(task.id, st.id)}
+                                  className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                                    st.completed ? 'bg-fq-accent border-fq-accent text-white' : 'border-fq-border hover:border-fq-accent'
+                                  }`}
+                                >
+                                  {st.completed && <svg width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>}
+                                </button>
+                                <span className={`font-body text-[12px] ${st.completed ? 'text-fq-muted/50 line-through' : t.body}`}>{st.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         {/* Inline subtask add */}
                         {addingSubtaskFor === task.id && (
                           <div className="flex items-center gap-2 ml-10 py-1 px-3">
@@ -1835,7 +1871,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                         {addingSubtaskFor !== task.id && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setAddingSubtaskFor(task.id); setInlineSubtaskText(''); }}
-                            className={`font-body text-[10px] ${t.light} hover:text-fq-accent ml-10 px-3 py-0.5 opacity-0 hover:opacity-100 transition-opacity`}
+                            className={`font-body text-[10px] ${t.light} hover:text-fq-accent ml-10 px-3 py-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity`}
                           >
                             + subtask
                           </button>
@@ -1853,84 +1889,46 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
         /* ── Kanban / Board View ── */
         <div className="flex gap-4 overflow-x-auto pb-2 -mx-2 px-2">
           {Object.entries(kanbanGrouped).map(([column, columnTasks]) => {
-            const colCompleted = columnTasks.filter(tk => tk.completed).length;
+            const colDone = columnTasks.filter(tk => (tk.status || 'in_progress') === 'completed').length;
             return (
               <div key={column} className="flex-shrink-0 w-[260px]">
-                {/* Column header */}
                 <div className="flex items-center justify-between mb-3 px-1">
                   <div className="flex items-center gap-2">
                     {(() => {
                       const gc = kanbanGroupField === 'category' ? getCategoryColor(column) : { text: 'text-fq-accent', bg: 'bg-fq-light-accent' };
-                      return (
-                        <span className={`font-body text-[12px] font-medium ${gc.text} ${gc.bg} px-2.5 py-0.5 rounded-full`}>
-                          {column}
-                        </span>
-                      );
+                      return (<span className={`font-body text-[12px] font-medium ${gc.text} ${gc.bg} px-2.5 py-0.5 rounded-full`}>{column}</span>);
                     })()}
                     <span className={`font-body text-[11px] ${t.light}`}>{columnTasks.length}</span>
                   </div>
-                  <span className={`font-body text-[10px] ${t.light}`}>
-                    {colCompleted}/{columnTasks.length}
-                  </span>
+                  <span className={`font-body text-[10px] ${t.light}`}>{colDone}/{columnTasks.length}</span>
                 </div>
-                {/* Column cards */}
                 <div className="space-y-2">
                   {columnTasks.map((task) => {
-                    const overdue = !task.completed && isOverdue(task.due_date);
                     const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
+                    const taskStatus = task.status || 'in_progress';
                     return (
                       <div
                         key={task.id}
                         onClick={() => setSelectedTaskId(task.id)}
-                        className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
-                          overdue ? 'border-fq-alert/40 bg-fq-alert/5' : 'border-fq-border'
-                        } ${selectedTaskId === task.id ? 'ring-1 ring-fq-blue' : ''}`}
+                        className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-fq-border ${
+                          selectedTaskId === task.id ? 'ring-1 ring-fq-blue' : ''
+                        }`}
                       >
                         <div className="flex items-start gap-2">
-                          <button
-                            onClick={() => toggleTask(task.id)}
-                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
-                              task.completed
-                                ? 'bg-fq-accent border-fq-accent text-white'
-                                : 'border-fq-border hover:border-fq-accent'
-                            }`}
-                          >
-                            {task.completed && (
-                              <svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M2 5l2.5 2.5L8 3" />
-                              </svg>
-                            )}
-                          </button>
-                          <span className={`font-body text-[12px] leading-snug flex-1 ${
-                            task.completed ? 'text-fq-muted/50 line-through' : t.heading
-                          }`}>
+                          <span className={`font-body text-[12px] leading-snug flex-1 ${taskStatus === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}>
                             {task.text}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-2 ml-6">
-                          {task.due_date && (
-                            <span className={`font-body text-[10px] px-1.5 py-0.5 rounded ${
-                              overdue ? 'text-fq-alert bg-fq-alert/10 font-medium' : `${t.light} bg-fq-bg`
-                            }`}>
-                              {formatDate(task.due_date)}
-                            </span>
-                          )}
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          <span className={`font-body text-[10px] ${statusColors[taskStatus]} px-1.5 py-0.5 rounded`}>{statusLabels[taskStatus]}</span>
+                          {task.due_date && <span className={`font-body text-[10px] ${t.light} bg-fq-bg px-1.5 py-0.5 rounded`}>{formatDate(task.due_date)}</span>}
                           {task.category && kanbanGroupField !== 'category' && (() => {
                             const cc = getCategoryColor(task.category!);
-                            return (
-                              <span className={`font-body text-[10px] ${cc.text} ${cc.bg} px-1.5 py-0.5 rounded`}>
-                                {task.category}
-                              </span>
-                            );
+                            return (<span className={`font-body text-[10px] ${cc.text} ${cc.bg} px-1.5 py-0.5 rounded`}>{task.category}</span>);
                           })()}
                           {member && kanbanGroupField !== 'assigned_to' && (
-                            <div
-                              className="w-5 h-5 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0 ml-auto"
-                              title={member.name}
-                            >
-                              <span className="font-body text-[8px] font-semibold text-fq-accent">
-                                {member.initials}
-                              </span>
+                            <div className="w-5 h-5 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0 ml-auto" title={member.name}>
+                              <span className="font-body text-[8px] font-semibold text-fq-accent">{member.initials}</span>
                             </div>
                           )}
                         </div>
