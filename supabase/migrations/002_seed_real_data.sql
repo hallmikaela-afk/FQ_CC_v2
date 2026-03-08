@@ -422,6 +422,12 @@ INSERT INTO template_tasks (text, category, weeks_before_event, sort_order, is_a
 
 
 -- ============================================
+-- ============================================
+-- FIX NULL STATUS — set status based on completed field
+-- ============================================
+UPDATE tasks SET status = 'completed' WHERE completed = true AND status IS NULL;
+UPDATE tasks SET status = 'in_progress' WHERE completed = false AND status IS NULL;
+
 -- VERIFICATION QUERY (run to check counts)
 -- ============================================
 -- SELECT

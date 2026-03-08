@@ -184,6 +184,20 @@ export default function ImportPage() {
         if (m.targetCol === 'completed' || m.targetCol === 'is_active' || m.targetCol === 'accepted' || m.targetCol === 'dismissed') {
           val = val === 'true' || val === '1' || val === 'yes' || val === 'TRUE' || val === 'Yes';
         }
+        // Normalize status values to database format
+        if (m.targetCol === 'status' && typeof val === 'string') {
+          const normalized = val.trim().toLowerCase().replace(/[\s-]+/g, '_');
+          const statusMap: Record<string, string> = {
+            'in_progress': 'in_progress',
+            'inprogress': 'in_progress',
+            'in progress': 'in_progress',
+            'delayed': 'delayed',
+            'completed': 'completed',
+            'done': 'completed',
+            'complete': 'completed',
+          };
+          val = statusMap[normalized] || statusMap[val.trim().toLowerCase()] || val;
+        }
         if (m.targetCol === 'guest_count' || m.targetCol === 'weeks_before_event' || m.targetCol === 'sort_order') {
           val = parseInt(val) || 0;
         }
@@ -195,6 +209,20 @@ export default function ImportPage() {
       // Auto-inject project_id if selected and table needs it
       if (selectedProjectId && ['tasks', 'vendors', 'call_notes'].includes(table) && !mapped.project_id) {
         mapped.project_id = selectedProjectId;
+      }
+
+      // Auto-sync status ↔ completed for tasks
+      if (table === 'tasks') {
+        if (mapped.status && !('completed' in mapped)) {
+          mapped.completed = mapped.status === 'completed';
+        }
+        if (!mapped.status && 'completed' in mapped) {
+          mapped.status = mapped.completed ? 'completed' : 'in_progress';
+        }
+        if (!mapped.status && !('completed' in mapped)) {
+          mapped.status = 'in_progress';
+          mapped.completed = false;
+        }
       }
 
       return mapped;
