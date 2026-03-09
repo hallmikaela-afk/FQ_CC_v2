@@ -280,16 +280,183 @@ function EditableAgendaSection({ initialItems, tClasses }: { initialItems: strin
   );
 }
 
+/* ── Card field configuration ── */
+interface CardFieldConfig {
+  id: string;
+  pane: 'first' | 'expanded';
+  visible: boolean;
+}
+
+interface CustomField {
+  id: string;
+  label: string;
+  value: string;
+}
+
+const DEFAULT_FIRST_PANE_FIELDS = ['venue', 'venue_address', 'guests', 'budget', 'signed_date'];
+const DEFAULT_EXPANDED_FIELDS = ['partners', 'client_address', 'links', 'call_notes', 'project_color'];
+
+const ALL_FIELD_LABELS: Record<string, string> = {
+  venue: 'Venue Name', venue_address: 'Venue Address', guests: 'Guest Count', budget: 'Budget', signed_date: 'Signed Date',
+  partners: 'Partners', client_address: 'Client Address', links: 'Links & Resources', call_notes: 'Latest Call Note', project_color: 'Project Color',
+};
+
+function loadCardConfig(projectId: string): { fields: CardFieldConfig[]; customFields: CustomField[] } {
+  if (typeof window === 'undefined') return { fields: [], customFields: [] };
+  try {
+    const saved = localStorage.getItem(`fq_card_config_${projectId}`);
+    if (saved) return JSON.parse(saved);
+  } catch { /* ignore */ }
+  // Default config
+  const fields: CardFieldConfig[] = [
+    ...DEFAULT_FIRST_PANE_FIELDS.map(id => ({ id, pane: 'first' as const, visible: true })),
+    ...DEFAULT_EXPANDED_FIELDS.map(id => ({ id, pane: 'expanded' as const, visible: true })),
+  ];
+  return { fields, customFields: [] };
+}
+
+function saveCardConfig(projectId: string, fields: CardFieldConfig[], customFields: CustomField[]) {
+  localStorage.setItem(`fq_card_config_${projectId}`, JSON.stringify({ fields, customFields }));
+}
+
+/* ── Card Settings Panel ── */
+function CardSettingsPanel({ fields, customFields, onFieldsChange, onCustomFieldsChange, onClose }: {
+  fields: CardFieldConfig[];
+  customFields: CustomField[];
+  onFieldsChange: (f: CardFieldConfig[]) => void;
+  onCustomFieldsChange: (f: CustomField[]) => void;
+  onClose: () => void;
+}) {
+  const [newLabel, setNewLabel] = useState('');
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+
+  const toggleField = (id: string) => {
+    onFieldsChange(fields.map(f => f.id === id ? { ...f, visible: !f.visible } : f));
+  };
+
+  const moveFieldPane = (id: string) => {
+    onFieldsChange(fields.map(f => f.id === id ? { ...f, pane: f.pane === 'first' ? 'expanded' as const : 'first' as const } : f));
+  };
+
+  const handleDragStart = (idx: number) => setDragIdx(idx);
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === idx) return;
+    const reordered = [...fields];
+    const [moved] = reordered.splice(dragIdx, 1);
+    reordered.splice(idx, 0, moved);
+    onFieldsChange(reordered);
+    setDragIdx(idx);
+  };
+
+  const addCustomField = () => {
+    if (!newLabel.trim()) return;
+    const id = `custom_${Date.now()}`;
+    onCustomFieldsChange([...customFields, { id, label: newLabel.trim(), value: '' }]);
+    onFieldsChange([...fields, { id, pane: 'first', visible: true }]);
+    setNewLabel('');
+  };
+
+  const removeCustomField = (id: string) => {
+    onCustomFieldsChange(customFields.filter(f => f.id !== id));
+    onFieldsChange(fields.filter(f => f.id !== id));
+  };
+
+  const firstPaneFields = fields.filter(f => f.pane === 'first');
+  const expandedFields = fields.filter(f => f.pane === 'expanded');
+
+  return (
+    <div className="border-t border-fq-border px-5 py-4 bg-fq-bg/30">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="font-heading text-[14px] font-semibold text-fq-dark/80">Card Settings</h4>
+        <button onClick={onClose} className="text-fq-muted/40 hover:text-fq-dark text-[14px]">✕</button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* First Pane */}
+        <div>
+          <p className="font-body text-[10px] font-semibold text-fq-muted/70 uppercase tracking-wide mb-1">First Pane</p>
+          {firstPaneFields.map((f, idx) => (
+            <div key={f.id} draggable onDragStart={() => handleDragStart(fields.indexOf(f))}
+              onDragOver={(e) => handleDragOver(e, fields.indexOf(f))}
+              className="flex items-center gap-1.5 py-0.5 text-[11px] font-body cursor-grab">
+              <span className="text-fq-muted/30 text-[9px]">⋮⋮</span>
+              <input type="checkbox" checked={f.visible} onChange={() => toggleField(f.id)} className="w-3 h-3 rounded" />
+              <span className="text-fq-dark/80 flex-1">{ALL_FIELD_LABELS[f.id] || customFields.find(c => c.id === f.id)?.label || f.id}</span>
+              <button onClick={() => moveFieldPane(f.id)} className="text-fq-muted/40 hover:text-fq-accent text-[9px]">→</button>
+              {f.id.startsWith('custom_') && (
+                <button onClick={() => removeCustomField(f.id)} className="text-fq-muted/30 hover:text-fq-alert text-[9px]">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Expanded Pane */}
+        <div>
+          <p className="font-body text-[10px] font-semibold text-fq-muted/70 uppercase tracking-wide mb-1">More Details</p>
+          {expandedFields.map((f, idx) => (
+            <div key={f.id} draggable onDragStart={() => handleDragStart(fields.indexOf(f))}
+              onDragOver={(e) => handleDragOver(e, fields.indexOf(f))}
+              className="flex items-center gap-1.5 py-0.5 text-[11px] font-body cursor-grab">
+              <span className="text-fq-muted/30 text-[9px]">⋮⋮</span>
+              <input type="checkbox" checked={f.visible} onChange={() => toggleField(f.id)} className="w-3 h-3 rounded" />
+              <span className="text-fq-dark/80 flex-1">{ALL_FIELD_LABELS[f.id] || customFields.find(c => c.id === f.id)?.label || f.id}</span>
+              <button onClick={() => moveFieldPane(f.id)} className="text-fq-muted/40 hover:text-fq-accent text-[9px]">←</button>
+              {f.id.startsWith('custom_') && (
+                <button onClick={() => removeCustomField(f.id)} className="text-fq-muted/30 hover:text-fq-alert text-[9px]">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Add custom field */}
+      <div className="flex items-center gap-1.5 mt-3">
+        <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') addCustomField(); }}
+          placeholder="New field label..."
+          className="flex-1 font-body text-[11px] bg-white border border-fq-border rounded px-2 py-1 outline-none" />
+        <button onClick={addCustomField} className="font-body text-[11px] text-fq-accent hover:text-fq-dark">+ Add Field</button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Main card ── */
 const defaultLookup = (_id: string): TeamMember | undefined => undefined;
 
 export default function ClientCard({ project, getTeamMember = defaultLookup }: { project: Project; getTeamMember?: (id: string) => TeamMember | undefined }) {
   const [expanded, setExpanded] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const countdown = formatCountdown(project.event_date);
   const progressPct = project.tasks_total > 0
     ? (project.tasks_completed / project.tasks_total) * 100
     : 0;
   const callNoteCount = project.call_notes?.length ?? 0;
+
+  // Card field configuration
+  const [cardConfig, setCardConfig] = useState(() => loadCardConfig(project.id));
+  const [cardFields, setCardFields] = useState<CardFieldConfig[]>(cardConfig.fields);
+  const [customFields, setCustomFields] = useState<CustomField[]>(cardConfig.customFields);
+
+  const handleFieldsChange = (fields: CardFieldConfig[]) => {
+    setCardFields(fields);
+    saveCardConfig(project.id, fields, customFields);
+  };
+  const handleCustomFieldsChange = (cf: CustomField[]) => {
+    setCustomFields(cf);
+    saveCardConfig(project.id, cardFields, cf);
+  };
+  const updateCustomFieldValue = (id: string, value: string) => {
+    const updated = customFields.map(f => f.id === id ? { ...f, value } : f);
+    setCustomFields(updated);
+    saveCardConfig(project.id, cardFields, updated);
+  };
+
+  const isFieldVisible = (id: string, pane: 'first' | 'expanded') => {
+    const field = cardFields.find(f => f.id === id);
+    return field ? field.visible && field.pane === pane : (pane === 'first' ? DEFAULT_FIRST_PANE_FIELDS.includes(id) : DEFAULT_EXPANDED_FIELDS.includes(id));
+  };
 
   // Editable state
   const [eventDate, setEventDate] = useState(project.event_date);
@@ -379,62 +546,54 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           />
         </div>
 
-        {/* Metadata rows */}
+        {/* Metadata rows — visibility controlled by card config */}
         <div className="space-y-1.5 ml-5 mb-4 text-[13px] font-body">
-          {/* Venue name */}
-          <div className="flex items-center gap-2">
-            <span className={`${t.icon} w-4 text-center text-[12px]`}>◉</span>
-            <EditableField
-              value={venueName}
-              onChange={setVenueName}
-              className={`font-heading text-[15px] font-semibold ${t.heading}`}
-              placeholder="Venue name..."
-            />
-          </div>
+          {isFieldVisible('venue', 'first') && (
+            <div className="flex items-center gap-2">
+              <span className={`${t.icon} w-4 text-center text-[12px]`}>◉</span>
+              <EditableField value={venueName} onChange={setVenueName}
+                className={`font-heading text-[15px] font-semibold ${t.heading}`} placeholder="Venue name..." />
+            </div>
+          )}
 
-          {/* Venue Address box */}
-          <EditableAddressBox
-            icon={<span>&nbsp;</span>}
-            street={venueStreet}
-            cityStateZip={venueCityStateZip}
-            onStreetChange={setVenueStreet}
-            onCityStateZipChange={setVenueCityStateZip}
-            streetPlaceholder="Venue street address..."
-            cityPlaceholder="City, State ZIP..."
-          />
+          {isFieldVisible('venue_address', 'first') && (
+            <EditableAddressBox icon={<span>&nbsp;</span>} street={venueStreet} cityStateZip={venueCityStateZip}
+              onStreetChange={setVenueStreet} onCityStateZipChange={setVenueCityStateZip}
+              streetPlaceholder="Venue street address..." cityPlaceholder="City, State ZIP..." />
+          )}
 
-          {/* Guests */}
-          <div className="flex items-center gap-2">
-            <span className={`${t.icon} w-4 text-center text-[12px]`}>♗</span>
-            <EditableField
-              value={guestCount ? `${guestCount} guests` : ''}
-              onChange={(v) => setGuestCount(v.replace(/[^0-9]/g, ''))}
-              className={t.body}
-              placeholder="Guest count..."
-            />
-          </div>
+          {isFieldVisible('guests', 'first') && (
+            <div className="flex items-center gap-2">
+              <span className={`${t.icon} w-4 text-center text-[12px]`}>♗</span>
+              <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => setGuestCount(v.replace(/[^0-9]/g, ''))}
+                className={t.body} placeholder="Guest count..." />
+            </div>
+          )}
 
-          {/* Budget */}
-          <div className="flex items-center gap-2">
-            <span className={`${t.icon} w-4 text-center text-[12px]`}>$</span>
-            <EditableField
-              value={budget}
-              onChange={setBudget}
-              className={t.body}
-              placeholder="Budget..."
-            />
-          </div>
+          {isFieldVisible('budget', 'first') && (
+            <div className="flex items-center gap-2">
+              <span className={`${t.icon} w-4 text-center text-[12px]`}>$</span>
+              <EditableField value={budget} onChange={setBudget} className={t.body} placeholder="Budget..." />
+            </div>
+          )}
 
-          {/* Signed date */}
-          <div className="flex items-center gap-2">
-            <span className={`${t.icon} w-4 text-center text-[12px]`}>☐</span>
-            <EditableField
-              value={signedDate ? `Signed ${formatDate(signedDate)}` : ''}
-              onChange={(v) => setSignedDate(v.replace('Signed ', ''))}
-              className={t.body}
-              placeholder="Signed date..."
-            />
-          </div>
+          {isFieldVisible('signed_date', 'first') && (
+            <div className="flex items-center gap-2">
+              <span className={`${t.icon} w-4 text-center text-[12px]`}>☐</span>
+              <EditableField value={signedDate ? `Signed ${formatDate(signedDate)}` : ''} onChange={(v) => setSignedDate(v.replace('Signed ', ''))}
+                className={t.body} placeholder="Signed date..." />
+            </div>
+          )}
+
+          {/* Custom fields assigned to first pane */}
+          {customFields.filter(cf => isFieldVisible(cf.id, 'first')).map(cf => (
+            <div key={cf.id} className="flex items-center gap-2">
+              <span className={`${t.icon} w-4 text-center text-[12px]`}>•</span>
+              <span className={`font-body text-[11px] ${t.light} w-[80px] shrink-0`}>{cf.label}</span>
+              <EditableField value={cf.value} onChange={(v) => updateCustomFieldValue(cf.id, v)}
+                className={`font-body text-[13px] ${t.body}`} placeholder={`${cf.label}...`} />
+            </div>
+          ))}
         </div>
 
         {/* Task Progress */}
@@ -509,12 +668,13 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         </Link>
       </div>
 
-      {/* Expand / Collapse toggle */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className={`w-full py-2.5 border-t border-fq-border text-[12px] font-body ${t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors flex items-center justify-center gap-1`}
-      >
-        {expanded ? 'Less details' : 'Full details'}
+      {/* Expand / Collapse toggle + Settings gear */}
+      <div className="flex items-center border-t border-fq-border">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className={`flex-1 py-2.5 text-[12px] font-body ${t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors flex items-center justify-center gap-1`}
+        >
+          {expanded ? 'Less details' : 'Full details'}
         <svg
           width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"
           strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
@@ -522,7 +682,28 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         >
           <path d="M3 5l3 3 3-3" />
         </svg>
-      </button>
+        </button>
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className={`px-3 py-2.5 text-[12px] font-body ${showSettings ? 'text-fq-accent' : t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors border-l border-fq-border`}
+          title="Card settings"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
+            <circle cx="8" cy="8" r="2.5"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.41 1.41M11.54 11.54l1.41 1.41M3.05 12.95l1.41-1.41M11.54 4.46l1.41-1.41"/>
+          </svg>
+        </button>
+      </div>
+
+      {/* Settings Panel */}
+      {showSettings && (
+        <CardSettingsPanel
+          fields={cardFields}
+          customFields={customFields}
+          onFieldsChange={handleFieldsChange}
+          onCustomFieldsChange={handleCustomFieldsChange}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
       {/* Expanded Details */}
       {expanded && (
@@ -532,60 +713,64 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           </h3>
 
           {/* Partner cards */}
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <div className="border border-fq-border rounded-lg p-2.5">
-              <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
-              <EditableField
-                value={partner1}
-                onChange={setPartner1}
-                className={`font-body text-[13px] ${t.heading} font-medium`}
-                placeholder="Partner name..."
-              />
+          {isFieldVisible('partners', 'expanded') && (
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="border border-fq-border rounded-lg p-2.5">
+                <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
+                <EditableField value={partner1} onChange={setPartner1}
+                  className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
+              </div>
+              <div className="border border-fq-border rounded-lg p-2.5">
+                <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
+                <EditableField value={partner2} onChange={setPartner2}
+                  className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
+              </div>
             </div>
-            <div className="border border-fq-border rounded-lg p-2.5">
-              <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
-              <EditableField
-                value={partner2}
-                onChange={setPartner2}
-                className={`font-body text-[13px] ${t.heading} font-medium`}
-                placeholder="Partner name..."
-              />
-            </div>
-          </div>
+          )}
 
           {/* Client Address */}
-          <div className="mb-4">
-            <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
-            <div className="text-[13px] font-body ml-1">
-              <EditableAddressBox
-                icon="⌂"
-                street={clientStreet}
-                cityStateZip={clientCityStateZip}
-                onStreetChange={setClientStreet}
-                onCityStateZipChange={setClientCityStateZip}
-                streetPlaceholder="Client street address..."
-                cityPlaceholder="City, State ZIP..."
-              />
+          {isFieldVisible('client_address', 'expanded') && (
+            <div className="mb-4">
+              <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
+              <div className="text-[13px] font-body ml-1">
+                <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
+                  onStreetChange={setClientStreet} onCityStateZipChange={setClientCityStateZip}
+                  streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Links & Resources */}
-          <div className="mb-4">
-            <h3 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2`}>
-              Links &amp; Resources
-            </h3>
-            <div className="space-y-1.5">
-              <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
-              <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
-              <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
-              <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
-              <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
-              <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
+          {isFieldVisible('links', 'expanded') && (
+            <div className="mb-4">
+              <h3 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2`}>Links &amp; Resources</h3>
+              <div className="space-y-1.5">
+                <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
+                <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
+                <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
+                <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
+                <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
+                <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Custom fields assigned to expanded pane */}
+          {customFields.filter(cf => isFieldVisible(cf.id, 'expanded')).length > 0 && (
+            <div className="mb-4 space-y-1.5">
+              {customFields.filter(cf => isFieldVisible(cf.id, 'expanded')).map(cf => (
+                <div key={cf.id} className="flex items-center gap-2">
+                  <span className={`${t.icon} w-4 text-center text-[12px]`}>•</span>
+                  <span className={`font-body text-[11px] ${t.light} w-[80px] shrink-0`}>{cf.label}</span>
+                  <EditableField value={cf.value} onChange={(v) => updateCustomFieldValue(cf.id, v)}
+                    className={`font-body text-[13px] ${t.body}`} placeholder={`${cf.label}...`} />
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Latest Call Note — double-click to open editable modal */}
-          {callNotes.length > 0 && (
+          {isFieldVisible('call_notes', 'expanded') && callNotes.length > 0 && (
             <div className="mb-4">
               <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
                 <span className="text-fq-accent/70">✦</span>
@@ -610,7 +795,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           )}
 
           {/* Project Color palette — at the bottom */}
-          {project.project_colors && project.project_colors.length > 0 && (
+          {isFieldVisible('project_color', 'expanded') && project.project_colors && project.project_colors.length > 0 && (
             <div>
               <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
               <div className="flex flex-wrap gap-1.5">

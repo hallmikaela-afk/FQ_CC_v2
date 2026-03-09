@@ -842,7 +842,11 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
     setCollapsedNotes(next);
   };
 
-  const deleteNote = (id: string) => setNotes(notes.filter(n => n.id !== id));
+  const deleteNote = (id: string) => {
+    if (!confirm('Delete this call note?')) return;
+    setNotes(notes.filter(n => n.id !== id));
+    fetch(`/api/call-notes?id=${id}`, { method: 'DELETE' });
+  };
 
   const updateNote = (id: string, updates: Partial<CallNote>) => {
     setNotes(notes.map(n => n.id === id ? { ...n, ...updates } : n));
@@ -1179,7 +1183,7 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
   const stDone = subtasks.filter(s => s.completed).length;
 
   return (
-    <div className="w-[380px] border-l border-fq-border bg-white p-5 overflow-y-auto flex flex-col gap-5 shrink-0">
+    <div className="w-[340px] border-l border-fq-border bg-white p-4 overflow-y-auto flex flex-col gap-4 shrink-0 sticky top-0 max-h-screen">
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <InlineCell
@@ -1335,13 +1339,11 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
   };
 
   const statusColors: Record<string, string> = {
-    not_started: 'bg-fq-muted/30 text-fq-dark',
     in_progress: 'bg-[#F5C242] text-white',
     delayed: 'bg-[#E8746A] text-white',
     completed: 'bg-[#4CAF6A] text-white',
   };
   const statusLabels: Record<string, string> = {
-    not_started: 'Not Started',
     in_progress: 'In Progress',
     delayed: 'Delayed',
     completed: 'Completed',
@@ -1681,7 +1683,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
         /* ── List View (table-style) ── */
         <div>
           {/* Column headers with inline filters */}
-          <div className={`grid ${gridCols} gap-2 px-3 pb-2 border-b border-fq-border mb-1`}>
+          <div className={`grid ${gridCols} gap-1.5 px-2 pb-1.5 border-b border-fq-border mb-0.5`}>
             <span />
             <span className={`font-body text-[11px] font-medium ${t.light} uppercase tracking-wide`}>Task</span>
             <div>
@@ -1767,7 +1769,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                         {/* Main task row */}
                         <div
                           onClick={() => setSelectedTaskId(task.id)}
-                          className={`grid ${gridCols} gap-2 items-center py-2 px-3 rounded-lg hover:bg-fq-bg/50 transition-colors border-b border-fq-border/40 cursor-pointer ${
+                          className={`grid ${gridCols} gap-1.5 items-center py-[3px] px-2 rounded hover:bg-fq-bg/50 transition-colors border-b border-fq-border/30 cursor-pointer ${
                             selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''
                           }`}
                         >
@@ -1779,14 +1781,20 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                             </button>
                           </div>
                           {/* Task name */}
-                          <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="flex items-center gap-1 min-w-0">
+                            {stCount > 0 && (
+                              <button onClick={(e) => { e.stopPropagation(); setExpandedSubtasks(prev => { const n = new Set(prev); n.has(task.id) ? n.delete(task.id) : n.add(task.id); return n; }); }}
+                                className={`text-[9px] text-fq-muted/40 hover:text-fq-dark shrink-0 transition-transform ${expandedSubtasks.has(task.id) ? 'rotate-90' : ''}`}>
+                                ▶
+                              </button>
+                            )}
                             <InlineCell
                               value={task.text}
                               onSave={(v) => updateTaskField(task.id, 'text', v)}
-                              className={`font-body text-[13px] truncate ${taskStatus === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}
+                              className={`font-body text-[12px] truncate ${taskStatus === 'completed' ? 'text-fq-muted/50 line-through' : t.heading}`}
                             />
                             {stCount > 0 && (
-                              <span className={`font-body text-[10px] ${t.light} shrink-0`}>{stDone}/{stCount}</span>
+                              <span className={`font-body text-[9px] ${t.light} shrink-0`}>{stDone}/{stCount}</span>
                             )}
                           </div>
                           {/* Category */}
