@@ -1768,7 +1768,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                         <div key={task.id} className="group/row">
                         {/* Main task row */}
                         <div
-                          onClick={() => setSelectedTaskId(task.id)}
+                          onDoubleClick={() => setSelectedTaskId(task.id)}
                           className={`grid ${gridCols} gap-1.5 items-center py-[3px] px-2 rounded hover:bg-fq-bg/50 transition-colors border-b border-fq-border/30 cursor-pointer ${
                             selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''
                           }`}
@@ -1931,7 +1931,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
                     return (
                       <div
                         key={task.id}
-                        onClick={() => setSelectedTaskId(task.id)}
+                        onDoubleClick={() => setSelectedTaskId(task.id)}
                         className={`bg-white border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-fq-border ${
                           selectedTaskId === task.id ? 'ring-1 ring-fq-blue' : ''
                         }`}

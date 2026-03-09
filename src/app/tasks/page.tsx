@@ -921,7 +921,7 @@ export default function TasksPage() {
                         const isExpanded = expandedSubtasks.has(task.id);
                         return (
                           <div key={task.id} className="group/row">
-                          <div onClick={() => setSelectedTaskId(task.id)}
+                          <div onDoubleClick={() => setSelectedTaskId(task.id)}
                             className={`grid gap-1.5 items-center py-[3px] px-2 rounded hover:bg-fq-bg/50 transition-colors border-b border-fq-border/30 cursor-pointer ${
                               selectedTaskId === task.id ? 'bg-fq-blue-light/50 border-l-2 border-l-fq-blue' : ''
                             }`}
@@ -1006,7 +1006,7 @@ export default function TasksPage() {
                       const member = task.assigned_to ? getTeamMember(task.assigned_to) : null;
                       const ts = task.status || '';
                       return (
-                        <div key={task.id} onClick={() => setSelectedTaskId(task.id)}
+                        <div key={task.id} onDoubleClick={() => setSelectedTaskId(task.id)}
                           className={`bg-white border rounded-lg p-2 shadow-sm hover:shadow-md transition-shadow cursor-pointer border-fq-border ${selectedTaskId === task.id ? 'ring-1 ring-fq-blue' : ''}`}>
                           <div className="flex items-start gap-1.5">
                             <button onClick={(e) => { e.stopPropagation(); toggleTaskComplete(task.id); }}
