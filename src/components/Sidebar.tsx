@@ -19,6 +19,18 @@ const navItems = [
     ),
   },
   {
+    label: 'My Week',
+    href: '/week',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="14" height="13" rx="2" />
+        <path d="M3 8h14" />
+        <path d="M7 2v3M13 2v3" />
+        <path d="M7 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
     label: 'Projects',
     href: '/projects',
     hasDropdown: true,
