@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export function middleware(req: NextRequest) {
-  const token = req.cookies.get('sb-access-token')?.value
-    || req.cookies.get('sb-refresh-token')?.value;
+  const { pathname } = req.nextUrl;
+  const isLoginPage = pathname === '/login';
 
-  const isLoginPage = req.nextUrl.pathname === '/login';
+  // Check all possible Supabase auth cookie names
+  const cookies = req.cookies.getAll();
+  const hasAuth = cookies.some(c => 
+    c.name.startsWith('sb-') && 
+    (c.name.endsWith('-auth-token') || c.name.endsWith('-access-token') || c.name.endsWith('-refresh-token'))
+  );
 
-  if (!token && !isLoginPage) {
+  if (!hasAuth && !isLoginPage) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  if (token && isLoginPage) {
+  if (hasAuth && isLoginPage) {
     return NextResponse.redirect(new URL('/', req.url));
   }
 
