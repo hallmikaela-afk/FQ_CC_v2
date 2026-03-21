@@ -49,36 +49,22 @@ export default function ImportPage() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
-  const [team, setTeam] = useState<{ id: string; name: string; initials: string; role: string }[]>([]);
-  const [deletingTeamId, setDeletingTeamId] = useState<string | null>(null);
   // Fetch projects for the project_id selector (on mount)
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch('/api/projects');
       if (res.ok) {
         const data = await res.json();
-        setProjects(data.map((p: any) => ({ id: p.id, name: p.name })));
+        setProjects(
+          data
+            .filter((p: any) => p.status === 'active' || p.status === 'proposal_sent')
+            .map((p: any) => ({ id: p.id, name: p.name }))
+        );
       }
     } catch { /* projects not loaded yet */ }
   }, []);
 
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
-
-  const fetchTeam = useCallback(async () => {
-    try {
-      const res = await fetch('/api/team');
-      if (res.ok) setTeam(await res.json());
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => { fetchTeam(); }, [fetchTeam]);
-
-  const handleDeleteTeamMember = async (id: string) => {
-    setDeletingTeamId(id);
-    await fetch('/api/team', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
-    setTeam(prev => prev.filter(m => m.id !== id));
-    setDeletingTeamId(null);
-  };
 
   const processRows = useCallback((rows: Record<string, string>[]) => {
     setRawData(rows);
@@ -456,35 +442,6 @@ export default function ImportPage() {
           )}
         </div>
       )}
-
-      {/* Team management */}
-      <div className="mb-8">
-        <h3 className="text-sm font-medium text-fq-dark mb-3">Manage Team Members</h3>
-        <div className="bg-white border border-fq-border rounded-xl overflow-hidden max-w-lg">
-          {team.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-fq-muted">Loading...</p>
-          ) : (
-            team.map((member, i) => (
-              <div key={member.id} className={`flex items-center gap-3 px-4 py-3 ${i < team.length - 1 ? 'border-b border-fq-border' : ''}`}>
-                <div className="w-8 h-8 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0">
-                  <span className="font-body text-[11px] font-semibold text-fq-accent">{member.initials}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-body text-[13px] font-medium text-fq-dark">{member.name}</p>
-                  <p className="font-body text-[11px] text-fq-muted/70">{member.role}</p>
-                </div>
-                <button
-                  onClick={() => handleDeleteTeamMember(member.id)}
-                  disabled={deletingTeamId === member.id}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-body font-medium text-fq-alert hover:bg-fq-alert/10 transition-colors disabled:opacity-40"
-                >
-                  {deletingTeamId === member.id ? 'Removing...' : 'Remove'}
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
 
       {/* Quick guide */}
       <div className="bg-fq-light-accent rounded-xl p-6 mt-4">
