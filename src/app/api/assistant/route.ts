@@ -110,6 +110,16 @@ async function buildContext(): Promise<string> {
     });
   }
 
+  context += `\nSPRINT TASKS: You can help Mikaela manage her weekly sprint. `;
+  context += `Sprint tasks are completely separate from the master planner task list. `;
+  context += `When she asks to add something to her week or sprint, confirm what you'd add `;
+  context += `and tell her to use the My Week page to add it, or she can ask you to add it `;
+  context += `directly. Valid buckets: Sun-Steeped Hamptons, Menorca Editorial, `;
+  context += `Elisabeth & JJ — LionRock Farm, Julia & Frank — Wave Resort, `;
+  context += `Tippi & Justin — Vanderbilt Museum, Fox & Quinn — Operations, `;
+  context += `Fox & Quinn — Marketing, FQ Command Center. `;
+  context += `Valid tags: action, decision, creative, ops, marketing, build, client, check.\n`;
+
   context += `\nIMPORTANT: When the user asks to update tasks, mark things complete, add vendors, etc., describe what you would do. The actual database operations happen through the app's UI. Focus on being a helpful planning assistant — summarize, prioritize, flag issues, and advise.`;
   context += `\n\nRESEARCH LINKS: Whenever you provide research, ideas, vendor recommendations, venue suggestions, inspiration, trends, backup plans, or any information that has a relevant online source, include markdown links formatted as [descriptive text](https://url). Only include links to real, well-known websites you are confident exist (e.g. wedding directories, vendor websites, inspiration sites like stylemepretty.com, greenweddingshoes.com, theknot.com, weddingwire.com, etc.). Always open external links — format them as standard markdown links.`;
 
