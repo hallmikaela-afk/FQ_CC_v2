@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getISOWeek, offsetWeek, formatWeekLabel } from '@/lib/week';
+import WeekChatPanel from '@/components/WeekChatPanel';
 
 interface SprintTask {
   id: string;
@@ -69,7 +70,7 @@ export default function WeekPage() {
   const currentWeek = getISOWeek();
   const isCurrentWeek = week === currentWeek;
 
-  useEffect(() => {
+  const fetchTasks = useCallback(() => {
     setLoading(true);
     fetch(`/api/sprint-tasks?week=${week}`)
       .then(r => r.json())
@@ -79,6 +80,10 @@ export default function WeekPage() {
       })
       .catch(() => setLoading(false));
   }, [week]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -134,7 +139,9 @@ export default function WeekPage() {
   const activeBuckets = BUCKETS.filter(b => tasks.some(t => t.bucket === b));
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="p-8">
+    <div className="flex gap-6 items-start max-w-5xl mx-auto">
+    <div className="flex-1 min-w-0">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -327,6 +334,13 @@ export default function WeekPage() {
           })}
         </div>
       )}
+    </div>{/* end left column */}
+
+    {/* Right — chat panel */}
+    <div className="w-[320px] shrink-0 sticky top-6">
+      <WeekChatPanel week={week} onTaskAdded={fetchTasks} />
+    </div>
+    </div>{/* end two-column flex */}
     </div>
   );
 }

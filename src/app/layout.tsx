@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
+import FloatingChat from '@/components/FloatingChat';
 
 export const metadata: Metadata = {
   title: 'Fox & Quinn Command Center',
@@ -18,6 +19,7 @@ export default function RootLayout({
         <Sidebar />
         <main className="ml-[220px] min-h-screen">
           {children}
+          <FloatingChat />
         </main>
       </body>
     </html>
