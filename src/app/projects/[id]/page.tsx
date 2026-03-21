@@ -99,7 +99,6 @@ function HeaderCard({ project }: { project: Project }) {
             className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full border-0 outline-none cursor-pointer appearance-none"
           >
             <option value="active">active</option>
-            <option value="proposal_sent">proposal_sent</option>
             <option value="completed">completed</option>
             <option value="archived">archived</option>
           </select>

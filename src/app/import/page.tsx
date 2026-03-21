@@ -57,7 +57,7 @@ export default function ImportPage() {
         const data = await res.json();
         setProjects(
           data
-            .filter((p: any) => p.status === 'active' || p.status === 'proposal_sent')
+            .filter((p: any) => p.status === 'active')
             .map((p: any) => ({ id: p.id, name: p.name }))
         );
       }

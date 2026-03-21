@@ -71,7 +71,7 @@ export interface ProjectRow {
   slug: string | null;
   type: 'client' | 'shoot' | 'proposal';
   name: string;
-  status: 'active' | 'proposal_sent' | 'completed' | 'archived';
+  status: 'active' | 'completed' | 'archived';
   event_date: string | null;
   contract_signed_date: string | null;
   color: string;
