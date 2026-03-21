@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import UploadModal from '@/components/UploadModal';
 
 type TableName = 'tasks' | 'vendors' | 'projects' | 'team_members' | 'call_notes' | 'template_tasks';
 
@@ -38,6 +39,7 @@ const TABLE_COLUMNS: Record<TableName, { required: string[]; optional: string[] 
 };
 
 export default function ImportPage() {
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [table, setTable] = useState<TableName>('tasks');
   const [rawData, setRawData] = useState<Record<string, string>[]>([]);
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
@@ -265,8 +267,24 @@ export default function ImportPage() {
 
   return (
     <div className="p-8 max-w-5xl">
-      <h1 className="font-heading text-3xl text-fq-dark mb-2">Import Data</h1>
-      <p className="text-fq-muted mb-6">Upload a CSV, Excel, Word, or PDF file to import data into Supabase.</p>
+      <div className="flex items-start justify-between mb-2">
+        <h1 className="font-heading text-3xl text-fq-dark">Import Data</h1>
+        <button
+          onClick={() => setShowUploadModal(true)}
+          className="flex items-center gap-2 font-body text-[13px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors shrink-0"
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 9.5V2M4.5 4.5L7 2l2.5 2.5" />
+            <path d="M1.5 11.5h11" />
+          </svg>
+          Upload File
+        </button>
+      </div>
+      <p className="text-fq-muted mb-6">Import structured data from CSV, Excel, Word, or PDF — or use <strong>Upload File</strong> to attach any file (photos, emails, screenshots, and more) to a project.</p>
+
+      {showUploadModal && (
+        <UploadModal onClose={() => setShowUploadModal(false)} />
+      )}
 
       {/* Step 1: Select table */}
       <div className="mb-6">
@@ -321,6 +339,37 @@ export default function ImportPage() {
 
       {/* Step 2: Upload file */}
       <div className="mb-6">
+        <label className="block text-sm font-medium text-fq-dark mb-2">1d. Save to Google Drive</label>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="font-body text-[11px] font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full">Coming soon</span>
+        </div>
+        <div className="border border-fq-border rounded-lg overflow-hidden opacity-50 pointer-events-none select-none max-w-lg">
+          <div className="flex items-center gap-1 px-3 py-2 bg-fq-light-accent border-b border-fq-border">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            <span className="font-body text-[11px] text-fq-muted">My Drive</span>
+            <span className="font-body text-[11px] text-fq-muted/50">›</span>
+            <span className="font-body text-[11px] text-fq-muted">{projects.find(p => p.id === selectedProjectId)?.name || 'Client Name'}</span>
+            <span className="font-body text-[11px] text-fq-muted/50">›</span>
+            <span className="font-body text-[11px] text-fq-dark font-medium">Choose folder…</span>
+          </div>
+          <div className="divide-y divide-fq-border">
+            {['Contracts & Proposals', 'Vendor Files', 'Photos & Inspiration', 'Emails & Correspondence', 'Timelines & Runsheets'].map(folder => (
+              <div key={folder} className="flex items-center gap-2.5 px-3 py-2 bg-fq-bg">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+                <span className="font-body text-[12px] text-fq-muted">{folder}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="font-body text-[10px] text-fq-muted/60 mt-1.5">Connect your Google Drive in Settings to choose a destination folder.</p>
+      </div>
+
+      {/* Step 2: Upload file */}
+      <div className="mb-6">
         <label className="block text-sm font-medium text-fq-dark mb-2">2. Upload your file</label>
         <div
           onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -334,7 +383,7 @@ export default function ImportPage() {
           <input
             id="file-input"
             type="file"
-            accept=".csv,.xlsx,.xls,.pdf,.docx,.doc"
+            accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.eml,.jpg,.jpeg,.png,.gif,.webp,.heic,image/*"
             onChange={handleFileInput}
             className="hidden"
           />
@@ -346,7 +395,7 @@ export default function ImportPage() {
           ) : (
             <div>
               <p className="text-fq-muted text-lg mb-1">Drop a file here</p>
-              <p className="text-fq-muted text-sm">CSV, Excel, Word (.docx), or PDF — or click to browse</p>
+              <p className="text-fq-muted text-sm">CSV · Excel · Word · PDF · Email (.eml) · Photos · Screenshots — or click to browse</p>
             </div>
           )}
         </div>

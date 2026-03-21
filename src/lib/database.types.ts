@@ -53,6 +53,11 @@ export interface Database {
         Insert: Omit<TemplateTaskRow, 'id' | 'created_at'> & { id?: string };
         Update: Partial<TemplateTaskRow>;
       };
+      project_files: {
+        Row: ProjectFileRow;
+        Insert: Omit<ProjectFileRow, 'id' | 'uploaded_at'> & { id?: string };
+        Update: Partial<ProjectFileRow>;
+      };
     };
   };
 }
@@ -164,6 +169,19 @@ export interface ExtractedActionRow {
   due_date: string | null;
   accepted: boolean;
   dismissed: boolean;
+}
+
+export interface ProjectFileRow {
+  id: string;
+  project_id: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  storage_path: string;
+  public_url: string;
+  notes: string | null;
+  google_drive_path: string | null;
+  uploaded_at: string;
 }
 
 export interface TemplateTaskRow {
