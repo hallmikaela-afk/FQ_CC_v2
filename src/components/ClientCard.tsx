@@ -422,6 +422,11 @@ function CardSettingsPanel({ fields, customFields, onFieldsChange, onCustomField
   );
 }
 
+const DEFAULT_PALETTE = [
+  '#C4A882','#4A7C59','#8B3A2A','#7B6EA8','#B5A642','#8B9E6E','#C4956A','#5C4033',
+  '#2E5339','#1B3A6B','#6B4226','#C9A84C','#C4622D','#D4849A',
+];
+
 /* ── Main card ── */
 const defaultLookup = (_id: string): TeamMember | undefined => undefined;
 
@@ -478,7 +483,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
   const [clientWebsite, setClientWebsite] = useState(project.client_website || '');
   const [sharepointFolder, setSharepointFolder] = useState(project.sharepoint_folder || '');
   const [selectedColor, setSelectedColor] = useState(project.color);
-  const [paletteColors, setPaletteColors] = useState<string[]>(project.project_colors || []);
+  const [paletteColors, setPaletteColors] = useState<string[]>(project.project_colors?.length ? project.project_colors : DEFAULT_PALETTE);
   const [expandedNote, setExpandedNote] = useState<CallNote | null>(null);
 
   const patchProject = (updates: Record<string, unknown>) => {
