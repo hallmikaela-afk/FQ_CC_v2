@@ -48,6 +48,7 @@ export default function ImportPage() {
   const [dragOver, setDragOver] = useState(false);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [uploadDescription, setUploadDescription] = useState('');
   // Fetch projects for the project_id selector (on mount)
   const fetchProjects = useCallback(async () => {
     try {
@@ -294,13 +295,25 @@ export default function ImportPage() {
             onChange={e => setSelectedProjectId(e.target.value)}
             className="w-full max-w-md px-3 py-2 border border-fq-border rounded-lg bg-white text-fq-dark"
           >
-            <option value="">— Select project (or map project_id column) —</option>
+            <option value="">Select project</option>
             {projects.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </div>
       )}
+
+      {/* Description */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-fq-dark mb-2">1c. Describe what you&apos;re uploading <span className="text-fq-muted font-normal">(optional)</span></label>
+        <input
+          type="text"
+          value={uploadDescription}
+          onChange={e => setUploadDescription(e.target.value)}
+          placeholder="e.g. Vendor contacts from the Smith wedding planning doc"
+          className="w-full max-w-lg px-3 py-2 border border-fq-border rounded-lg bg-white text-fq-dark text-sm placeholder:text-fq-muted/50 focus:outline-none focus:border-fq-accent/40"
+        />
+      </div>
 
       {/* Step 2: Upload file */}
       <div className="mb-6">
