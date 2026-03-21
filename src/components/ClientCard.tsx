@@ -548,7 +548,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         <div className="ml-5 mb-3">
           <EditableField
             value={concept}
-            onChange={setConcept}
+            onChange={(v) => { setConcept(v); patchProject({ concept: v }); }}
             className={`text-[11px] font-body ${t.light} bg-fq-bg px-2.5 py-0.5 rounded-full`}
             inputClassName={`text-[11px] font-body ${t.light} bg-fq-bg px-2.5 py-0.5 rounded-full`}
             placeholder="Concept..."
@@ -560,21 +560,22 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           {isFieldVisible('venue', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>◉</span>
-              <EditableField value={venueName} onChange={setVenueName}
+              <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }}
                 className={`font-heading text-[15px] font-semibold ${t.heading}`} placeholder="Venue name..." />
             </div>
           )}
 
           {isFieldVisible('venue_address', 'first') && (
             <EditableAddressBox icon={<span>&nbsp;</span>} street={venueStreet} cityStateZip={venueCityStateZip}
-              onStreetChange={setVenueStreet} onCityStateZipChange={setVenueCityStateZip}
+              onStreetChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }}
+              onCityStateZipChange={(v) => { setVenueCityStateZip(v); patchProject({ venue_city_state_zip: v }); }}
               streetPlaceholder="Venue street address..." cityPlaceholder="City, State ZIP..." />
           )}
 
           {isFieldVisible('guests', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>♗</span>
-              <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => setGuestCount(v.replace(/[^0-9]/g, ''))}
+              <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => { const n = v.replace(/[^0-9]/g, ''); setGuestCount(n); patchProject({ guest_count: n ? parseInt(n) : null }); }}
                 className={t.body} placeholder="Guest count..." />
             </div>
           )}
@@ -582,14 +583,14 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           {isFieldVisible('budget', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>$</span>
-              <EditableField value={budget} onChange={setBudget} className={t.body} placeholder="Budget..." />
+              <EditableField value={budget} onChange={(v) => { setBudget(v); patchProject({ estimated_budget: v }); }} className={t.body} placeholder="Budget..." />
             </div>
           )}
 
           {isFieldVisible('signed_date', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>☐</span>
-              <EditableField value={signedDate ? `Signed ${formatDate(signedDate)}` : ''} onChange={(v) => setSignedDate(v.replace('Signed ', ''))}
+              <EditableField value={signedDate ? `Signed ${formatDate(signedDate)}` : ''} onChange={(v) => { const d = v.replace('Signed ', ''); setSignedDate(d); patchProject({ contract_signed_date: d || null }); }}
                 className={t.body} placeholder="Signed date..." />
             </div>
           )}
@@ -631,12 +632,12 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
 
         {/* Links & Resources */}
         <div className="mb-3 space-y-1">
-          <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
-          <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
-          <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
-          <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
-          <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
-          <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
+          <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={(v) => { setCanvaLink(v); patchProject({ canva_link: v }); }} />
+          <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={(v) => { setInternalShare(v); patchProject({ internal_file_share: v }); }} />
+          <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={(v) => { setClientFolder(v); patchProject({ client_shared_folder: v }); }} />
+          <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={(v) => { setPortalLink(v); patchProject({ client_portal_link: v }); }} />
+          <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={(v) => { setClientWebsite(v); patchProject({ client_website: v }); }} />
+          <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={(v) => { setSharepointFolder(v); patchProject({ sharepoint_folder: v }); }} />
         </div>
 
         {/* Badges row — overdue links to tasks, call notes links to notes page */}
@@ -721,12 +722,12 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div className="border border-fq-border rounded-lg p-2.5">
               <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
-              <EditableField value={partner1} onChange={setPartner1}
+              <EditableField value={partner1} onChange={(v) => { setPartner1(v); patchProject({ client1_name: v }); }}
                 className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
             </div>
             <div className="border border-fq-border rounded-lg p-2.5">
               <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
-              <EditableField value={partner2} onChange={setPartner2}
+              <EditableField value={partner2} onChange={(v) => { setPartner2(v); patchProject({ client2_name: v }); }}
                 className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
             </div>
           </div>
@@ -736,7 +737,8 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
             <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
             <div className="text-[13px] font-body ml-1">
               <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
-                onStreetChange={setClientStreet} onCityStateZipChange={setClientCityStateZip}
+                onStreetChange={(v) => { setClientStreet(v); patchProject({ client_street: v }); }}
+                onCityStateZipChange={(v) => { setClientCityStateZip(v); patchProject({ client_city_state_zip: v }); }}
                 streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
             </div>
           </div>
