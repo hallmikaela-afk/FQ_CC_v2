@@ -490,6 +490,7 @@ export default function TasksPage() {
 
   const updateTask = (updated: TaskWithProject) => {
     setTasks(prev => prev.map(tk => tk.id === updated.id ? updated : tk));
+    fetch('/api/tasks', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
   };
 
   const updateTaskField = (taskId: string, field: keyof Task, value: unknown) => {
@@ -525,12 +526,12 @@ export default function TasksPage() {
     setAddingSubtaskFor(null);
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!newTaskText.trim()) return;
     const proj = projects.find(p => p.id === newTaskProject);
-    const newTask: TaskWithProject = {
-      id: `task-${Date.now()}`,
+    const taskData = {
       text: newTaskText.trim(),
+      project_id: newTaskProject || undefined,
       completed: newTaskStatus === 'completed',
       status: (newTaskStatus as Task['status']) || undefined,
       due_date: newTaskDue || undefined,
@@ -538,10 +539,10 @@ export default function TasksPage() {
       assigned_to: newTaskAssigned || undefined,
       priority: (newTaskPriority as Task['priority']) || undefined,
       notes: newTaskNotes || undefined,
-      subtasks: [],
-      projectId: newTaskProject,
-      projectName: proj?.name || '',
     };
+    const res = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(taskData) });
+    const saved = await res.json();
+    const newTask: TaskWithProject = { ...saved, subtasks: [], projectId: newTaskProject, projectName: proj?.name || '' };
     setTasks(prev => [...prev, newTask]);
     setNewTaskText(''); setNewTaskDue(''); setNewTaskCategory('');
     setNewTaskAssigned(''); setNewTaskPriority(''); setNewTaskNotes('');
