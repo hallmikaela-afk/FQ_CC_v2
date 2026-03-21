@@ -84,7 +84,12 @@ const navItems = [
   },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [projectsOpen, setProjectsOpen] = useState(false);
   const { projects } = useProjects();
@@ -92,17 +97,23 @@ export default function Sidebar() {
     .map(p => ({ id: p.slug || p.id, name: p.name, color: p.color }));
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[220px] bg-fq-bg border-r border-fq-border flex flex-col z-50">
-      <div className="px-6 pt-8 pb-2 flex items-start justify-between">
-        <div>
-          <h1 className="font-heading text-[22px] font-semibold text-fq-dark tracking-wide">
-            Fox &amp; Quinn
-          </h1>
-          <p className="font-body text-[11px] text-fq-accent italic mt-0.5">
-            Calm is the luxury
-          </p>
-        </div>
-        <button className="mt-1 text-fq-muted hover:text-fq-dark transition-colors">
+    <aside className={`fixed left-0 top-0 h-screen ${collapsed ? 'w-[60px]' : 'w-[220px]'} bg-fq-bg border-r border-fq-border flex flex-col z-50 transition-all duration-300 overflow-hidden`}>
+      <div className={`px-3 pt-8 pb-2 flex items-start ${collapsed ? 'justify-center' : 'justify-between px-6'}`}>
+        {!collapsed && (
+          <div>
+            <h1 className="font-heading text-[22px] font-semibold text-fq-dark tracking-wide">
+              Fox &amp; Quinn
+            </h1>
+            <p className="font-body text-[11px] text-fq-accent italic mt-0.5">
+              Calm is the luxury
+            </p>
+          </div>
+        )}
+        <button
+          onClick={onToggle}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`mt-1 text-fq-muted hover:text-fq-dark transition-colors ${collapsed ? 'mx-auto' : ''}`}
+        >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
             <path d="M3 5h14M3 10h14M3 15h14" />
           </svg>
@@ -123,9 +134,11 @@ export default function Sidebar() {
               <div className="flex items-center">
                 <Link
                   href={item.href}
+                  title={collapsed ? item.label : undefined}
                   className={`
-                    relative flex items-center gap-3 px-4 py-3 rounded-lg flex-1
+                    relative flex items-center gap-3 py-3 rounded-lg flex-1
                     font-body text-[14px] transition-all duration-200
+                    ${collapsed ? 'justify-center px-2' : 'px-4'}
                     ${isActive
                       ? 'bg-fq-light-accent text-fq-dark font-medium'
                       : 'text-fq-muted hover:text-fq-dark hover:bg-fq-light-accent/50'
@@ -135,14 +148,21 @@ export default function Sidebar() {
                   <span className={isActive ? 'text-fq-dark' : 'text-fq-muted'}>
                     {item.icon}
                   </span>
-                  <span className="flex-1">{item.label}</span>
-                  {item.badge != null && item.badge > 0 && (
-                    <span className="bg-fq-accent text-white text-[11px] font-medium px-2 py-0.5 rounded-full min-w-[24px] text-center">
-                      {item.badge}
-                    </span>
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1">{item.label}</span>
+                      {item.badge != null && item.badge > 0 && (
+                        <span className="bg-fq-accent text-white text-[11px] font-medium px-2 py-0.5 rounded-full min-w-[24px] text-center">
+                          {item.badge}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {collapsed && item.badge != null && item.badge > 0 && (
+                    <span className="absolute top-1 right-1 w-2 h-2 bg-fq-accent rounded-full" />
                   )}
                 </Link>
-                {isProjects && (
+                {isProjects && !collapsed && (
                   <button
                     onClick={(e) => { e.preventDefault(); setProjectsOpen(!projectsOpen); }}
                     className={`p-1.5 rounded hover:bg-fq-light-accent/50 transition-colors mr-1 ${isActive ? 'text-fq-dark' : 'text-fq-muted'}`}
@@ -159,7 +179,7 @@ export default function Sidebar() {
               </div>
 
               {/* Projects dropdown */}
-              {isProjects && projectsOpen && (
+              {isProjects && projectsOpen && !collapsed && (
                 <div className="ml-8 mt-1 mb-1 space-y-0.5">
                   {activeProjects.map(p => {
                     const isProjectActive = pathname === `/projects/${p.id}`;
