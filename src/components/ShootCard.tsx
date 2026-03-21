@@ -169,7 +169,7 @@ export default function ShootCard({ project, getTeamMember = defaultGetTeamMembe
               ☐ {callNoteCount} call note{callNoteCount !== 1 ? 's' : ''}
             </Link>
           )}
-          <QuickUploadButton projectId={project.id} />
+          <QuickUploadButton projectId={project.id} projectName={project.name} />
         </div>
       </div>
     </div>

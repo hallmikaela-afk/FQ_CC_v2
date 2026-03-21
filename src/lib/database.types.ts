@@ -179,6 +179,8 @@ export interface ProjectFileRow {
   file_size: number;
   storage_path: string;
   public_url: string;
+  notes: string | null;
+  google_drive_path: string | null;
   uploaded_at: string;
 }
 

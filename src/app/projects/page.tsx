@@ -103,7 +103,7 @@ function ProjectCard({ project, getTeamMember }: { project: Project; getTeamMemb
               );
             })}
           </div>
-          <QuickUploadButton projectId={project.id} />
+          <QuickUploadButton projectId={project.id} projectName={project.name} />
         </div>
       </div>
     </Link>

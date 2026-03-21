@@ -4,26 +4,6 @@ import { getServiceSupabase } from '@/lib/supabase';
 export const dynamic = 'force-dynamic';
 
 const BUCKET = 'project-files';
-const ALLOWED_TYPES: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/jpg': '.jpg',
-  'image/png': '.png',
-  'image/gif': '.gif',
-  'image/webp': '.webp',
-  'image/heic': '.heic',
-  'message/rfc822': '.eml',
-  // browsers sometimes report .eml as octet-stream
-  'application/octet-stream': '',
-};
-
-function isAllowedFile(file: File): boolean {
-  const name = file.name.toLowerCase();
-  if (name.endsWith('.eml')) return true;
-  return Object.keys(ALLOWED_TYPES).includes(file.type) && !name.endsWith('.eml')
-    ? true
-    : name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') ||
-      name.endsWith('.gif') || name.endsWith('.webp') || name.endsWith('.heic');
-}
 
 // GET /api/project-files?projectId=xxx
 export async function GET(req: NextRequest) {
@@ -41,21 +21,17 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data);
 }
 
-// POST /api/project-files  (multipart: file + projectId)
+// POST /api/project-files  (multipart: file + projectId + notes? + googleDrivePath?)
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
     const projectId = formData.get('projectId') as string | null;
+    const notes = (formData.get('notes') as string | null) || null;
+    const googleDrivePath = (formData.get('googleDrivePath') as string | null) || null;
 
     if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     if (!projectId) return NextResponse.json({ error: 'projectId required' }, { status: 400 });
-    if (!isAllowedFile(file)) {
-      return NextResponse.json(
-        { error: 'Only images (.jpg, .png, .gif, .webp, .heic) and email files (.eml) are supported' },
-        { status: 400 }
-      );
-    }
 
     const supabase = getServiceSupabase();
 
@@ -69,9 +45,10 @@ export async function POST(req: NextRequest) {
     const storagePath = `${projectId}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
 
     const buffer = Buffer.from(await file.arrayBuffer());
+    const contentType = file.type || 'application/octet-stream';
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(storagePath, buffer, { contentType: file.type || 'application/octet-stream', upsert: false });
+      .upload(storagePath, buffer, { contentType, upsert: false });
 
     if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 });
 
@@ -86,6 +63,8 @@ export async function POST(req: NextRequest) {
         file_size: file.size,
         storage_path: storagePath,
         public_url: urlData.publicUrl,
+        notes,
+        google_drive_path: googleDrivePath,
       })
       .select()
       .single();

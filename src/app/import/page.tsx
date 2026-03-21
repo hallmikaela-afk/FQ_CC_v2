@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import UploadModal from '@/components/UploadModal';
 
 type TableName = 'tasks' | 'vendors' | 'projects' | 'team_members' | 'call_notes' | 'template_tasks';
 
@@ -38,6 +39,7 @@ const TABLE_COLUMNS: Record<TableName, { required: string[]; optional: string[] 
 };
 
 export default function ImportPage() {
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [table, setTable] = useState<TableName>('tasks');
   const [rawData, setRawData] = useState<Record<string, string>[]>([]);
   const [sourceColumns, setSourceColumns] = useState<string[]>([]);
@@ -265,8 +267,24 @@ export default function ImportPage() {
 
   return (
     <div className="p-8 max-w-5xl">
-      <h1 className="font-heading text-3xl text-fq-dark mb-2">Import Data</h1>
+      <div className="flex items-start justify-between mb-2">
+        <h1 className="font-heading text-3xl text-fq-dark">Import Data</h1>
+        <button
+          onClick={() => setShowUploadModal(true)}
+          className="flex items-center gap-2 font-body text-[13px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors shrink-0"
+        >
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M7 9.5V2M4.5 4.5L7 2l2.5 2.5" />
+            <path d="M1.5 11.5h11" />
+          </svg>
+          Upload File
+        </button>
+      </div>
       <p className="text-fq-muted mb-6">Upload a CSV, Excel, Word, or PDF file to import data into Supabase.</p>
+
+      {showUploadModal && (
+        <UploadModal onClose={() => setShowUploadModal(false)} />
+      )}
 
       {/* Step 1: Select table */}
       <div className="mb-6">

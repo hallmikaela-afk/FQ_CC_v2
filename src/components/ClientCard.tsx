@@ -643,7 +643,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
 
         {/* Badges row — overdue links to tasks, call notes links to notes page */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
-          <QuickUploadButton projectId={project.id} />
+          <QuickUploadButton projectId={project.id} projectName={project.name} />
           {project.overdue_count > 0 && (
             <Link
               href={`/tasks?client=${project.id}&filter=overdue`}
