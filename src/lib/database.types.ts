@@ -7,6 +7,7 @@ export interface Database {
           name: string;
           initials: string;
           role: string;
+          function: string | null;
           created_at: string;
         };
         Insert: Omit<TeamMemberRow, 'id' | 'created_at'> & { id?: string; created_at?: string };
@@ -61,6 +62,7 @@ export interface TeamMemberRow {
   name: string;
   initials: string;
   role: string;
+  function: string | null;
   created_at: string;
 }
 

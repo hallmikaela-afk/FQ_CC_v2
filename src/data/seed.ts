@@ -3,6 +3,7 @@ export interface TeamMember {
   name: string;
   initials: string;
   role: string;
+  function?: string | null;
 }
 
 export interface Vendor {
