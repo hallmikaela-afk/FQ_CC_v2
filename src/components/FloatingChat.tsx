@@ -98,13 +98,38 @@ export default function FloatingChat() {
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[85%] px-3 py-2 rounded-xl font-body text-[13px] leading-relaxed whitespace-pre-wrap ${
+                className={`max-w-[85%] px-3 py-2 rounded-xl font-body text-[13px] leading-relaxed ${
                   msg.role === 'user'
                     ? 'bg-fq-dark text-white rounded-br-sm'
                     : 'bg-fq-bg text-fq-dark rounded-bl-sm'
                 }`}
               >
-                {msg.content}
+                {msg.role === 'user' ? (
+                  <span className="whitespace-pre-wrap">{msg.content}</span>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {msg.content.split('\n').map((line, li) => {
+                      const formatted = line
+                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-fq-accent hover:opacity-75 transition-opacity">$1</a>');
+                      if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
+                        const content = line.trim().replace(/^[-•]\s*/, '');
+                        const formattedContent = content
+                          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                          .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-fq-accent hover:opacity-75 transition-opacity">$1</a>');
+                        return (
+                          <div key={li} className="flex gap-1.5">
+                            <span className="text-fq-accent shrink-0 mt-px">•</span>
+                            <span dangerouslySetInnerHTML={{ __html: formattedContent }} />
+                          </div>
+                        );
+                      }
+                      return line.trim() ? (
+                        <span key={li} dangerouslySetInnerHTML={{ __html: formatted }} />
+                      ) : <span key={li} className="h-1" />;
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           ))}
