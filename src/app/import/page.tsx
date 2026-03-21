@@ -280,7 +280,7 @@ export default function ImportPage() {
           Upload File
         </button>
       </div>
-      <p className="text-fq-muted mb-6">Upload a CSV, Excel, Word, or PDF file to import data into Supabase.</p>
+      <p className="text-fq-muted mb-6">Import structured data from CSV, Excel, Word, or PDF — or use <strong>Upload File</strong> to attach any file (photos, emails, screenshots, and more) to a project.</p>
 
       {showUploadModal && (
         <UploadModal onClose={() => setShowUploadModal(false)} />
@@ -352,7 +352,7 @@ export default function ImportPage() {
           <input
             id="file-input"
             type="file"
-            accept=".csv,.xlsx,.xls,.pdf,.docx,.doc"
+            accept=".csv,.xlsx,.xls,.pdf,.docx,.doc,.eml,.jpg,.jpeg,.png,.gif,.webp,.heic,image/*"
             onChange={handleFileInput}
             className="hidden"
           />
@@ -364,7 +364,7 @@ export default function ImportPage() {
           ) : (
             <div>
               <p className="text-fq-muted text-lg mb-1">Drop a file here</p>
-              <p className="text-fq-muted text-sm">CSV, Excel, Word (.docx), or PDF — or click to browse</p>
+              <p className="text-fq-muted text-sm">CSV · Excel · Word · PDF · Email (.eml) · Photos · Screenshots — or click to browse</p>
             </div>
           )}
         </div>

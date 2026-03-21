@@ -156,15 +156,37 @@ export default function UploadModal({ onClose, defaultProjectId, defaultProjectN
           {/* Google Drive destination — coming soon */}
           <div>
             <div className="flex items-center gap-2 mb-1.5">
-              <label className="font-body text-[12px] font-medium text-fq-dark">Google Drive Destination</label>
+              <label className="font-body text-[12px] font-medium text-fq-dark">Save to Google Drive</label>
               <span className="font-body text-[10px] font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full">Coming soon</span>
             </div>
-            <div className="flex items-center gap-2 px-3 py-2.5 bg-fq-bg border border-fq-border rounded-lg opacity-50 cursor-not-allowed">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
-              <span className="font-body text-[13px] text-fq-muted">Connect Google Drive to choose a folder</span>
+            {/* Folder picker preview — disabled until Drive is connected */}
+            <div className="border border-fq-border rounded-lg overflow-hidden opacity-50 pointer-events-none select-none">
+              {/* Breadcrumb bar */}
+              <div className="flex items-center gap-1 px-3 py-2 bg-fq-light-accent border-b border-fq-border">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-[#4285F4] shrink-0">
+                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="font-body text-[11px] text-fq-muted">My Drive</span>
+                <span className="font-body text-[11px] text-fq-muted/50">›</span>
+                <span className="font-body text-[11px] text-fq-muted">
+                  {defaultProjectName || 'Client Name'}
+                </span>
+                <span className="font-body text-[11px] text-fq-muted/50">›</span>
+                <span className="font-body text-[11px] text-fq-dark font-medium">Choose folder…</span>
+              </div>
+              {/* Simulated folder list */}
+              <div className="divide-y divide-fq-border">
+                {['Contracts & Proposals', 'Vendor Files', 'Photos & Inspiration', 'Emails & Correspondence', 'Timelines & Runsheets'].map(folder => (
+                  <div key={folder} className="flex items-center gap-2.5 px-3 py-2 bg-fq-bg">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <span className="font-body text-[12px] text-fq-muted">{folder}</span>
+                  </div>
+                ))}
+              </div>
             </div>
+            <p className="font-body text-[10px] text-fq-muted/60 mt-1.5">Connect your Google Drive in Settings to choose a destination folder for each upload.</p>
           </div>
 
           {/* File drop zone */}
