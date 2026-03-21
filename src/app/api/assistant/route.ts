@@ -258,7 +258,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (changeTypes.size > 1) change_type = 'mixed';
-        else if (changeTypes.size === 1) change_type = [...changeTypes][0] as typeof change_type;
+        else if (changeTypes.size === 1) change_type = [...changeTypes][0] as 'created' | 'updated' | 'completed' | 'mixed';
       }
     } catch {
       content = rawText;
