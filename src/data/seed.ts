@@ -390,7 +390,7 @@ export function getTeamMember(id: string): TeamMember | undefined {
 }
 
 export function formatCountdown(eventDate: string): { text: string; isUrgent: boolean } {
-  const now = new Date('2026-03-07');
+  const now = new Date();
   const event = new Date(eventDate);
   const diffMs = event.getTime() - now.getTime();
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
