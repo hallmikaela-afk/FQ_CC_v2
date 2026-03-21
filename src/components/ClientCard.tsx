@@ -708,32 +708,28 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           </h3>
 
           {/* Partner cards */}
-          {isFieldVisible('partners', 'expanded') && (
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div className="border border-fq-border rounded-lg p-2.5">
-                <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
-                <EditableField value={partner1} onChange={setPartner1}
-                  className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
-              </div>
-              <div className="border border-fq-border rounded-lg p-2.5">
-                <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
-                <EditableField value={partner2} onChange={setPartner2}
-                  className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
-              </div>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="border border-fq-border rounded-lg p-2.5">
+              <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
+              <EditableField value={partner1} onChange={setPartner1}
+                className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
             </div>
-          )}
+            <div className="border border-fq-border rounded-lg p-2.5">
+              <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
+              <EditableField value={partner2} onChange={setPartner2}
+                className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
+            </div>
+          </div>
 
           {/* Client Address */}
-          {isFieldVisible('client_address', 'expanded') && (
-            <div className="mb-4">
-              <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
-              <div className="text-[13px] font-body ml-1">
-                <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
-                  onStreetChange={setClientStreet} onCityStateZipChange={setClientCityStateZip}
-                  streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
-              </div>
+          <div className="mb-4">
+            <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
+            <div className="text-[13px] font-body ml-1">
+              <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
+                onStreetChange={setClientStreet} onCityStateZipChange={setClientCityStateZip}
+                streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
             </div>
-          )}
+          </div>
 
           {/* Custom fields assigned to expanded pane */}
           {customFields.filter(cf => isFieldVisible(cf.id, 'expanded')).length > 0 && (
@@ -750,7 +746,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           )}
 
           {/* Latest Call Note — double-click to open editable modal */}
-          {isFieldVisible('call_notes', 'expanded') && callNotes.length > 0 && (
+          {callNotes.length > 0 && (
             <div className="mb-4">
               <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
                 <span className="text-fq-accent/70">✦</span>
@@ -775,7 +771,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           )}
 
           {/* Project Color palette — at the bottom */}
-          {isFieldVisible('project_color', 'expanded') && project.project_colors && project.project_colors.length > 0 && (
+          {project.project_colors && project.project_colors.length > 0 && (
             <div>
               <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
               <div className="flex flex-wrap gap-1.5">
