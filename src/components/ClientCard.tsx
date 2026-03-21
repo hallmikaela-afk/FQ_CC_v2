@@ -422,8 +422,6 @@ function CardSettingsPanel({ fields, customFields, onFieldsChange, onCustomField
   );
 }
 
-const DEFAULT_PALETTE = ['#8B6F4E','#6B7F5E','#A0522D','#C4956A','#D4A574','#9B8E82','#C4A97D','#7B8B5E'];
-
 /* ── Main card ── */
 const defaultLookup = (_id: string): TeamMember | undefined => undefined;
 
@@ -480,7 +478,12 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
   const [clientWebsite, setClientWebsite] = useState(project.client_website || '');
   const [sharepointFolder, setSharepointFolder] = useState(project.sharepoint_folder || '');
   const [selectedColor, setSelectedColor] = useState(project.color);
+  const [paletteColors, setPaletteColors] = useState<string[]>(project.project_colors || []);
   const [expandedNote, setExpandedNote] = useState<CallNote | null>(null);
+
+  const patchProject = (updates: Record<string, unknown>) => {
+    fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: project.id, ...updates }) });
+  };
   const [callNotes, setCallNotes] = useState(project.call_notes || []);
   const [editingNoteContent, setEditingNoteContent] = useState(false);
 
@@ -780,17 +783,34 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           {/* Project Color palette */}
           <div>
             <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
-            <div className="flex flex-wrap gap-1.5">
-              {(project.project_colors?.length ? project.project_colors : DEFAULT_PALETTE).map((c, i) => (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {paletteColors.map((c, i) => (
                 <button
                   key={i}
-                  onClick={() => setSelectedColor(c)}
+                  onClick={() => { setSelectedColor(c); patchProject({ color: c }); }}
+                  title={c}
                   className={`w-7 h-7 rounded-full border-2 cursor-pointer hover:scale-110 transition-transform ${
                     selectedColor === c ? 'border-fq-dark/60 ring-2 ring-fq-accent/30' : 'border-fq-border/50'
                   }`}
                   style={{ backgroundColor: c }}
                 />
               ))}
+              {/* Add color */}
+              <label className="w-7 h-7 rounded-full border-2 border-dashed border-fq-border/60 flex items-center justify-center cursor-pointer hover:border-fq-accent/50 transition-colors" title="Add color">
+                <span className={`text-[14px] leading-none text-fq-muted/50`}>+</span>
+                <input
+                  type="color"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const c = e.target.value;
+                    if (!paletteColors.includes(c)) {
+                      const updated = [...paletteColors, c];
+                      setPaletteColors(updated);
+                      patchProject({ project_colors: updated });
+                    }
+                  }}
+                />
+              </label>
             </div>
           </div>
       </div>
