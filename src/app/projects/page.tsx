@@ -255,6 +255,7 @@ export default function ProjectsPage() {
 
   const clients = projects.filter(p => p.type === 'client' && p.status === 'active');
   const shoots = projects.filter(p => p.type === 'shoot');
+  const archived = projects.filter(p => p.status === 'completed' || p.status === 'archived');
 
   const t = {
     heading: 'text-fq-dark',
@@ -307,7 +308,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* Styled Shoots */}
-      <div>
+      <div className="mb-12">
         <div className="flex items-center gap-2.5 mb-5">
           <span className="text-fq-muted/50 text-[18px]">📸</span>
           <h2 className="font-heading text-[24px] font-semibold text-fq-dark">Styled Shoots</h2>
@@ -321,6 +322,23 @@ export default function ProjectsPage() {
           ))}
         </div>
       </div>
+
+      {/* Completed / Archived */}
+      {archived.length > 0 && (
+        <div className="border-t border-fq-border pt-10">
+          <div className="flex items-center gap-2.5 mb-5">
+            <h2 className="font-heading text-[20px] font-semibold text-fq-muted/60">Completed & Archived</h2>
+            <span className="bg-fq-border/60 text-fq-muted font-body text-[12px] font-medium px-2 py-0.5 rounded-full">
+              {archived.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-5">
+            {archived.map((project) => (
+              <ProjectCard key={project.id} project={project} getTeamMember={getTeamMember} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
