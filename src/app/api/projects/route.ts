@@ -40,6 +40,28 @@ export async function GET() {
   return NextResponse.json(enriched);
 }
 
+export async function PATCH(req: NextRequest) {
+  const body = await req.json();
+  const { id, assigned_to, ...updates } = body;
+
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  const { data, error } = await supabase.from('projects').update(updates).eq('id', id).select().single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Update assignments if provided
+  if (assigned_to !== undefined) {
+    await supabase.from('project_assignments').delete().eq('project_id', id);
+    if (assigned_to.length) {
+      await supabase.from('project_assignments').insert(
+        assigned_to.map((teamMemberId: string) => ({ project_id: id, team_member_id: teamMemberId }))
+      );
+    }
+  }
+
+  return NextResponse.json(data);
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { assigned_to, ...projectData } = body;

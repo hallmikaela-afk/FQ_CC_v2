@@ -422,11 +422,15 @@ function CardSettingsPanel({ fields, customFields, onFieldsChange, onCustomField
   );
 }
 
+const DEFAULT_PALETTE = [
+  '#C4A882','#4A7C59','#8B3A2A','#7B6EA8','#B5A642','#8B9E6E','#C4956A','#5C4033',
+  '#2E5339','#1B3A6B','#6B4226','#C9A84C','#C4622D','#D4849A',
+];
+
 /* ── Main card ── */
 const defaultLookup = (_id: string): TeamMember | undefined => undefined;
 
 export default function ClientCard({ project, getTeamMember = defaultLookup }: { project: Project; getTeamMember?: (id: string) => TeamMember | undefined }) {
-  const [expanded, setExpanded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const countdown = formatCountdown(project.event_date);
   const progressPct = project.tasks_total > 0
@@ -479,7 +483,12 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
   const [clientWebsite, setClientWebsite] = useState(project.client_website || '');
   const [sharepointFolder, setSharepointFolder] = useState(project.sharepoint_folder || '');
   const [selectedColor, setSelectedColor] = useState(project.color);
+  const [paletteColors, setPaletteColors] = useState<string[]>(project.project_colors?.length ? project.project_colors : DEFAULT_PALETTE);
   const [expandedNote, setExpandedNote] = useState<CallNote | null>(null);
+
+  const patchProject = (updates: Record<string, unknown>) => {
+    fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: project.id, ...updates }) });
+  };
   const [callNotes, setCallNotes] = useState(project.call_notes || []);
   const [editingNoteContent, setEditingNoteContent] = useState(false);
 
@@ -539,7 +548,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         <div className="ml-5 mb-3">
           <EditableField
             value={concept}
-            onChange={setConcept}
+            onChange={(v) => { setConcept(v); patchProject({ concept: v }); }}
             className={`text-[11px] font-body ${t.light} bg-fq-bg px-2.5 py-0.5 rounded-full`}
             inputClassName={`text-[11px] font-body ${t.light} bg-fq-bg px-2.5 py-0.5 rounded-full`}
             placeholder="Concept..."
@@ -551,21 +560,22 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           {isFieldVisible('venue', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>◉</span>
-              <EditableField value={venueName} onChange={setVenueName}
+              <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }}
                 className={`font-heading text-[15px] font-semibold ${t.heading}`} placeholder="Venue name..." />
             </div>
           )}
 
           {isFieldVisible('venue_address', 'first') && (
             <EditableAddressBox icon={<span>&nbsp;</span>} street={venueStreet} cityStateZip={venueCityStateZip}
-              onStreetChange={setVenueStreet} onCityStateZipChange={setVenueCityStateZip}
+              onStreetChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }}
+              onCityStateZipChange={(v) => { setVenueCityStateZip(v); patchProject({ venue_city_state_zip: v }); }}
               streetPlaceholder="Venue street address..." cityPlaceholder="City, State ZIP..." />
           )}
 
           {isFieldVisible('guests', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>♗</span>
-              <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => setGuestCount(v.replace(/[^0-9]/g, ''))}
+              <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => { const n = v.replace(/[^0-9]/g, ''); setGuestCount(n); patchProject({ guest_count: n ? parseInt(n) : null }); }}
                 className={t.body} placeholder="Guest count..." />
             </div>
           )}
@@ -573,14 +583,14 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           {isFieldVisible('budget', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>$</span>
-              <EditableField value={budget} onChange={setBudget} className={t.body} placeholder="Budget..." />
+              <EditableField value={budget} onChange={(v) => { setBudget(v); patchProject({ estimated_budget: v }); }} className={t.body} placeholder="Budget..." />
             </div>
           )}
 
           {isFieldVisible('signed_date', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>☐</span>
-              <EditableField value={signedDate ? `Signed ${formatDate(signedDate)}` : ''} onChange={(v) => setSignedDate(v.replace('Signed ', ''))}
+              <EditableField value={signedDate ? `Signed ${formatDate(signedDate)}` : ''} onChange={(v) => { const d = v.replace('Signed ', ''); setSignedDate(d); patchProject({ contract_signed_date: d || null }); }}
                 className={t.body} placeholder="Signed date..." />
             </div>
           )}
@@ -618,6 +628,16 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
               {Math.round(progressPct)}%
             </span>
           </div>
+        </div>
+
+        {/* Links & Resources */}
+        <div className="mb-3 space-y-1">
+          <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={(v) => { setCanvaLink(v); patchProject({ canva_link: v }); }} />
+          <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={(v) => { setInternalShare(v); patchProject({ internal_file_share: v }); }} />
+          <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={(v) => { setClientFolder(v); patchProject({ client_shared_folder: v }); }} />
+          <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={(v) => { setPortalLink(v); patchProject({ client_portal_link: v }); }} />
+          <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={(v) => { setClientWebsite(v); patchProject({ client_website: v }); }} />
+          <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={(v) => { setSharepointFolder(v); patchProject({ sharepoint_folder: v }); }} />
         </div>
 
         {/* Badges row — overdue links to tasks, call notes links to notes page */}
@@ -668,24 +688,11 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         </Link>
       </div>
 
-      {/* Expand / Collapse toggle + Settings gear */}
-      <div className="flex items-center border-t border-fq-border">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className={`flex-1 py-2.5 text-[12px] font-body ${t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors flex items-center justify-center gap-1`}
-        >
-          {expanded ? 'Less details' : 'Full details'}
-        <svg
-          width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"
-          strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-          className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-        >
-          <path d="M3 5l3 3 3-3" />
-        </svg>
-        </button>
+      {/* Settings gear */}
+      <div className="flex items-center justify-end border-t border-fq-border">
         <button
           onClick={() => setShowSettings(!showSettings)}
-          className={`px-3 py-2.5 text-[12px] font-body ${showSettings ? 'text-fq-accent' : t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors border-l border-fq-border`}
+          className={`px-3 py-2.5 text-[12px] font-body ${showSettings ? 'text-fq-accent' : t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors`}
           title="Card settings"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -705,55 +712,36 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         />
       )}
 
-      {/* Expanded Details */}
-      {expanded && (
-        <div className="border-t border-fq-border px-5 py-5">
+      {/* Details */}
+      <div className="border-t border-fq-border px-5 py-5">
           <h3 className={`font-heading text-[16px] font-semibold ${t.heading} mb-3`}>
             Client Details
           </h3>
 
           {/* Partner cards */}
-          {isFieldVisible('partners', 'expanded') && (
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              <div className="border border-fq-border rounded-lg p-2.5">
-                <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
-                <EditableField value={partner1} onChange={setPartner1}
-                  className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
-              </div>
-              <div className="border border-fq-border rounded-lg p-2.5">
-                <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
-                <EditableField value={partner2} onChange={setPartner2}
-                  className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
-              </div>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="border border-fq-border rounded-lg p-2.5">
+              <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 1</p>
+              <EditableField value={partner1} onChange={(v) => { setPartner1(v); patchProject({ client1_name: v }); }}
+                className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
             </div>
-          )}
+            <div className="border border-fq-border rounded-lg p-2.5">
+              <p className={`font-body text-[10px] ${t.light} mb-0.5`}>Partner 2</p>
+              <EditableField value={partner2} onChange={(v) => { setPartner2(v); patchProject({ client2_name: v }); }}
+                className={`font-body text-[13px] ${t.heading} font-medium`} placeholder="Partner name..." />
+            </div>
+          </div>
 
           {/* Client Address */}
-          {isFieldVisible('client_address', 'expanded') && (
-            <div className="mb-4">
-              <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
-              <div className="text-[13px] font-body ml-1">
-                <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
-                  onStreetChange={setClientStreet} onCityStateZipChange={setClientCityStateZip}
-                  streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
-              </div>
+          <div className="mb-4">
+            <p className={`font-body text-[10px] ${t.light} mb-1`}>Client Address</p>
+            <div className="text-[13px] font-body ml-1">
+              <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
+                onStreetChange={(v) => { setClientStreet(v); patchProject({ client_street: v }); }}
+                onCityStateZipChange={(v) => { setClientCityStateZip(v); patchProject({ client_city_state_zip: v }); }}
+                streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
             </div>
-          )}
-
-          {/* Links & Resources */}
-          {isFieldVisible('links', 'expanded') && (
-            <div className="mb-4">
-              <h3 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2`}>Links &amp; Resources</h3>
-              <div className="space-y-1.5">
-                <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
-                <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
-                <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
-                <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
-                <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
-                <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Custom fields assigned to expanded pane */}
           {customFields.filter(cf => isFieldVisible(cf.id, 'expanded')).length > 0 && (
@@ -770,15 +758,18 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           )}
 
           {/* Latest Call Note — double-click to open editable modal */}
-          {isFieldVisible('call_notes', 'expanded') && callNotes.length > 0 && (
-            <div className="mb-4">
-              <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
-                <span className="text-fq-accent/70">✦</span>
-                Latest Call Note
+          {/* Latest Call Note */}
+          <div className="mb-4">
+            <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
+              <span className="text-fq-accent/70">✦</span>
+              Latest Call Note
+              {callNotes.length > 0 && (
                 <span className={`font-body text-[11px] font-normal ${t.light}`}>
                   ({callNotes.length} total) — double-click to edit
                 </span>
-              </div>
+              )}
+            </div>
+            {callNotes.length > 0 ? (
               <div
                 onDoubleClick={() => { setExpandedNote(callNotes[0]); setEditingNoteContent(false); }}
                 className="block bg-fq-bg rounded-lg p-3 border-l-[3px] border-fq-accent/60 hover:bg-fq-light-accent transition-colors mt-2 cursor-default"
@@ -791,29 +782,45 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
                   {callNotes[0].raw_text.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').substring(0, 200)}
                 </p>
               </div>
-            </div>
-          )}
+            ) : (
+              <p className={`font-body text-[12px] ${t.light} italic`}>No call notes yet</p>
+            )}
+          </div>
 
-          {/* Project Color palette — at the bottom */}
-          {isFieldVisible('project_color', 'expanded') && project.project_colors && project.project_colors.length > 0 && (
-            <div>
-              <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
-              <div className="flex flex-wrap gap-1.5">
-                {project.project_colors.map((c, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setSelectedColor(c)}
-                    className={`w-7 h-7 rounded-full border-2 cursor-pointer hover:scale-110 transition-transform ${
-                      selectedColor === c ? 'border-fq-dark/60 ring-2 ring-fq-accent/30' : 'border-fq-border/50'
-                    }`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
+          {/* Project Color palette */}
+          <div>
+            <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {paletteColors.map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setSelectedColor(c); patchProject({ color: c }); }}
+                  title={c}
+                  className={`w-7 h-7 rounded-full border-2 cursor-pointer hover:scale-110 transition-transform ${
+                    selectedColor === c ? 'border-fq-dark/60 ring-2 ring-fq-accent/30' : 'border-fq-border/50'
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+              {/* Add color */}
+              <label className="w-7 h-7 rounded-full border-2 border-dashed border-fq-border/60 flex items-center justify-center cursor-pointer hover:border-fq-accent/50 transition-colors" title="Add color">
+                <span className={`text-[14px] leading-none text-fq-muted/50`}>+</span>
+                <input
+                  type="color"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const c = e.target.value;
+                    if (!paletteColors.includes(c)) {
+                      const updated = [...paletteColors, c];
+                      setPaletteColors(updated);
+                      patchProject({ project_colors: updated });
+                    }
+                  }}
+                />
+              </label>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+      </div>
 
       {/* Call Note Edit Modal */}
       {expandedNote && (

@@ -372,12 +372,17 @@ export default function TasksPage() {
       tabs.push({ id: `project-${p.id}`, label: p.name, filter: (tk) => tk.projectId === p.id });
     });
     const allCategories = Array.from(new Set(allTasksFromProjects.map(tk => tk.category).filter(Boolean))) as string[];
-    const categoryTabs = ['Logistics', 'Entertainment', 'Florals & Decor', 'Stationery', 'Photography'].filter(c => allCategories.includes(c));
+    const categoryTabs = ['Entertainment', 'Florals & Decor', 'Stationery', 'Photography'].filter(c => allCategories.includes(c));
     categoryTabs.forEach(cat => {
       tabs.push({ id: `cat-${cat}`, label: cat, filter: (tk) => tk.category === cat });
     });
+    // Function-based tabs
+    const designerIds = new Set(team.filter(m => m.function === 'Designer').map(m => m.id));
+    const plannerIds = new Set(team.filter(m => m.function === 'Planner').map(m => m.id));
+    tabs.push({ id: 'fn-designer', label: 'Design & Styling', filter: (tk) => !!tk.assigned_to && designerIds.has(tk.assigned_to) });
+    tabs.push({ id: 'fn-planner', label: 'Planning', filter: (tk) => !!tk.assigned_to && plannerIds.has(tk.assigned_to) });
     return tabs;
-  }, [projects, allTasksFromProjects]);
+  }, [projects, allTasksFromProjects, team]);
 
   const [tasks, setTasks] = useState<TaskWithProject[]>([]);
   const [tasksInitialized, setTasksInitialized] = useState(false);
@@ -490,6 +495,7 @@ export default function TasksPage() {
 
   const updateTask = (updated: TaskWithProject) => {
     setTasks(prev => prev.map(tk => tk.id === updated.id ? updated : tk));
+    fetch('/api/tasks', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
   };
 
   const updateTaskField = (taskId: string, field: keyof Task, value: unknown) => {
@@ -525,12 +531,12 @@ export default function TasksPage() {
     setAddingSubtaskFor(null);
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!newTaskText.trim()) return;
     const proj = projects.find(p => p.id === newTaskProject);
-    const newTask: TaskWithProject = {
-      id: `task-${Date.now()}`,
+    const taskData = {
       text: newTaskText.trim(),
+      project_id: newTaskProject || undefined,
       completed: newTaskStatus === 'completed',
       status: (newTaskStatus as Task['status']) || undefined,
       due_date: newTaskDue || undefined,
@@ -538,10 +544,10 @@ export default function TasksPage() {
       assigned_to: newTaskAssigned || undefined,
       priority: (newTaskPriority as Task['priority']) || undefined,
       notes: newTaskNotes || undefined,
-      subtasks: [],
-      projectId: newTaskProject,
-      projectName: proj?.name || '',
     };
+    const res = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(taskData) });
+    const saved = await res.json();
+    const newTask: TaskWithProject = { ...saved, subtasks: [], projectId: newTaskProject, projectName: proj?.name || '' };
     setTasks(prev => [...prev, newTask]);
     setNewTaskText(''); setNewTaskDue(''); setNewTaskCategory('');
     setNewTaskAssigned(''); setNewTaskPriority(''); setNewTaskNotes('');
@@ -582,7 +588,17 @@ export default function TasksPage() {
   }
 
   const sortedGroupEntries = Object.entries(grouped);
-  if (groupBy === 'date') sortedGroupEntries.sort((a, b) => dateGroupSortKey(a[0]).localeCompare(dateGroupSortKey(b[0])));
+  if (groupBy === 'date') {
+    sortedGroupEntries.sort((a, b) => dateGroupSortKey(a[0]).localeCompare(dateGroupSortKey(b[0])));
+    sortedGroupEntries.forEach(([, groupTasks]) => {
+      groupTasks.sort((a, b) => {
+        if (!a.due_date && !b.due_date) return 0;
+        if (!a.due_date) return 1;
+        if (!b.due_date) return -1;
+        return a.due_date.localeCompare(b.due_date);
+      });
+    });
+  }
 
   const hasActiveFilters = categoryFilter !== 'all' || teamFilter !== 'all' || priorityFilter !== 'all' || statusFilter !== 'all' || projectFilter !== 'all';
   const clearFilters = () => { setCategoryFilter('all'); setTeamFilter('all'); setPriorityFilter('all'); setStatusFilter('all'); setProjectFilter('all'); };
@@ -604,11 +620,15 @@ export default function TasksPage() {
     switch (col.id) {
       case 'checkbox':
         return (
-          <div className="flex items-center">
+          <div className="flex items-center gap-1">
             <button onClick={(e) => { e.stopPropagation(); toggleTaskComplete(task.id); }}
               className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${taskStatus === 'completed' ? 'bg-[#4CAF6A] border-[#4CAF6A] text-white' : 'border-fq-border hover:border-fq-accent'}`}>
               {taskStatus === 'completed' && <svg width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 5l2.5 2.5L8 3" /></svg>}
             </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setAddingSubtaskFor(task.id); setInlineSubtaskText(''); if (!expandedSubtasks.has(task.id)) setExpandedSubtasks(prev => { const n = new Set(prev); n.add(task.id); return n; }); }}
+              className="text-[9px] text-fq-muted/40 hover:text-fq-accent opacity-0 group-hover/row:opacity-100 transition-opacity leading-none"
+              title="Add subitem">+</button>
           </div>
         );
       case 'task':

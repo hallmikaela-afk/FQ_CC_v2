@@ -72,6 +72,11 @@ function HeaderCard({ project }: { project: Project }) {
   const [guestCount, setGuestCount] = useState(project.guest_count?.toString() || '');
   const [budget, setBudget] = useState(project.estimated_budget || '');
   const [serviceTier, setServiceTier] = useState(project.service_tier || '');
+  const [status, setStatus] = useState(project.status);
+
+  const patchProject = (updates: Record<string, unknown>) => {
+    fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: project.id, ...updates }) });
+  };
 
   const t = {
     heading: 'text-fq-dark/90',
@@ -88,9 +93,15 @@ function HeaderCard({ project }: { project: Project }) {
           <h1 className={`font-heading text-[28px] font-bold ${t.heading}`}>
             {project.name}
           </h1>
-          <span className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-            {project.status}
-          </span>
+          <select
+            value={status}
+            onChange={(e) => { const s = e.target.value as typeof status; setStatus(s); patchProject({ status: s }); }}
+            className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full border-0 outline-none cursor-pointer appearance-none"
+          >
+            <option value="active">active</option>
+            <option value="completed">completed</option>
+            <option value="archived">archived</option>
+          </select>
         </div>
         <div className="flex items-center gap-3 text-right">
           <span className={`font-body text-[14px] ${t.body} flex items-center gap-1.5`}>
@@ -105,7 +116,7 @@ function HeaderCard({ project }: { project: Project }) {
       <div className="ml-6 mb-4">
         <EditableField
           value={concept}
-          onChange={setConcept}
+          onChange={(v) => { setConcept(v); patchProject({ concept: v }); }}
           className={`font-body text-[13px] ${t.light} italic`}
           placeholder="Click to add concept..."
         />
@@ -116,14 +127,14 @@ function HeaderCard({ project }: { project: Project }) {
       <div className="flex items-center gap-6 mb-4 flex-wrap">
         <div className="flex items-center gap-1.5">
           <span className={`${t.icon} text-[13px]`}>◉</span>
-          <EditableField value={venueName} onChange={setVenueName} className={`font-body text-[13px] ${t.body}`} placeholder="Venue name..." />
+          <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }} className={`font-body text-[13px] ${t.body}`} placeholder="Venue name..." />
         </div>
         <div className="flex items-center gap-1.5">
           <span className={`${t.icon} text-[13px]`}>♗</span>
-          <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => setGuestCount(v.replace(/[^0-9]/g, ''))} className={`font-body text-[13px] ${t.body}`} placeholder="Guest count..." />
+          <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => { const n = v.replace(/[^0-9]/g, ''); setGuestCount(n); patchProject({ guest_count: n ? parseInt(n) : null }); }} className={`font-body text-[13px] ${t.body}`} placeholder="Guest count..." />
         </div>
-        <EditableField value={budget ? `${budget} budget` : ''} onChange={(v) => setBudget(v.replace(' budget', ''))} className={`font-body text-[13px] ${t.body}`} placeholder="Budget..." />
-        <EditableField value={serviceTier} onChange={setServiceTier} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full" placeholder="Service tier..." />
+        <EditableField value={budget ? `${budget} budget` : ''} onChange={(v) => { const b = v.replace(' budget', ''); setBudget(b); patchProject({ estimated_budget: b }); }} className={`font-body text-[13px] ${t.body}`} placeholder="Budget..." />
+        <EditableField value={serviceTier} onChange={(v) => { setServiceTier(v); patchProject({ service_tier: v }); }} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full" placeholder="Service tier..." />
       </div>
 
       <div className="flex items-center gap-4">
@@ -181,16 +192,21 @@ function AgendaItem({ value, onChange, onDelete }: { value: string; onChange: (v
 }
 
 /* ─────────────── Next Call Agenda ─────────────── */
-function NextCallAgenda({ items }: { items: string[] }) {
+function NextCallAgenda({ items, projectId }: { items: string[]; projectId: string }) {
   const [agenda, setAgenda] = useState(items);
   const [draft, setDraft] = useState('');
   const [copied, setCopied] = useState(false);
-  const addItem = () => { if (draft.trim()) { setAgenda([...agenda, draft.trim()]); setDraft(''); } };
-  const updateItem = (index: number, value: string) => {
-    if (!value.trim()) setAgenda(agenda.filter((_, i) => i !== index));
-    else setAgenda(agenda.map((item, i) => i === index ? value : item));
+
+  const saveAgenda = (next: string[]) => {
+    fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: projectId, next_call_agenda: next }) });
   };
-  const removeItem = (index: number) => setAgenda(agenda.filter((_, i) => i !== index));
+
+  const addItem = () => { if (draft.trim()) { const next = [...agenda, draft.trim()]; setAgenda(next); setDraft(''); saveAgenda(next); } };
+  const updateItem = (index: number, value: string) => {
+    const next = !value.trim() ? agenda.filter((_, i) => i !== index) : agenda.map((item, i) => i === index ? value : item);
+    setAgenda(next); saveAgenda(next);
+  };
+  const removeItem = (index: number) => { const next = agenda.filter((_, i) => i !== index); setAgenda(next); saveAgenda(next); };
 
   const copyAsEmail = () => {
     const text = 'Next Call Agenda:\n' + agenda.map((item, i) => `${i + 1}. ${item}`).join('\n');
@@ -242,23 +258,27 @@ function VendorTile({ vendor, onRemove }: { vendor: Vendor; onRemove: () => void
   const [category, setCategory] = useState(vendor.category);
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
+  const patchVendor = (updates: Record<string, unknown>) => {
+    fetch('/api/vendors', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: vendor.id, ...updates }) });
+  };
+
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-4 flex flex-col group/tile">
       <div className="flex items-center justify-between mb-2">
-        <EditableField value={category} onChange={setCategory} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full" placeholder="Category..." />
+        <EditableField value={category} onChange={(v) => { setCategory(v); patchVendor({ category: v }); }} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full" placeholder="Category..." />
         <button onClick={onRemove} className="text-fq-muted/30 hover:text-fq-alert transition-colors opacity-0 group-hover/tile:opacity-100" title="Remove vendor">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
           </svg>
         </button>
       </div>
-      <EditableField value={name} onChange={setName} className={`font-body text-[15px] font-medium ${t.heading} mb-2`} placeholder="Vendor name..." />
+      <EditableField value={name} onChange={(v) => { setName(v); patchVendor({ vendor_name: v }); }} className={`font-body text-[15px] font-medium ${t.heading} mb-2`} placeholder="Vendor name..." />
       <div className="space-y-1 flex-1">
-        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>♗</span><EditableField value={contact} onChange={setContact} className={`font-body text-[12px] ${t.light}`} placeholder="Contact name..." /></div>
-        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>✉</span><EditableField value={email} onChange={setEmail} className={`font-body text-[12px] ${t.light}`} placeholder="Email..." /></div>
-        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>☏</span><EditableField value={phone} onChange={setPhone} className={`font-body text-[12px] ${t.light}`} placeholder="Phone..." /></div>
-        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>⊕</span><EditableField value={website} onChange={setWebsite} className={`font-body text-[12px] ${t.light}`} placeholder="Website..." /></div>
-        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>📷</span><EditableField value={instagram} onChange={setInstagram} className={`font-body text-[12px] ${t.light}`} placeholder="@instagram..." /></div>
+        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>♗</span><EditableField value={contact} onChange={(v) => { setContact(v); patchVendor({ contact_name: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Contact name..." /></div>
+        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>✉</span><EditableField value={email} onChange={(v) => { setEmail(v); patchVendor({ email: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Email..." /></div>
+        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>☏</span><EditableField value={phone} onChange={(v) => { setPhone(v); patchVendor({ phone: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Phone..." /></div>
+        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>⊕</span><EditableField value={website} onChange={(v) => { setWebsite(v); patchVendor({ website: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Website..." /></div>
+        <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>📷</span><EditableField value={instagram} onChange={(v) => { setInstagram(v); patchVendor({ instagram: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="@instagram..." /></div>
       </div>
     </div>
   );
@@ -319,13 +339,20 @@ function AddVendorModal({ open, onClose, onAdd }: { open: boolean; onClose: () =
 }
 
 /* ─────────────── Vendor Contacts ─────────────── */
-function VendorContacts({ vendors: initialVendors }: { vendors: Vendor[] }) {
+function VendorContacts({ vendors: initialVendors, projectId }: { vendors: Vendor[]; projectId: string }) {
   const [vendors, setVendors] = useState(initialVendors);
   const [collapsed, setCollapsed] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [copiedCredits, setCopiedCredits] = useState(false);
-  const removeVendor = (id: string) => setVendors(vendors.filter(v => v.id !== id));
-  const addVendor = (vendor: Vendor) => setVendors([...vendors, vendor]);
+  const removeVendor = (id: string) => {
+    setVendors(vendors.filter(v => v.id !== id));
+    fetch(`/api/vendors?id=${id}`, { method: 'DELETE' });
+  };
+  const addVendor = async (vendor: Vendor) => {
+    const res = await fetch('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...vendor, project_id: projectId }) });
+    const [saved] = await res.json();
+    setVendors(prev => [...prev, saved]);
+  };
 
   const downloadCSV = () => {
     const headers = ['Category', 'Vendor Name', 'Contact Name', 'Email', 'Phone', 'Website', 'Instagram'];
@@ -826,7 +853,7 @@ function EditableSummary({ value, onChange, bullets, textClass }: { value: strin
 }
 
 /* ─────────────── Call Notes ─────────────── */
-function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; tasks: Task[] }) {
+function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: CallNote[]; tasks: Task[]; projectId: string }) {
   const [notes, setNotes] = useState(initialNotes);
   const [collapsed, setCollapsed] = useState(true);
   const [showNewNote, setShowNewNote] = useState(false);
@@ -850,10 +877,10 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
 
   const updateNote = (id: string, updates: Partial<CallNote>) => {
     setNotes(notes.map(n => n.id === id ? { ...n, ...updates } : n));
-    // Also update the expanded note if it's the same one
     if (expandedNote && expandedNote.id === id) {
       setExpandedNote({ ...expandedNote, ...updates });
     }
+    fetch('/api/call-notes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...updates }) });
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -874,13 +901,10 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
         text = await file.text();
       }
 
-      const newNote: CallNote = {
-        id: `cn-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        raw_text: text,
-        extracted_actions: [],
-      };
-      setNotes([newNote, ...notes]);
+      const notePayload = { project_id: projectId, date: new Date().toISOString().split('T')[0], raw_text: text };
+      const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
+      const newNote: CallNote = await res.json();
+      setNotes([{ ...newNote, extracted_actions: newNote.extracted_actions || [] }, ...notes]);
     } catch (err) {
       console.error('Upload parse error:', err);
       alert('Could not parse file. Please try a different format.');
@@ -890,15 +914,12 @@ function CallNotesSection({ notes: initialNotes, tasks }: { notes: CallNote[]; t
     }
   };
 
-  const addNewNote = () => {
+  const addNewNote = async () => {
     if (!newNoteContent.replace(/<[^>]+>/g, '').trim()) return;
-    const newNote: CallNote = {
-      id: `cn-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
-      raw_text: newNoteContent,
-      extracted_actions: [],
-    };
-    setNotes([newNote, ...notes]);
+    const notePayload = { project_id: projectId, date: new Date().toISOString().split('T')[0], raw_text: newNoteContent };
+    const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
+    const newNote: CallNote = await res.json();
+    setNotes([{ ...newNote, extracted_actions: [] }, ...notes]);
     setNewNoteContent('');
     setShowNewNote(false);
   };
@@ -1306,7 +1327,7 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
 }
 
 /* ─────────────── Task List Section ─────────────── */
-function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { tasks: Task[]; projectColor: string; assignedTo: string[] }) {
+function TaskListSection({ tasks: initialTasks, projectColor, assignedTo, projectId }: { tasks: Task[]; projectColor: string; assignedTo: string[]; projectId: string }) {
   const [tasks, setTasks] = useState(initialTasks);
   const [tab, setTab] = useState<'all' | 'open' | 'done'>('open');
   const [search, setSearch] = useState('');
@@ -1368,11 +1389,11 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     return categoryColorMap.get(cat)!;
   };
 
-  const addTask = () => {
+  const addTask = async () => {
     if (!newTaskText.trim()) return;
-    const newTask: Task = {
-      id: `task-${Date.now()}`,
+    const taskData = {
       text: newTaskText.trim(),
+      project_id: projectId,
       completed: newTaskStatus === 'completed',
       status: (newTaskStatus as Task['status']) || undefined,
       due_date: newTaskDue || undefined,
@@ -1380,9 +1401,10 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
       assigned_to: newTaskAssigned || undefined,
       priority: (newTaskPriority as Task['priority']) || undefined,
       notes: newTaskNotes || undefined,
-      subtasks: [],
     };
-    setTasks(prev => [...prev, newTask]);
+    const res = await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(taskData) });
+    const saved = await res.json();
+    setTasks(prev => [...prev, { ...saved, subtasks: [] }]);
     setNewTaskText('');
     setNewTaskDue('');
     setNewTaskCategory('');
@@ -1395,6 +1417,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
 
   const updateTask = (updated: Task) => {
     setTasks(prev => prev.map(tk => tk.id === updated.id ? updated : tk));
+    fetch('/api/tasks', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
   };
 
   const updateTaskField = (taskId: string, field: keyof Task, value: unknown) => {
@@ -2026,17 +2049,15 @@ export default function ProjectDetailPage() {
 
       <div className="grid grid-cols-[1fr_440px] gap-5 mb-8">
         <HeaderCard project={project} />
-        <NextCallAgenda items={project.next_call_agenda || []} />
+        <NextCallAgenda items={project.next_call_agenda || []} projectId={project.id} />
       </div>
 
-      <div className="mb-8"><VendorContacts vendors={project.vendors || []} /></div>
+      <div className="mb-8"><VendorContacts vendors={project.vendors || []} projectId={project.id} /></div>
 
-      {project.call_notes && project.call_notes.length > 0 && (
-        <div className="mb-8"><CallNotesSection notes={project.call_notes} tasks={project.tasks || []} /></div>
-      )}
+      <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
 
       <div className="mb-8">
-        <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} />
+        <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 
 type TableName = 'tasks' | 'vendors' | 'projects' | 'team_members' | 'call_notes' | 'template_tasks';
@@ -48,40 +48,71 @@ export default function ImportPage() {
   const [dragOver, setDragOver] = useState(false);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string }[]>([]);
-
-  // Fetch projects for the project_id selector
+  const [uploadDescription, setUploadDescription] = useState('');
+  // Fetch projects for the project_id selector (on mount)
   const fetchProjects = useCallback(async () => {
     try {
       const res = await fetch('/api/projects');
       if (res.ok) {
         const data = await res.json();
-        setProjects(data.map((p: any) => ({ id: p.id, name: p.name })));
+        setProjects(
+          data
+            .filter((p: any) => p.status === 'active')
+            .map((p: any) => ({ id: p.id, name: p.name }))
+        );
       }
     } catch { /* projects not loaded yet */ }
   }, []);
 
-  const fetchTeamMembers = useCallback(async () => {
-    try {
-      const res = await fetch('/api/team');
-      if (res.ok) {
-        const data = await res.json();
-        setTeamMembers(data.map((t: any) => ({ id: t.id, name: t.name })));
-      }
-    } catch { /* team not loaded yet */ }
-  }, []);
+  useEffect(() => { fetchProjects(); }, [fetchProjects]);
 
-  const handleFile = useCallback((file: File) => {
+  const processRows = useCallback((rows: Record<string, string>[]) => {
+    setRawData(rows);
+    const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
+    setSourceColumns(cols);
+
+    // Auto-map columns by name similarity
+    const targetCols = [...TABLE_COLUMNS[table].required, ...TABLE_COLUMNS[table].optional];
+    const autoMappings: ColumnMapping[] = [];
+    cols.forEach(src => {
+      const normalized = src.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      const match = targetCols.find(t => t === normalized || t.includes(normalized) || normalized.includes(t));
+      if (match) {
+        autoMappings.push({ sourceCol: src, targetCol: match });
+      }
+    });
+    setMappings(autoMappings);
+  }, [table]);
+
+  const handleFile = useCallback(async (file: File) => {
     setFileName(file.name);
     setResult(null);
-    const reader = new FileReader();
+    const name = file.name.toLowerCase();
 
+    if (name.endsWith('.pdf') || name.endsWith('.docx') || name.endsWith('.doc')) {
+      // Send to server-side parser
+      const formData = new FormData();
+      formData.append('file', file);
+      try {
+        const res = await fetch('/api/parse-file', { method: 'POST', body: formData });
+        const json = await res.json();
+        if (json.error) {
+          setResult({ errors: [`Could not parse file: ${json.error}`] });
+          return;
+        }
+        processRows(json.rows || []);
+      } catch (err: any) {
+        setResult({ errors: [`Failed to parse file: ${err.message}`] });
+      }
+      return;
+    }
+
+    const reader = new FileReader();
     reader.onload = (e) => {
       const data = e.target?.result;
       let rows: Record<string, string>[] = [];
 
-      if (file.name.endsWith('.csv')) {
-        // Parse CSV
+      if (name.endsWith('.csv')) {
         const text = data as string;
         const lines = text.split('\n').filter(l => l.trim());
         if (lines.length < 2) return;
@@ -93,39 +124,21 @@ export default function ImportPage() {
           return obj;
         });
       } else {
-        // Parse Excel
+        // Excel
         const wb = XLSX.read(data, { type: 'array' });
         const sheet = wb.Sheets[wb.SheetNames[0]];
         rows = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Record<string, string>[];
       }
 
-      setRawData(rows);
-      const cols = rows.length > 0 ? Object.keys(rows[0]) : [];
-      setSourceColumns(cols);
-
-      // Auto-map columns by name similarity
-      const targetCols = [...TABLE_COLUMNS[table].required, ...TABLE_COLUMNS[table].optional];
-      const autoMappings: ColumnMapping[] = [];
-      cols.forEach(src => {
-        const normalized = src.toLowerCase().replace(/[^a-z0-9]/g, '_');
-        const match = targetCols.find(t => t === normalized || t.includes(normalized) || normalized.includes(t));
-        if (match) {
-          autoMappings.push({ sourceCol: src, targetCol: match });
-        }
-      });
-      setMappings(autoMappings);
-
-      // Fetch projects/team for dropdowns
-      fetchProjects();
-      fetchTeamMembers();
+      processRows(rows);
     };
 
-    if (file.name.endsWith('.csv')) {
+    if (name.endsWith('.csv')) {
       reader.readAsText(file);
     } else {
       reader.readAsArrayBuffer(file);
     }
-  }, [table, fetchProjects, fetchTeamMembers]);
+  }, [table, processRows]);
 
   function parseCSVLine(line: string): string[] {
     const result: string[] = [];
@@ -253,7 +266,7 @@ export default function ImportPage() {
   return (
     <div className="p-8 max-w-5xl">
       <h1 className="font-heading text-3xl text-fq-dark mb-2">Import Data</h1>
-      <p className="text-fq-muted mb-6">Upload a CSV or Excel file to import data into Supabase.</p>
+      <p className="text-fq-muted mb-6">Upload a CSV, Excel, Word, or PDF file to import data into Supabase.</p>
 
       {/* Step 1: Select table */}
       <div className="mb-6">
@@ -286,13 +299,25 @@ export default function ImportPage() {
             onChange={e => setSelectedProjectId(e.target.value)}
             className="w-full max-w-md px-3 py-2 border border-fq-border rounded-lg bg-white text-fq-dark"
           >
-            <option value="">— Select project (or map project_id column) —</option>
+            <option value="">Select project</option>
             {projects.map(p => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
         </div>
       )}
+
+      {/* Description */}
+      <div className="mb-6">
+        <label className="block text-sm font-medium text-fq-dark mb-2">1c. Describe what you&apos;re uploading <span className="text-fq-muted font-normal">(optional)</span></label>
+        <input
+          type="text"
+          value={uploadDescription}
+          onChange={e => setUploadDescription(e.target.value)}
+          placeholder="e.g. Vendor contacts from the Smith wedding planning doc"
+          className="w-full max-w-lg px-3 py-2 border border-fq-border rounded-lg bg-white text-fq-dark text-sm placeholder:text-fq-muted/50 focus:outline-none focus:border-fq-accent/40"
+        />
+      </div>
 
       {/* Step 2: Upload file */}
       <div className="mb-6">
@@ -309,7 +334,7 @@ export default function ImportPage() {
           <input
             id="file-input"
             type="file"
-            accept=".csv,.xlsx,.xls"
+            accept=".csv,.xlsx,.xls,.pdf,.docx,.doc"
             onChange={handleFileInput}
             className="hidden"
           />
@@ -320,8 +345,8 @@ export default function ImportPage() {
             </div>
           ) : (
             <div>
-              <p className="text-fq-muted text-lg mb-1">Drop a CSV or Excel file here</p>
-              <p className="text-fq-muted text-sm">or click to browse</p>
+              <p className="text-fq-muted text-lg mb-1">Drop a file here</p>
+              <p className="text-fq-muted text-sm">CSV, Excel, Word (.docx), or PDF — or click to browse</p>
             </div>
           )}
         </div>

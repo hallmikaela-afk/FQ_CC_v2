@@ -276,6 +276,7 @@ export function useFullProjects() {
       name: t.name,
       initials: t.initials,
       role: t.role,
+      function: t.function,
     }));
   }, [team]);
 

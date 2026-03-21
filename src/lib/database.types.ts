@@ -7,6 +7,7 @@ export interface Database {
           name: string;
           initials: string;
           role: string;
+          function: string | null;
           created_at: string;
         };
         Insert: Omit<TeamMemberRow, 'id' | 'created_at'> & { id?: string; created_at?: string };
@@ -61,6 +62,7 @@ export interface TeamMemberRow {
   name: string;
   initials: string;
   role: string;
+  function: string | null;
   created_at: string;
 }
 
@@ -69,7 +71,7 @@ export interface ProjectRow {
   slug: string | null;
   type: 'client' | 'shoot' | 'proposal';
   name: string;
-  status: 'active' | 'proposal_sent' | 'completed' | 'archived';
+  status: 'active' | 'completed' | 'archived';
   event_date: string | null;
   contract_signed_date: string | null;
   color: string;

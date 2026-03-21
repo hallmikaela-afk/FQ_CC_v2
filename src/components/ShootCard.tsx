@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { formatCountdown, formatDate } from '@/data/seed';
-import type { Project, Task, TeamMember } from '@/data/seed';
+import type { Project, TeamMember } from '@/data/seed';
 
 const defaultGetTeamMember = (_id: string): TeamMember | undefined => undefined;
 
 export default function ShootCard({ project, getTeamMember = defaultGetTeamMember }: { project: Project; getTeamMember?: (id: string) => TeamMember | undefined }) {
   const countdown = formatCountdown(project.event_date);
-  const [tasks, setTasks] = useState<Task[]>(project.tasks || []);
+  const [tasks, setTasks] = useState(project.tasks || []);
+  const callNoteCount = project.call_notes?.length ?? 0;
 
   const openTasks = tasks.filter(t => !t.completed).slice(0, 10);
   const completedCount = tasks.filter(t => t.completed).length;
@@ -139,7 +140,7 @@ export default function ShootCard({ project, getTeamMember = defaultGetTeamMembe
         )}
 
         {/* Team */}
-        <div className="flex items-center gap-1.5 mt-2">
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
           {project.assigned_to.map((id) => {
             const member = getTeamMember(id);
             if (!member) return null;
@@ -156,6 +157,18 @@ export default function ShootCard({ project, getTeamMember = defaultGetTeamMembe
             );
           })}
         </div>
+
+        {/* Call notes badge */}
+        {callNoteCount > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            <Link
+              href={`/projects/${project.id}`}
+              className={`text-[11px] font-body ${t.light} bg-fq-bg px-2 py-0.5 rounded-full hover:bg-fq-border/50 transition-colors`}
+            >
+              ☐ {callNoteCount} call note{callNoteCount !== 1 ? 's' : ''}
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
