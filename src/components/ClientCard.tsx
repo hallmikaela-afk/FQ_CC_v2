@@ -426,7 +426,6 @@ function CardSettingsPanel({ fields, customFields, onFieldsChange, onCustomField
 const defaultLookup = (_id: string): TeamMember | undefined => undefined;
 
 export default function ClientCard({ project, getTeamMember = defaultLookup }: { project: Project; getTeamMember?: (id: string) => TeamMember | undefined }) {
-  const [expanded, setExpanded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const countdown = formatCountdown(project.event_date);
   const progressPct = project.tasks_total > 0
@@ -668,24 +667,11 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         </Link>
       </div>
 
-      {/* Expand / Collapse toggle + Settings gear */}
-      <div className="flex items-center border-t border-fq-border">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className={`flex-1 py-2.5 text-[12px] font-body ${t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors flex items-center justify-center gap-1`}
-        >
-          {expanded ? 'Less details' : 'Full details'}
-        <svg
-          width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor"
-          strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-          className={`transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-        >
-          <path d="M3 5l3 3 3-3" />
-        </svg>
-        </button>
+      {/* Settings gear */}
+      <div className="flex items-center justify-end border-t border-fq-border">
         <button
           onClick={() => setShowSettings(!showSettings)}
-          className={`px-3 py-2.5 text-[12px] font-body ${showSettings ? 'text-fq-accent' : t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors border-l border-fq-border`}
+          className={`px-3 py-2.5 text-[12px] font-body ${showSettings ? 'text-fq-accent' : t.light} hover:text-fq-dark hover:bg-fq-bg/50 transition-colors`}
           title="Card settings"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -705,9 +691,8 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         />
       )}
 
-      {/* Expanded Details */}
-      {expanded && (
-        <div className="border-t border-fq-border px-5 py-5">
+      {/* Details */}
+      <div className="border-t border-fq-border px-5 py-5">
           <h3 className={`font-heading text-[16px] font-semibold ${t.heading} mb-3`}>
             Client Details
           </h3>
@@ -812,8 +797,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
               </div>
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       {/* Call Note Edit Modal */}
       {expandedNote && (
