@@ -2055,9 +2055,7 @@ export default function ProjectDetailPage() {
 
       <div className="mb-8"><VendorContacts vendors={project.vendors || []} projectId={project.id} /></div>
 
-      {project.call_notes && project.call_notes.length > 0 && (
-        <div className="mb-8"><CallNotesSection notes={project.call_notes} tasks={project.tasks || []} projectId={project.id} /></div>
-      )}
+      <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
 
       <div className="mb-8">
         <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
