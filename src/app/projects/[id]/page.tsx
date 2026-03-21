@@ -1320,7 +1320,7 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories, assignedTo }: {
 }
 
 /* ─────────────── Task List Section ─────────────── */
-function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { tasks: Task[]; projectColor: string; assignedTo: string[] }) {
+function TaskListSection({ tasks: initialTasks, projectColor, assignedTo, projectId }: { tasks: Task[]; projectColor: string; assignedTo: string[]; projectId: string }) {
   const [tasks, setTasks] = useState(initialTasks);
   const [tab, setTab] = useState<'all' | 'open' | 'done'>('open');
   const [search, setSearch] = useState('');
@@ -1386,7 +1386,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo }: { ta
     if (!newTaskText.trim()) return;
     const taskData = {
       text: newTaskText.trim(),
-      project_id: project.id,
+      project_id: projectId,
       completed: newTaskStatus === 'completed',
       status: (newTaskStatus as Task['status']) || undefined,
       due_date: newTaskDue || undefined,
@@ -2052,7 +2052,7 @@ export default function ProjectDetailPage() {
       )}
 
       <div className="mb-8">
-        <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} />
+        <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
       </div>
     </div>
   );
