@@ -619,6 +619,16 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           </div>
         </div>
 
+        {/* Links & Resources */}
+        <div className="mb-3 space-y-1">
+          <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
+          <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
+          <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
+          <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
+          <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
+          <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
+        </div>
+
         {/* Badges row — overdue links to tasks, call notes links to notes page */}
         <div className="flex flex-wrap items-center gap-1.5 mb-3">
           {project.overdue_count > 0 && (
@@ -721,21 +731,6 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
                 <EditableAddressBox icon="⌂" street={clientStreet} cityStateZip={clientCityStateZip}
                   onStreetChange={setClientStreet} onCityStateZipChange={setClientCityStateZip}
                   streetPlaceholder="Client street address..." cityPlaceholder="City, State ZIP..." />
-              </div>
-            </div>
-          )}
-
-          {/* Links & Resources */}
-          {isFieldVisible('links', 'expanded') && (
-            <div className="mb-4">
-              <h3 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2`}>Links &amp; Resources</h3>
-              <div className="space-y-1.5">
-                <LinkRow icon="✎" label="Design Deck / Canva" value={canvaLink} onChange={setCanvaLink} />
-                <LinkRow icon="⊡" label="Internal File Share" value={internalShare} onChange={setInternalShare} />
-                <LinkRow icon="⊡" label="Client Shared Folder" value={clientFolder} onChange={setClientFolder} />
-                <LinkRow icon="⊞" label="Client Portal" value={portalLink} onChange={setPortalLink} />
-                <LinkRow icon="◎" label="Client Website" value={clientWebsite} onChange={setClientWebsite} />
-                <LinkRow icon="⊘" label="SharePoint Folder" value={sharepointFolder} onChange={setSharepointFolder} />
               </div>
             </div>
           )}
