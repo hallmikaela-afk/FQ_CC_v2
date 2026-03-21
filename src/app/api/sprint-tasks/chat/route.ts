@@ -15,25 +15,39 @@ const BUCKETS = [
   'FQ Command Center',
 ];
 
-const SYSTEM = `You are a sprint task assistant for Fox & Quinn, a luxury wedding planning studio run by Mikaela. Your only job on this page is to help Mikaela manage her weekly sprint task list.
+async function getProjectContext(): Promise<string> {
+  try {
+    const { data: projects } = await supabase
+      .from('projects')
+      .select('id, name, status')
+      .order('event_date');
+    if (projects && projects.length > 0) {
+      return `\nACTIVE PROJECTS (use these IDs for planner tasks):\n` +
+        projects.map((p: any) => `- ${p.name} [ID: ${p.id}]`).join('\n');
+    }
+  } catch {
+    // fall through
+  }
+  return '';
+}
 
-When she asks to add a task, extract:
-- title: the task description
-- bucket: match to the closest bucket from this list: ${BUCKETS.join(', ')}
-- tag: one of: action, decision, creative, ops, marketing, build, client, check
-  - action = emails, outreach, follow-ups
-  - decision = things that need a decision made
-  - creative = moodboards, design work, creative tasks
-  - ops = operations, admin, payroll
-  - marketing = marketing tasks
-  - build = tech/dev work
-  - client = client deliverables
-  - check = checking or verifying something
+const BASE_SYSTEM = `You are a task assistant for Fox & Quinn, a luxury wedding planning studio run by Mikaela. You help manage both weekly sprint tasks and project planner tasks.
 
-Respond with a JSON object in this exact format when adding a task:
-{"action":"add_task","title":"...","bucket":"...","tag":"..."}
+Always respond with valid JSON only — no plain text outside JSON.
 
-If she asks to mark a task done, list tasks, or asks something general, respond in plain conversational text — no JSON. If you are not sure which bucket, ask her to clarify. Keep all responses short. One to two sentences max unless listing tasks.`;
+When she asks to add a SPRINT task (something for this week), respond:
+{"response":"Confirmation message","action":"add_sprint_task","title":"...","bucket":"closest bucket from list","tag":"one of: action,decision,creative,ops,marketing,build,client,check"}
+
+When she asks to add a PLANNER task (a task on a project, possibly with subtasks), respond:
+{"response":"Confirmation message","action":"add_planner_task","project_id":"PROJECT_ID","text":"task title","subtasks":[{"text":"subtask 1"},{"text":"subtask 2"}]}
+
+When she asks something general (questions, lists, etc.), respond:
+{"response":"Your conversational reply"}
+
+Sprint buckets: ${BUCKETS.join(', ')}
+Tag guide: action=emails/outreach, decision=decisions needed, creative=moodboards/design, ops=admin/payroll, marketing=marketing, build=tech/dev, client=client deliverables, check=verifying something
+
+If bucket is unclear, ask. Keep responses short.`;
 
 export async function POST(req: NextRequest) {
   const { messages, week } = await req.json();
@@ -42,49 +56,83 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
 
+  const projectContext = await getProjectContext();
+  const system = BASE_SYSTEM + projectContext;
+
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 500,
-    system: SYSTEM,
+    max_tokens: 1024,
+    system,
     messages,
   });
 
-  const text = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
+  const raw = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
 
-  // Try to parse as a task action
+  // Parse structured JSON response
   try {
-    const parsed = JSON.parse(text.trim());
-    if (parsed.action === 'add_task' && parsed.title && parsed.bucket && parsed.tag) {
-      const { data, error } = await supabase
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    const parsed = JSON.parse(cleaned);
+    const content = parsed.response || '';
+
+    // Sprint task creation
+    if (parsed.action === 'add_sprint_task' && parsed.title && parsed.bucket) {
+      const { error } = await supabase
         .from('sprint_tasks')
         .insert({
           title: parsed.title,
           bucket: parsed.bucket,
-          tag: parsed.tag,
+          tag: parsed.tag || 'action',
           done: false,
           sprint_week: week,
           sort_order: 99,
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
       return NextResponse.json({
         role: 'assistant',
-        content: `Added "${parsed.title}" to ${parsed.bucket}.`,
+        content: content || `Added "${parsed.title}" to ${parsed.bucket}.`,
         task_added: true,
+        tasks_count: 1,
       });
     }
-  } catch {
-    // Not a task action — fall through to plain text response
-  }
 
-  return NextResponse.json({
-    role: 'assistant',
-    content: text,
-    task_added: false,
-  });
+    // Planner task creation
+    if (parsed.action === 'add_planner_task' && parsed.project_id && parsed.text) {
+      const { data: task, error } = await supabase
+        .from('tasks')
+        .insert({ project_id: parsed.project_id, text: parsed.text, completed: false, sort_order: 99 })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (task && parsed.subtasks?.length) {
+        await supabase.from('subtasks').insert(
+          parsed.subtasks.map((st: any, i: number) => ({
+            task_id: task.id,
+            text: st.text,
+            completed: false,
+            sort_order: i,
+          }))
+        );
+      }
+
+      return NextResponse.json({
+        role: 'assistant',
+        content: content || `Added "${parsed.text}" to your planner.`,
+        task_added: true,
+        tasks_added: true,
+        tasks_count: 1,
+      });
+    }
+
+    // General response
+    return NextResponse.json({ role: 'assistant', content, task_added: false });
+  } catch {
+    // Fall back to plain text
+    return NextResponse.json({ role: 'assistant', content: raw, task_added: false });
+  }
 }

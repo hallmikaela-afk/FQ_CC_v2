@@ -5,12 +5,49 @@ import { useState, useRef, useEffect } from 'react';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  tasks_added?: boolean;
+  tasks_count?: number;
 }
 
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
-  content: "Hi Mikaela — ask me anything about your projects, tasks, vendors, or upcoming events.",
+  content: "Hi Mikaela — ask me anything about your projects, tasks, vendors, or upcoming events. I can also create tasks directly.",
 };
+
+function formatMessage(text: string) {
+  return text.split('\n').map((line, i) => {
+    const applyInline = (raw: string) =>
+      raw
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-fq-accent hover:opacity-75 transition-opacity">$1</a>');
+
+    if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
+      const content = line.trim().replace(/^[-•]\s*/, '');
+      return (
+        <div key={i} className="flex gap-1.5">
+          <span className="text-fq-accent shrink-0 mt-px">•</span>
+          <span dangerouslySetInnerHTML={{ __html: applyInline(content) }} />
+        </div>
+      );
+    }
+
+    const numMatch = line.trim().match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      return (
+        <div key={i} className="flex gap-1.5">
+          <span className="text-fq-accent shrink-0 font-medium">{numMatch[1]}.</span>
+          <span dangerouslySetInnerHTML={{ __html: applyInline(numMatch[2]) }} />
+        </div>
+      );
+    }
+
+    return line.trim() ? (
+      <span key={i} dangerouslySetInnerHTML={{ __html: applyInline(line) }} />
+    ) : (
+      <span key={i} className="h-1 block" />
+    );
+  });
+}
 
 export default function FloatingChat() {
   const [open, setOpen] = useState(false);
@@ -25,7 +62,6 @@ export default function FloatingChat() {
     }
   }, [messages, open]);
 
-  // Reset messages when closed
   const handleClose = () => {
     setOpen(false);
     setMessages([INITIAL_MESSAGE]);
@@ -51,7 +87,15 @@ export default function FloatingChat() {
         }),
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content || data.error || 'No response.' }]);
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.content || data.error || 'No response.',
+          tasks_added: data.tasks_added,
+          tasks_count: data.tasks_count,
+        },
+      ]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
     } finally {
@@ -82,21 +126,34 @@ export default function FloatingChat() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-fq-border shrink-0">
           <h2 className="font-heading text-[14px] text-fq-dark">Fox &amp; Quinn Assistant</h2>
-          <button
-            onClick={handleClose}
-            className="text-fq-muted hover:text-fq-dark transition-colors"
-            aria-label="Close chat"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Expand to full assistant page */}
+            <a
+              href="/assistant"
+              title="Open full assistant"
+              className="text-fq-muted hover:text-fq-dark transition-colors"
+              aria-label="Expand to full chat"
+            >
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 2h4v4M14 2l-5 5M6 14H2v-4M2 14l5-5" />
+              </svg>
+            </a>
+            <button
+              onClick={handleClose}
+              className="text-fq-muted hover:text-fq-dark transition-colors"
+              aria-label="Close chat"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
           {messages.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
               <div
                 className={`max-w-[85%] px-3 py-2 rounded-xl font-body text-[13px] leading-relaxed ${
                   msg.role === 'user'
@@ -107,30 +164,18 @@ export default function FloatingChat() {
                 {msg.role === 'user' ? (
                   <span className="whitespace-pre-wrap">{msg.content}</span>
                 ) : (
-                  <div className="flex flex-col gap-0.5">
-                    {msg.content.split('\n').map((line, li) => {
-                      const formatted = line
-                        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-fq-accent hover:opacity-75 transition-opacity">$1</a>');
-                      if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
-                        const content = line.trim().replace(/^[-•]\s*/, '');
-                        const formattedContent = content
-                          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                          .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-fq-accent hover:opacity-75 transition-opacity">$1</a>');
-                        return (
-                          <div key={li} className="flex gap-1.5">
-                            <span className="text-fq-accent shrink-0 mt-px">•</span>
-                            <span dangerouslySetInnerHTML={{ __html: formattedContent }} />
-                          </div>
-                        );
-                      }
-                      return line.trim() ? (
-                        <span key={li} dangerouslySetInnerHTML={{ __html: formatted }} />
-                      ) : <span key={li} className="h-1" />;
-                    })}
-                  </div>
+                  <div className="flex flex-col gap-0.5">{formatMessage(msg.content)}</div>
                 )}
               </div>
+              {/* Task creation confirmation badge */}
+              {msg.tasks_added && (
+                <div className="flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full bg-fq-sage-light border border-fq-sage/20 font-body text-[11px] text-fq-sage font-medium">
+                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                  {msg.tasks_count === 1 ? 'Task added to planner' : `${msg.tasks_count} tasks added to planner`}
+                </div>
+              )}
             </div>
           ))}
           {loading && (
@@ -149,7 +194,7 @@ export default function FloatingChat() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask anything..."
+            placeholder="Ask anything or create a task..."
             rows={1}
             className="flex-1 resize-none bg-fq-bg border border-fq-border rounded-lg px-3 py-2 font-body text-sm text-fq-dark placeholder:text-fq-muted focus:outline-none focus:border-fq-accent leading-relaxed"
             style={{ maxHeight: '96px' }}
