@@ -746,15 +746,18 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           )}
 
           {/* Latest Call Note — double-click to open editable modal */}
-          {callNotes.length > 0 && (
-            <div className="mb-4">
-              <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
-                <span className="text-fq-accent/70">✦</span>
-                Latest Call Note
+          {/* Latest Call Note */}
+          <div className="mb-4">
+            <div className={`font-heading text-[14px] font-semibold ${t.heading} mb-2 flex items-center gap-1.5`}>
+              <span className="text-fq-accent/70">✦</span>
+              Latest Call Note
+              {callNotes.length > 0 && (
                 <span className={`font-body text-[11px] font-normal ${t.light}`}>
                   ({callNotes.length} total) — double-click to edit
                 </span>
-              </div>
+              )}
+            </div>
+            {callNotes.length > 0 ? (
               <div
                 onDoubleClick={() => { setExpandedNote(callNotes[0]); setEditingNoteContent(false); }}
                 className="block bg-fq-bg rounded-lg p-3 border-l-[3px] border-fq-accent/60 hover:bg-fq-light-accent transition-colors mt-2 cursor-default"
@@ -767,10 +770,12 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
                   {callNotes[0].raw_text.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').substring(0, 200)}
                 </p>
               </div>
-            </div>
-          )}
+            ) : (
+              <p className={`font-body text-[12px] ${t.light} italic`}>No call notes yet</p>
+            )}
+          </div>
 
-          {/* Project Color palette — at the bottom */}
+          {/* Project Color palette */}
           {project.project_colors && project.project_colors.length > 0 && (
             <div>
               <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
