@@ -5,14 +5,33 @@ import { useState, useRef, useEffect } from 'react';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  tasks_added?: boolean;
+  tasks_changed?: boolean;
   tasks_count?: number;
+  change_type?: 'created' | 'updated' | 'completed' | 'mixed' | null;
 }
 
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
-  content: "Hi Mikaela — ask me anything about your projects, tasks, vendors, or upcoming events. I can also create tasks directly.",
+  content: "Hi Mikaela — ask me anything about your projects, tasks, vendors, or upcoming events. I can create, update, and complete tasks directly.",
 };
+
+function changeBadge(msg: Message) {
+  if (!msg.tasks_changed) return null;
+  const n = msg.tasks_count ?? 1;
+  const label =
+    msg.change_type === 'completed' ? (n === 1 ? 'Task completed' : `${n} tasks completed`) :
+    msg.change_type === 'updated'   ? (n === 1 ? 'Task updated'   : `${n} tasks updated`)   :
+    msg.change_type === 'mixed'     ? `${n} tasks updated` :
+    /* created */                     (n === 1 ? 'Task added'     : `${n} tasks added`);
+  return (
+    <div className="flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full bg-fq-sage-light border border-fq-sage/20 font-body text-[11px] text-fq-sage font-medium">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 6l3 3 5-5" />
+      </svg>
+      {label}
+    </div>
+  );
+}
 
 function formatMessage(text: string) {
   return text.split('\n').map((line, i) => {
@@ -92,8 +111,9 @@ export default function FloatingChat() {
         {
           role: 'assistant',
           content: data.content || data.error || 'No response.',
-          tasks_added: data.tasks_added,
+          tasks_changed: data.tasks_changed,
           tasks_count: data.tasks_count,
+          change_type: data.change_type,
         },
       ]);
     } catch {
@@ -167,15 +187,7 @@ export default function FloatingChat() {
                   <div className="flex flex-col gap-0.5">{formatMessage(msg.content)}</div>
                 )}
               </div>
-              {/* Task creation confirmation badge */}
-              {msg.tasks_added && (
-                <div className="flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full bg-fq-sage-light border border-fq-sage/20 font-body text-[11px] text-fq-sage font-medium">
-                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M2 6l3 3 5-5" />
-                  </svg>
-                  {msg.tasks_count === 1 ? 'Task added to planner' : `${msg.tasks_count} tasks added to planner`}
-                </div>
-              )}
+              {changeBadge(msg)}
             </div>
           ))}
           {loading && (

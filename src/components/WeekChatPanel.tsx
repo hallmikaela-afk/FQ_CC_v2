@@ -5,8 +5,9 @@ import { useState, useRef, useEffect } from 'react';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
-  tasks_added?: boolean;
+  tasks_changed?: boolean;
   tasks_count?: number;
+  change_type?: 'created' | 'updated' | 'completed' | 'mixed' | null;
 }
 
 interface Props {
@@ -16,8 +17,26 @@ interface Props {
 
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
-  content: "Add sprint tasks or planner tasks by telling me what you need to do and which project it's for.\n\nExamples:\n- 'Add email Art about florals to Menorca'\n- 'Create a task on Sun-Steeped to research drapery vendors with subtasks to email each one'",
+  content: "I can create, update, and complete tasks — both sprint tasks and project planner tasks.\n\nExamples:\n- 'Add email Art about florals to Menorca'\n- 'Mark the florist task on Julia & Frank as done'\n- 'Update the venue contract task to be due next Friday'",
 };
+
+function changeBadge(msg: Message) {
+  if (!msg.tasks_changed) return null;
+  const n = msg.tasks_count ?? 1;
+  const label =
+    msg.change_type === 'completed' ? (n === 1 ? 'Task completed' : `${n} tasks completed`) :
+    msg.change_type === 'updated'   ? (n === 1 ? 'Task updated'   : `${n} tasks updated`)   :
+    msg.change_type === 'mixed'     ? `${n} tasks updated` :
+    /* created */                     (n === 1 ? 'Task added'     : `${n} tasks added`);
+  return (
+    <div className="flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full bg-fq-sage-light border border-fq-sage/20 font-body text-[11px] text-fq-sage font-medium">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 6l3 3 5-5" />
+      </svg>
+      {label}
+    </div>
+  );
+}
 
 function formatMessage(text: string) {
   return text.split('\n').map((line, i) => {
@@ -90,11 +109,12 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
         {
           role: 'assistant',
           content: data.content,
-          tasks_added: data.task_added || data.tasks_added,
+          tasks_changed: data.tasks_changed,
           tasks_count: data.tasks_count,
+          change_type: data.change_type,
         },
       ]);
-      if (data.task_added || data.tasks_added) {
+      if (data.task_added || data.tasks_changed) {
         onTaskAdded();
       }
     } catch {
@@ -135,15 +155,7 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
                 <div className="flex flex-col gap-0.5">{formatMessage(msg.content)}</div>
               )}
             </div>
-            {/* Task added badge */}
-            {msg.tasks_added && (
-              <div className="flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full bg-fq-sage-light border border-fq-sage/20 font-body text-[11px] text-fq-sage font-medium">
-                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 6l3 3 5-5" />
-                </svg>
-                {msg.tasks_count && msg.tasks_count > 1 ? `${msg.tasks_count} tasks added` : 'Task added'}
-              </div>
-            )}
+            {changeBadge(msg)}
           </div>
         ))}
         {loading && (
