@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useFullProjects } from '@/lib/hooks';
+import ProjectFileUpload from '@/components/ProjectFileUpload';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
 import type { Project, Vendor, CallNote, Task, SubTask, TeamMember } from '@/data/seed';
 
@@ -2058,6 +2059,10 @@ export default function ProjectDetailPage() {
 
       <div className="mb-8">
         <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
+      </div>
+
+      <div className="mb-8">
+        <ProjectFileUpload projectId={project.id} />
       </div>
     </div>
   );

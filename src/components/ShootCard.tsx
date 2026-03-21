@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { formatCountdown, formatDate } from '@/data/seed';
 import type { Project, TeamMember } from '@/data/seed';
+import QuickUploadButton from '@/components/QuickUploadButton';
 
 const defaultGetTeamMember = (_id: string): TeamMember | undefined => undefined;
 
@@ -158,17 +159,18 @@ export default function ShootCard({ project, getTeamMember = defaultGetTeamMembe
           })}
         </div>
 
-        {/* Call notes badge */}
-        {callNoteCount > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
+        {/* Call notes badge + upload */}
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          {callNoteCount > 0 && (
             <Link
               href={`/projects/${project.id}`}
               className={`text-[11px] font-body ${t.light} bg-fq-bg px-2 py-0.5 rounded-full hover:bg-fq-border/50 transition-colors`}
             >
               ☐ {callNoteCount} call note{callNoteCount !== 1 ? 's' : ''}
             </Link>
-          </div>
-        )}
+          )}
+          <QuickUploadButton projectId={project.id} />
+        </div>
       </div>
     </div>
   );

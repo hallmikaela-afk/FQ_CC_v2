@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useFullProjects } from '@/lib/hooks';
 import { formatCountdown, formatDate } from '@/data/seed';
 import type { Project, TeamMember } from '@/data/seed';
+import QuickUploadButton from '@/components/QuickUploadButton';
 
 /* ── Compact project card for the grid ── */
 function ProjectCard({ project, getTeamMember }: { project: Project; getTeamMember: (id: string) => TeamMember | undefined }) {
@@ -83,23 +84,26 @@ function ProjectCard({ project, getTeamMember }: { project: Project; getTeamMemb
           </div>
         )}
 
-        {/* Team avatars */}
-        <div className="flex items-center gap-1">
-          {project.assigned_to.map((id) => {
-            const member = getTeamMember(id);
-            if (!member) return null;
-            return (
-              <div
-                key={id}
-                className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center"
-                title={member.name}
-              >
-                <span className="font-body text-[9px] font-semibold text-fq-accent">
-                  {member.initials}
-                </span>
-              </div>
-            );
-          })}
+        {/* Team avatars + upload */}
+        <div className="flex items-center justify-between gap-1">
+          <div className="flex items-center gap-1">
+            {project.assigned_to.map((id) => {
+              const member = getTeamMember(id);
+              if (!member) return null;
+              return (
+                <div
+                  key={id}
+                  className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center"
+                  title={member.name}
+                >
+                  <span className="font-body text-[9px] font-semibold text-fq-accent">
+                    {member.initials}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <QuickUploadButton projectId={project.id} />
         </div>
       </div>
     </Link>
