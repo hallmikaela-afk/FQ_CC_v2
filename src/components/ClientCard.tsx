@@ -422,6 +422,8 @@ function CardSettingsPanel({ fields, customFields, onFieldsChange, onCustomField
   );
 }
 
+const DEFAULT_PALETTE = ['#8B6F4E','#6B7F5E','#A0522D','#C4956A','#D4A574','#9B8E82','#C4A97D','#7B8B5E'];
+
 /* ── Main card ── */
 const defaultLookup = (_id: string): TeamMember | undefined => undefined;
 
@@ -776,23 +778,21 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           </div>
 
           {/* Project Color palette */}
-          {project.project_colors && project.project_colors.length > 0 && (
-            <div>
-              <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
-              <div className="flex flex-wrap gap-1.5">
-                {project.project_colors.map((c, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setSelectedColor(c)}
-                    className={`w-7 h-7 rounded-full border-2 cursor-pointer hover:scale-110 transition-transform ${
-                      selectedColor === c ? 'border-fq-dark/60 ring-2 ring-fq-accent/30' : 'border-fq-border/50'
-                    }`}
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </div>
+          <div>
+            <p className="font-body text-[12px] text-fq-accent/80 font-medium mb-2">Project Color</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(project.project_colors?.length ? project.project_colors : DEFAULT_PALETTE).map((c, i) => (
+                <button
+                  key={i}
+                  onClick={() => setSelectedColor(c)}
+                  className={`w-7 h-7 rounded-full border-2 cursor-pointer hover:scale-110 transition-transform ${
+                    selectedColor === c ? 'border-fq-dark/60 ring-2 ring-fq-accent/30' : 'border-fq-border/50'
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
             </div>
-          )}
+          </div>
       </div>
 
       {/* Call Note Edit Modal */}
