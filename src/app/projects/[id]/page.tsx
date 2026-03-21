@@ -72,6 +72,7 @@ function HeaderCard({ project }: { project: Project }) {
   const [guestCount, setGuestCount] = useState(project.guest_count?.toString() || '');
   const [budget, setBudget] = useState(project.estimated_budget || '');
   const [serviceTier, setServiceTier] = useState(project.service_tier || '');
+  const [status, setStatus] = useState(project.status);
 
   const patchProject = (updates: Record<string, unknown>) => {
     fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: project.id, ...updates }) });
@@ -92,9 +93,16 @@ function HeaderCard({ project }: { project: Project }) {
           <h1 className={`font-heading text-[28px] font-bold ${t.heading}`}>
             {project.name}
           </h1>
-          <span className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full">
-            {project.status}
-          </span>
+          <select
+            value={status}
+            onChange={(e) => { const s = e.target.value as typeof status; setStatus(s); patchProject({ status: s }); }}
+            className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full border-0 outline-none cursor-pointer appearance-none"
+          >
+            <option value="active">active</option>
+            <option value="proposal_sent">proposal_sent</option>
+            <option value="completed">completed</option>
+            <option value="archived">archived</option>
+          </select>
         </div>
         <div className="flex items-center gap-3 text-right">
           <span className={`font-body text-[14px] ${t.body} flex items-center gap-1.5`}>
