@@ -13,7 +13,7 @@ let allAssignedTo: string[] = [];
 type TaskWithProject = Task & { projectId: string; projectName: string };
 
 /* ── Column Configuration ── */
-type ColumnId = 'checkbox' | 'task' | 'notes' | 'category' | 'project' | 'status' | 'priority' | 'due_date' | 'person';
+type ColumnId = 'checkbox' | 'task' | 'notes' | 'category' | 'project' | 'status' | 'priority' | 'due_date' | 'person' | 'function_roles';
 
 interface ColumnConfig {
   id: ColumnId;
@@ -38,6 +38,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { id: 'priority', label: 'Priority', width: '80px', visible: true, resizable: true },
   { id: 'due_date', label: 'Due Date', width: '90px', visible: true, resizable: true },
   { id: 'person', label: 'Person', width: '44px', visible: true, resizable: true },
+  { id: 'function_roles', label: 'Function', width: '120px', visible: false, resizable: true },
 ];
 
 function loadSavedViews(): SavedView[] {
@@ -110,6 +111,41 @@ function InlineCell({ value, onSave, className = '', type = 'text', options, pla
       onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
       className="font-body text-[11px] bg-white border border-fq-accent/40 rounded px-1 py-0 outline-none w-full"
       placeholder={placeholder} />
+  );
+}
+
+const FUNCTION_ROLES = ['Designer', 'Planner', 'Admin', 'Coordinator'] as const;
+
+/* ── Function Roles Multiselect Cell ── */
+function FunctionRolesCell({ value, onSave }: { value: string[]; onSave: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    if (open) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+  const toggle = (role: string) => {
+    onSave(value.includes(role) ? value.filter(r => r !== role) : [...value, role]);
+  };
+  return (
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+      <div onClick={() => setOpen(v => !v)} className="cursor-pointer flex flex-wrap gap-0.5 min-h-[14px] hover:ring-1 hover:ring-fq-accent/30 hover:rounded px-0.5 -mx-0.5">
+        {value.length > 0 ? value.map(r => (
+          <span key={r} className="font-body text-[9px] font-medium bg-fq-light-accent text-fq-accent px-1 py-0 rounded-full">{r}</span>
+        )) : <span className="text-fq-muted/30 italic text-[10px]">—</span>}
+      </div>
+      {open && (
+        <div className="absolute left-0 top-full mt-0.5 z-50 bg-white border border-fq-border rounded-lg shadow-md p-1.5 min-w-[120px]">
+          {FUNCTION_ROLES.map(role => (
+            <label key={role} className="flex items-center gap-1.5 px-1.5 py-0.5 rounded hover:bg-fq-bg cursor-pointer">
+              <input type="checkbox" checked={value.includes(role)} onChange={() => toggle(role)} className="w-3 h-3 accent-fq-accent" />
+              <span className="font-body text-[11px] text-fq-dark">{role}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -298,6 +334,18 @@ function TaskDetailPanel({ task, onClose, onUpdate, categories }: {
           type="select" options={allAssignedTo.map(id => { const m = getTeamMember(id); return { value: id, label: m?.name || id }; })}
           displayValue={task.assigned_to ? (getTeamMember(task.assigned_to)?.name || task.assigned_to) : ''}
           className={`font-body text-[11px] ${t.body}`} placeholder="Assign..." />
+
+        <span className={`font-body text-[10px] ${t.light} uppercase tracking-wide`}>Function</span>
+        <div className="flex flex-wrap gap-1">
+          {FUNCTION_ROLES.map(role => (
+            <button key={role} onClick={() => {
+              const current = task.function_roles || [];
+              update({ function_roles: current.includes(role) ? current.filter(r => r !== role) : [...current, role] });
+            }} className={`font-body text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${(task.function_roles || []).includes(role) ? 'bg-fq-accent text-white' : 'bg-fq-light-accent text-fq-accent hover:bg-fq-border'}`}>
+              {role}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Subtasks */}
@@ -377,10 +425,8 @@ export default function TasksPage() {
       tabs.push({ id: `cat-${cat}`, label: cat, filter: (tk) => tk.category === cat });
     });
     // Function-based tabs
-    const designerIds = new Set(team.filter(m => m.function === 'Designer').map(m => m.id));
-    const plannerIds = new Set(team.filter(m => m.function === 'Planner').map(m => m.id));
-    tabs.push({ id: 'fn-designer', label: 'Design & Styling', filter: (tk) => !!tk.assigned_to && designerIds.has(tk.assigned_to) });
-    tabs.push({ id: 'fn-planner', label: 'Planning', filter: (tk) => !!tk.assigned_to && plannerIds.has(tk.assigned_to) });
+    tabs.push({ id: 'fn-designer', label: 'Design & Styling', filter: (tk) => !!(tk.function_roles?.includes('Designer')) });
+    tabs.push({ id: 'fn-planner', label: 'Planning', filter: (tk) => !!(tk.function_roles?.includes('Planner')) });
     return tabs;
   }, [projects, allTasksFromProjects, team]);
 
@@ -699,6 +745,13 @@ export default function TasksPage() {
               className={`font-body text-[9px] ${member ? 'font-semibold text-fq-accent' : t.light}`} placeholder="—" />
           </span>
         );
+      case 'function_roles':
+        return (
+          <FunctionRolesCell
+            value={task.function_roles || []}
+            onSave={(v) => updateTaskField(task.id, 'function_roles', v.length ? v : undefined)}
+          />
+        );
       default: return null;
     }
   };
@@ -739,6 +792,7 @@ export default function TasksPage() {
           </select>
         );
       case 'due_date': return <span className={`font-body text-[10px] font-medium ${t.light} uppercase tracking-wide`}>Due</span>;
+      case 'function_roles': return <span className={`font-body text-[10px] font-medium ${t.light} uppercase tracking-wide`}>Function</span>;
       case 'person':
         return (
           <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} className={filterClass(teamFilter !== 'all')}>

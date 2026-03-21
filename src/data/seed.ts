@@ -48,6 +48,7 @@ export interface Task {
   assigned_to?: string;
   priority?: 'low' | 'medium' | 'high';
   notes?: string;
+  function_roles?: string[];
   subtasks?: SubTask[];
 }
 

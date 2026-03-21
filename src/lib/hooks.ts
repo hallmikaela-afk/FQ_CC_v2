@@ -184,6 +184,7 @@ export function useFullProjects() {
           assigned_to: t.assigned_to || undefined,
           priority: t.priority || undefined,
           notes: t.notes || undefined,
+          function_roles: t.function_roles?.length ? t.function_roles : undefined,
           subtasks: (t.subtasks || []).map(st => ({
             id: st.id,
             text: st.text,

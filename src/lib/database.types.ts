@@ -120,6 +120,7 @@ export interface TaskRow {
   assigned_to: string | null;
   priority: 'low' | 'medium' | 'high' | null;
   notes: string | null;
+  function_roles: string[] | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
