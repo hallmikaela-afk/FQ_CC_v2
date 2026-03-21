@@ -106,8 +106,152 @@ function ProjectCard({ project, getTeamMember }: { project: Project; getTeamMemb
   );
 }
 
+const PROJECT_COLORS = [
+  '#8B7355', '#6B8E6B', '#C4A882', '#8E6B6B', '#6B7F8E',
+  '#A882C4', '#82A8C4', '#C4826B', '#6BC4A8', '#C4B882',
+];
+
+function NewProjectModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState<'client' | 'shoot' | 'proposal'>('client');
+  const [eventDate, setEventDate] = useState('');
+  const [color, setColor] = useState(PROJECT_COLORS[0]);
+  const [applyTemplates, setApplyTemplates] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError('Name is required'); return; }
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), type, event_date: eventDate || null, color, status: 'active' }),
+      });
+      if (!res.ok) { const d = await res.json(); setError(d.error || 'Failed to create'); setSaving(false); return; }
+      const project = await res.json();
+
+      // Auto-apply template tasks if event_date is set and requested
+      if (applyTemplates && eventDate && type === 'client') {
+        await fetch('/api/template-tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_id: project.id, event_date: eventDate }),
+        });
+      }
+
+      onCreated();
+      onClose();
+    } catch (err: any) {
+      setError(err.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center" onClick={onClose}>
+      <div
+        className="bg-fq-card rounded-2xl border border-fq-border shadow-xl p-8 w-full max-w-md"
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 className="font-heading text-[22px] font-semibold text-fq-dark mb-6">New Project</h2>
+
+        <div className="space-y-4">
+          {/* Name */}
+          <div>
+            <label className="block font-body text-[12px] font-medium text-fq-muted mb-1">Project Name *</label>
+            <input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Smith & Jones Wedding"
+              className="w-full font-body text-[14px] text-fq-dark bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40"
+              autoFocus
+            />
+          </div>
+
+          {/* Type */}
+          <div>
+            <label className="block font-body text-[12px] font-medium text-fq-muted mb-1">Type</label>
+            <div className="flex gap-2">
+              {(['client', 'shoot', 'proposal'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setType(t)}
+                  className={`px-3 py-1.5 rounded-lg font-body text-[12px] font-medium transition-colors ${type === t ? 'bg-fq-accent text-white' : 'bg-fq-light-accent text-fq-dark hover:bg-fq-border'}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Event date */}
+          <div>
+            <label className="block font-body text-[12px] font-medium text-fq-muted mb-1">Event Date</label>
+            <input
+              type="date"
+              value={eventDate}
+              onChange={e => setEventDate(e.target.value)}
+              className="w-full font-body text-[14px] text-fq-dark bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/40"
+            />
+          </div>
+
+          {/* Color */}
+          <div>
+            <label className="block font-body text-[12px] font-medium text-fq-muted mb-1">Color</label>
+            <div className="flex gap-2 flex-wrap">
+              {PROJECT_COLORS.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  className={`w-7 h-7 rounded-full transition-all ${color === c ? 'ring-2 ring-offset-2 ring-fq-accent' : ''}`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Apply template tasks */}
+          {type === 'client' && eventDate && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={applyTemplates}
+                onChange={e => setApplyTemplates(e.target.checked)}
+                className="w-4 h-4 accent-fq-accent"
+              />
+              <span className="font-body text-[13px] text-fq-muted">Apply task templates (generates tasks based on event date)</span>
+            </label>
+          )}
+
+          {error && <p className="font-body text-[12px] text-fq-alert">{error}</p>}
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={handleCreate}
+            disabled={saving}
+            className="flex-1 py-2.5 bg-fq-accent text-white font-body text-[14px] font-medium rounded-lg hover:bg-fq-dark transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Creating...' : 'Create Project'}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2.5 font-body text-[14px] text-fq-muted hover:text-fq-dark transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
-  const { projects, getTeamMember, loading } = useFullProjects();
+  const { projects, getTeamMember, loading, refetch } = useFullProjects();
+  const [showNewProject, setShowNewProject] = useState(false);
 
   const clients = projects.filter(p => p.type === 'client' && p.status === 'active');
   const shoots = projects.filter(p => p.type === 'shoot');
@@ -127,9 +271,23 @@ export default function ProjectsPage() {
 
   return (
     <div className="py-10 px-10">
-      <div className="mb-10">
-        <h1 className="font-heading text-[32px] font-semibold text-fq-dark">Projects</h1>
-        <p className={`font-body text-[14px] ${t.light}`}>All projects organized by type</p>
+      {showNewProject && (
+        <NewProjectModal
+          onClose={() => setShowNewProject(false)}
+          onCreated={refetch}
+        />
+      )}
+      <div className="flex items-end justify-between mb-10">
+        <div>
+          <h1 className="font-heading text-[32px] font-semibold text-fq-dark">Projects</h1>
+          <p className={`font-body text-[14px] ${t.light}`}>All projects organized by type</p>
+        </div>
+        <button
+          onClick={() => setShowNewProject(true)}
+          className="px-4 py-2 bg-fq-accent text-white font-body text-[13px] font-medium rounded-lg hover:bg-fq-dark transition-colors"
+        >
+          + New Project
+        </button>
       </div>
 
       {/* Client Weddings */}
