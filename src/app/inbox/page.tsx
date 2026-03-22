@@ -18,8 +18,6 @@ const TAB_FILTERS: { key: TabFilter; label: string }[] = [
   { key: 'resolved',       label: 'Resolved' },
 ];
 
-const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-
 /* ── Inbox rules ── */
 interface InboxRule {
   id: string;
@@ -277,16 +275,13 @@ export default function InboxPage() {
   );
 
   const filteredEmails = useMemo(() => {
-    const now = Date.now();
     return visibleEmails
       .filter((e) => {
         switch (tabFilter) {
           case 'active':
             return !!e.project_id && !e.resolved;
-          case 'needs_response': {
-            const age = e.received_at ? now - new Date(e.received_at).getTime() : 0;
-            return !!e.project_id && !e.draft_message_id && age > TWENTY_FOUR_HOURS && !e.resolved;
-          }
+          case 'needs_response':
+            return !!e.needs_response && !e.resolved;
           case 'draft_ready':
             return !!e.draft_message_id && !e.resolved;
           case 'followup':
@@ -302,15 +297,11 @@ export default function InboxPage() {
 
   const countFor = useCallback(
     (tab: TabFilter) => {
-      const now = Date.now();
       switch (tab) {
         case 'active':
           return visibleEmails.filter((e) => !!e.project_id && !e.resolved).length;
         case 'needs_response':
-          return visibleEmails.filter((e) => {
-            const age = e.received_at ? now - new Date(e.received_at).getTime() : 0;
-            return !!e.project_id && !e.draft_message_id && age > TWENTY_FOUR_HOURS && !e.resolved;
-          }).length;
+          return visibleEmails.filter((e) => !!e.needs_response && !e.resolved).length;
         case 'draft_ready':
           return visibleEmails.filter((e) => !!e.draft_message_id && !e.resolved).length;
         case 'followup':
@@ -375,6 +366,36 @@ export default function InboxPage() {
   const handleToggleFollowup = (email: Email) => {
     patch(email.id, { needs_followup: !email.needs_followup });
   };
+
+  const handleNeedsResponse = useCallback(
+    (email: Email) => {
+      patch(email.id, { needs_response: !email.needs_response });
+    },
+    [patch],
+  );
+
+  const handleDraftResponse = useCallback(
+    async (email: Email) => {
+      const res  = await fetch('/api/emails/quick-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_id: email.id }),
+      });
+      const data = await res.json();
+      if (data.draft_message_id) {
+        patch(email.id, { draft_message_id: data.draft_message_id });
+      }
+    },
+    [patch],
+  );
+
+  const handleDismiss = useCallback(
+    (email: Email) => {
+      patch(email.id, { dismissed: true });
+      showToast('Email dismissed', () => patch(email.id, { dismissed: false }));
+    },
+    [patch, showToast],
+  );
 
   const handleTriageSave = async (opts: {
     emailId: string;
@@ -627,6 +648,9 @@ export default function InboxPage() {
                   onDismissSuggested={handleDismissSuggested}
                   onToggleFollowup={handleToggleFollowup}
                   onResolve={handleResolve}
+                  onNeedsResponse={handleNeedsResponse}
+                  onDraftResponse={handleDraftResponse}
+                  onDismiss={handleDismiss}
                 />
               ))}
             </>
@@ -670,6 +694,9 @@ export default function InboxPage() {
                   onDismissSuggested={handleDismissSuggested}
                   onToggleFollowup={handleToggleFollowup}
                   onResolve={handleResolve}
+                  onNeedsResponse={handleNeedsResponse}
+                  onDraftResponse={handleDraftResponse}
+                  onDismiss={handleDismiss}
                 />
               ))}
             </>

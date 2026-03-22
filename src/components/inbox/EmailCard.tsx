@@ -1,5 +1,8 @@
 'use client';
 
+import { useState } from 'react';
+import { Reply, PenLine, Clock, Check, X } from 'lucide-react';
+
 /* ── Shared types (also used by page + EmailDetail) ── */
 export interface EmailProject {
   id: string;
@@ -20,6 +23,7 @@ export interface Email {
   received_at: string | null;
   is_read: boolean;
   needs_followup: boolean;
+  needs_response: boolean;
   project_id: string | null;
   match_confidence: 'exact' | 'high' | 'suggested' | 'thread' | null;
   conversation_id: string | null;
@@ -48,6 +52,9 @@ interface Props {
   onDismissSuggested: (email: Email) => void;
   onToggleFollowup: (email: Email) => void;
   onResolve: (email: Email) => void;
+  onNeedsResponse: (email: Email) => void;
+  onDraftResponse: (email: Email) => Promise<void>;
+  onDismiss: (email: Email) => void;
 }
 
 /* ── Design tokens ── */
@@ -130,11 +137,15 @@ export default function EmailCard({
   onDismissSuggested,
   onToggleFollowup,
   onResolve,
+  onNeedsResponse,
+  onDraftResponse,
+  onDismiss,
 }: Props) {
-  const proj   = email.projects;
+  const proj        = email.projects;
   const isUntagged  = !email.project_id;
   const isSuggested = email.match_confidence === 'suggested';
   const { bg, text } = proj ? projectColors(proj.color) : { bg: '', text: '' };
+  const [draftLoading, setDraftLoading] = useState(false);
 
   return (
     <div
@@ -250,28 +261,95 @@ export default function EmailCard({
               </div>
             </div>
 
-            {/* Resolve button (project emails only, shown on hover) */}
-            {!!email.project_id && !email.resolved && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onResolve(email); }}
-                title="Mark as resolved — no action needed"
-                className="mt-0.5 shrink-0 opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded-full bg-fq-sage-light text-fq-sage hover:bg-fq-sage hover:text-white transition-all duration-150"
-              >
-                <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 7l4 4 6-6" />
-                </svg>
-              </button>
-            )}
-
-            {/* Chevron */}
+            {/* Chevron — hidden on hover when quick actions appear */}
             <svg
               width="12" height="12" viewBox="0 0 14 14" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className={`mt-1 shrink-0 ${tk.light}`}
+              className={`mt-1 shrink-0 ${tk.light} group-hover:opacity-0 transition-opacity`}
             >
               <path d="M5 3l4 4-4 4" />
             </svg>
           </div>
+        </div>
+      </div>
+
+      {/* ── Quick action bar — absolute overlay, visible on hover ── */}
+      <div
+        className="absolute top-2.5 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none group-hover:pointer-events-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-0.5 bg-fq-card/95 border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
+
+          {/* 1. Needs Response */}
+          <button
+            onClick={() => onNeedsResponse(email)}
+            title="Needs Response"
+            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+              email.needs_response
+                ? 'bg-fq-blue-light text-fq-blue'
+                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-blue'
+            }`}
+          >
+            <Reply size={12} />
+          </button>
+
+          {/* 2. Draft Response */}
+          <button
+            onClick={async () => {
+              if (draftLoading || email.draft_message_id) return;
+              setDraftLoading(true);
+              try { await onDraftResponse(email); } finally { setDraftLoading(false); }
+            }}
+            title={email.draft_message_id ? 'Draft Ready' : 'Draft Response'}
+            disabled={draftLoading}
+            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+              email.draft_message_id
+                ? 'bg-fq-sage-light text-fq-sage'
+                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-sage'
+            } disabled:opacity-40`}
+          >
+            {draftLoading ? (
+              <span className="w-3 h-3 border border-fq-sage/40 border-t-fq-sage rounded-full animate-spin" />
+            ) : (
+              <PenLine size={12} />
+            )}
+          </button>
+
+          {/* 3. Needs Follow-up */}
+          <button
+            onClick={() => onToggleFollowup(email)}
+            title={email.needs_followup ? 'Remove Follow-up' : 'Needs Follow-up'}
+            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+              email.needs_followup
+                ? 'bg-fq-amber-light text-fq-amber'
+                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-amber'
+            }`}
+          >
+            <Clock size={12} />
+          </button>
+
+          {/* 4. Resolved */}
+          <button
+            onClick={() => onResolve(email)}
+            title="Mark Resolved"
+            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+              email.resolved
+                ? 'bg-fq-sage-light text-fq-sage'
+                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-sage'
+            }`}
+          >
+            <Check size={12} />
+          </button>
+
+          {/* 5. Dismiss */}
+          <button
+            onClick={() => onDismiss(email)}
+            title="Dismiss"
+            className="w-6 h-6 flex items-center justify-center rounded-md text-fq-muted/55 hover:bg-red-50 hover:text-red-500 transition-colors"
+          >
+            <X size={12} />
+          </button>
+
         </div>
       </div>
     </div>
