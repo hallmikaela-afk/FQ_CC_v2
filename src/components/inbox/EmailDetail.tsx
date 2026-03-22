@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import DOMPurify from 'dompurify';
+import { ChevronDown, Check } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 
 interface Props {
@@ -543,17 +544,32 @@ function CreateTaskPanel({
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
 export default function EmailDetail({ email, projects, onClose, onPatch, onTriageSave }: Props) {
-  const [replyOpen, setReplyOpen]     = useState(false);
-  const [taskOpen, setTaskOpen]       = useState(false);
+  const [replyOpen, setReplyOpen]         = useState(false);
+  const [taskOpen, setTaskOpen]           = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
-  const [deleting, setDeleting]       = useState(false);
+  const [deleting, setDeleting]           = useState(false);
+  const [badgeOpen, setBadgeOpen]         = useState(false);
+  const badgeRef = useRef<HTMLDivElement>(null);
 
   // Reset panels when email changes
   useEffect(() => {
     setReplyOpen(false);
     setTaskOpen(false);
     setDeleteConfirm(false);
+    setBadgeOpen(false);
   }, [email.id]);
+
+  // Close badge dropdown on outside click
+  useEffect(() => {
+    if (!badgeOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (badgeRef.current && !badgeRef.current.contains(e.target as Node)) {
+        setBadgeOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [badgeOpen]);
 
   const proj     = email.projects;
   const { bg, text: txt } = proj ? projectColors(proj.color) : { bg: '', text: '' };
@@ -603,19 +619,81 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
 
           {proj && (
             <div className="flex items-center gap-2 flex-wrap mt-1">
-              <span className={`inline-flex items-center gap-1.5 font-body text-[11.5px] font-medium px-2.5 py-0.5 rounded-full ${bg} ${txt}`}>
-                {proj.type === 'wedding' && (
-                  <svg width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="10" cy="10" r="7" /><path d="M7 10h6M10 7v6" />
-                  </svg>
+
+              {/* ── Clickable project badge with reassign dropdown ── */}
+              <div ref={badgeRef} className="relative">
+                <button
+                  onClick={() => setBadgeOpen((v) => !v)}
+                  className={`inline-flex items-center gap-1 font-body text-[11.5px] font-medium
+                    px-2.5 py-0.5 rounded-full ${bg} ${txt}
+                    hover:opacity-80 transition-opacity cursor-pointer`}
+                >
+                  {proj.name}
+                  <ChevronDown size={10} className={`transition-transform ${badgeOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {badgeOpen && (
+                  <div className="absolute top-full left-0 mt-1.5 z-30 bg-fq-card border border-fq-border rounded-xl shadow-lg overflow-hidden min-w-[210px]">
+                    {/* Project list */}
+                    {projects.map((p) => {
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            onPatch(email.id, { project_id: p.id, match_confidence: 'exact' });
+                            setBadgeOpen(false);
+                          }}
+                          className={`w-full text-left flex items-center gap-2.5 px-3 py-2
+                            font-body text-[12.5px] ${tk.body} hover:bg-fq-bg transition-colors`}
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: p.color ?? '#E8E0D8' }}
+                          />
+                          <span className="flex-1 truncate">{p.name}</span>
+                          {p.id === email.project_id && (
+                            <Check size={11} className="text-fq-accent shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })}
+
+                    <div className="border-t border-fq-border" />
+
+                    {/* None / General */}
+                    <button
+                      onClick={() => {
+                        onPatch(email.id, { project_id: null, match_confidence: null });
+                        setBadgeOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 font-body text-[12.5px] ${tk.light}
+                        hover:bg-fq-bg transition-colors`}
+                    >
+                      — None / General
+                    </button>
+
+                    <div className="border-t border-fq-border" />
+
+                    {/* Mark as Receipt */}
+                    <button
+                      onClick={() => {
+                        onPatch(email.id, {
+                          project_id:       null,
+                          match_confidence: null,
+                          category:         'receipt',
+                          dismissed:        true,
+                        });
+                        setBadgeOpen(false);
+                        onClose();
+                      }}
+                      className={`w-full text-left px-3 py-2 font-body text-[12.5px] ${tk.light}
+                        hover:bg-fq-bg transition-colors`}
+                    >
+                      🧾 Mark as Receipt
+                    </button>
+                  </div>
                 )}
-                {proj.type === 'shoot' && (
-                  <svg width="10" height="10" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="6" width="16" height="11" rx="2" /><circle cx="10" cy="12" r="3" /><path d="M7 6l1.5-2h3L13 6" />
-                  </svg>
-                )}
-                {proj.name}
-              </span>
+              </div>
 
               {/* Match confidence pill */}
               {email.match_confidence && email.match_confidence !== 'suggested' && (

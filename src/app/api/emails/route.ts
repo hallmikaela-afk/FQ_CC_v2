@@ -109,6 +109,7 @@ export async function PATCH(request: Request) {
     'is_read',
     'resolved',
     'dismissed',
+    'category',
   ];
   const safeUpdates: Record<string, unknown> = {};
   for (const key of allowedFields) {
@@ -314,20 +315,58 @@ async function upsertEmail(
   vendorEmails: Set<string>,
 ) {
   const fromEmail = msg.from?.emailAddress?.address ?? '';
-  const fromName = msg.from?.emailAddress?.name ?? '';
+  const fromName  = msg.from?.emailAddress?.name ?? '';
   const isMeetingSummary = detectMeetingSummary(fromEmail, msg.subject ?? '');
-
   const existing = existingMap.get(msg.id);
+
+  // ── Receipt detection runs FIRST and takes absolute priority ─────────────
+  // Re-run on every sync so incorrectly-tagged emails are corrected.
+  const isAutoReceipt    = detectReceipt(fromEmail, msg.subject ?? '', vendorEmails);
+  const isManualReceipt  = existing?.category === 'receipt'; // user manually flagged
+  const isReceipt        = isAutoReceipt || isManualReceipt;
+
+  if (isReceipt) {
+    const wasAlreadyReceipt = isManualReceipt; // avoid re-moving if already done
+    await supabase.from('emails').upsert(
+      {
+        message_id:        msg.id,
+        subject:           msg.subject,
+        from_name:         fromName,
+        from_email:        fromEmail,
+        body_preview:      msg.bodyPreview,
+        body:              msg.body?.content ?? null,
+        received_at:       msg.receivedDateTime,
+        is_read:           msg.isRead,
+        conversation_id:   msg.conversationId,
+        folder_id:         folderId,
+        project_id:        null,  // receipt always clears project
+        match_confidence:  null,
+        is_meeting_summary: isMeetingSummary,
+        category:          'receipt',
+        dismissed:         true,
+      },
+      { onConflict: 'message_id' },
+    );
+
+    // Move to Receipts folder (only for newly auto-detected, not already moved)
+    if (isAutoReceipt && !wasAlreadyReceipt && receiptsFolderId && folderId !== receiptsFolderId) {
+      moveMessage(msg.id, receiptsFolderId).catch(err =>
+        console.error('[emails] receipt move error:', err),
+      );
+    }
+    return;
+  }
+
+  // ── Project matching (only runs for non-receipts) ─────────────────────────
   let projectId: string | null = existing?.project_id ?? null;
   let confidence: string | null = existing?.match_confidence ?? null;
 
   // Folder-based match is the strongest signal — apply unless already confirmed
   const folderProjectId = folderProjectMap.get(folderId) ?? null;
   if (folderProjectId && existing?.match_confidence !== 'exact') {
-    projectId = folderProjectId;
+    projectId  = folderProjectId;
     confidence = 'exact';
   } else if (!projectId || confidence === 'suggested') {
-    // Fall back to content-based matching
     const match = await matchEmailToProject(
       fromEmail,
       msg.subject ?? '',
@@ -339,63 +378,39 @@ async function upsertEmail(
 
     const shouldApply =
       !existing?.project_id ||
-      (match.confidence === 'exact' && existing.match_confidence !== 'exact') ||
-      (match.confidence === 'high' && !['exact'].includes(existing.match_confidence ?? '')) ||
+      (match.confidence === 'exact'  && existing.match_confidence !== 'exact') ||
+      (match.confidence === 'high'   && !['exact'].includes(existing.match_confidence ?? '')) ||
       (match.confidence === 'thread' && !['exact', 'high'].includes(existing.match_confidence ?? ''));
 
     if (shouldApply && match.projectId) {
-      projectId = match.projectId;
+      projectId  = match.projectId;
       confidence = match.confidence;
     }
   }
 
-  // ── Receipt detection ────────────────────────────────────────────────────
-  const alreadyReceipt = existing?.category === 'receipt';
-  const isReceipt =
-    alreadyReceipt ||
-    (!projectId && detectReceipt(fromEmail, msg.subject ?? '', vendorEmails));
-
-  // ── Dismissed state ───────────────────────────────────────────────────────
-  // receipts: always dismissed
-  // matched emails (projectId set): ensure not dismissed (un-dismiss if re-matched)
-  // unmatched emails (no projectId, no confidence): auto-dismiss
-  let dismissed: boolean;
-  if (isReceipt) {
-    dismissed = true;
-  } else if (projectId) {
-    dismissed = false;
-  } else {
-    // No project match — auto-dismiss; stays hidden from main inbox
-    dismissed = true;
-  }
+  // Matched emails: un-dismiss; unmatched: keep dismissed
+  const dismissed = projectId ? false : true;
 
   await supabase.from('emails').upsert(
     {
-      message_id: msg.id,
-      subject: msg.subject,
-      from_name: fromName,
-      from_email: fromEmail,
-      body_preview: msg.bodyPreview,
-      body: msg.body?.content ?? null,
-      received_at: msg.receivedDateTime,
-      is_read: msg.isRead,
-      conversation_id: msg.conversationId,
-      folder_id: folderId,
-      project_id: projectId,
-      match_confidence: confidence,
+      message_id:        msg.id,
+      subject:           msg.subject,
+      from_name:         fromName,
+      from_email:        fromEmail,
+      body_preview:      msg.bodyPreview,
+      body:              msg.body?.content ?? null,
+      received_at:       msg.receivedDateTime,
+      is_read:           msg.isRead,
+      conversation_id:   msg.conversationId,
+      folder_id:         folderId,
+      project_id:        projectId,
+      match_confidence:  confidence,
       is_meeting_summary: isMeetingSummary,
+      category:          null,   // clear any stale category
       dismissed,
-      ...(isReceipt ? { category: 'receipt' } : {}),
     },
     { onConflict: 'message_id' },
   );
-
-  // Move receipts to Receipts folder in Outlook (fire-and-forget, only if not already there)
-  if (isReceipt && !alreadyReceipt && receiptsFolderId && folderId !== receiptsFolderId) {
-    moveMessage(msg.id, receiptsFolderId).catch(err =>
-      console.error('[emails] receipt move error:', err),
-    );
-  }
 }
 
 // ─── Receipt detection ────────────────────────────────────────────────────────
