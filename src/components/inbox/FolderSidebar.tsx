@@ -59,15 +59,22 @@ function FolderIcon({ name }: { name: string }) {
         <path d="M8 12h4" />
       </svg>
     );
-  // Generic folder
+  if (n === 'receipts')
+    return (
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 2h12v16l-2-1.5L12 18l-2-1.5L8 18l-2-1.5L4 18V2z" />
+        <path d="M7 7h6M7 10h6M7 13h4" />
+      </svg>
+    );
+  // Generic folder (used for client project subfolders)
   return (
-    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M2 6a2 2 0 0 1 2-2h3.5l2 2H16a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6z" />
     </svg>
   );
 }
 
-/* ── Priority sort: surface common folders first ── */
+/* ── Priority sort for top-level folders ── */
 const FOLDER_ORDER: Record<string, number> = {
   inbox: 0,
   'sent items': 1,
@@ -80,7 +87,7 @@ const FOLDER_ORDER: Record<string, number> = {
   spam: 5,
 };
 
-function sortFolders(folders: Folder[]): Folder[] {
+function sortTopLevel(folders: Folder[]): Folder[] {
   return [...folders].sort((a, b) => {
     const ai = FOLDER_ORDER[a.display_name.toLowerCase()] ?? 99;
     const bi = FOLDER_ORDER[b.display_name.toLowerCase()] ?? 99;
@@ -89,11 +96,37 @@ function sortFolders(folders: Folder[]): Folder[] {
   });
 }
 
-export default function FolderSidebar({ folders, selectedFolder, onSelectFolder, totalUnread }: Props) {
-  const sorted = sortFolders(folders);
+/* ── Strip leading number prefix e.g. "1 - Julia & Frank" → "Julia & Frank" ── */
+function stripNumberPrefix(name: string): string {
+  return name.replace(/^\d+\s*[-–]\s*/, '');
+}
 
-  const rowClass = (active: boolean) =>
-    `w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-colors font-body text-[13px] ${
+/* ── Unread badge ── */
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="text-[10px] font-semibold bg-fq-sage text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center shrink-0">
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
+export default function FolderSidebar({ folders, selectedFolder, onSelectFolder, totalUnread }: Props) {
+  // Separate inbox subfolders from top-level folders
+  const inboxFolder  = folders.find(f => f.display_name.toLowerCase() === 'inbox');
+  const inboxId      = inboxFolder?.folder_id ?? null;
+
+  const topLevel     = folders.filter(f => !f.parent_folder_id || f.parent_folder_id === inboxFolder?.parent_folder_id);
+  const inboxChildren = folders
+    .filter(f => f.parent_folder_id === inboxId)
+    .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { numeric: true }));
+
+  const sortedTop = sortTopLevel(topLevel);
+
+  const rowCls = (active: boolean, indent = false) =>
+    `w-full flex items-center gap-2 text-left transition-colors font-body rounded-lg ${
+      indent ? 'px-2.5 py-1.5 text-[12px]' : 'px-3 py-2 text-[13px]'
+    } ${
       active
         ? 'bg-fq-light-accent text-fq-dark/90 font-medium'
         : 'text-fq-muted/80 hover:bg-fq-light-accent/60 hover:text-fq-dark/80'
@@ -112,9 +145,8 @@ export default function FolderSidebar({ folders, selectedFolder, onSelectFolder,
       <div className="px-3 pb-1">
         <button
           onClick={() => onSelectFolder(null)}
-          className={rowClass(selectedFolder === null)}
+          className={rowCls(selectedFolder === null)}
         >
-          {/* All-mail icon */}
           <span className="text-fq-muted/60 shrink-0">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="2" y="4" width="16" height="12" rx="2" />
@@ -122,35 +154,50 @@ export default function FolderSidebar({ folders, selectedFolder, onSelectFolder,
             </svg>
           </span>
           <span className="flex-1 truncate">All Mail</span>
-          {totalUnread > 0 && (
-            <span className="text-[10px] font-semibold bg-fq-sage text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
-              {totalUnread > 99 ? '99+' : totalUnread}
-            </span>
-          )}
+          <UnreadBadge count={totalUnread} />
         </button>
       </div>
 
       {/* Divider */}
-      {sorted.length > 0 && <div className="mx-4 my-1 border-t border-fq-border/60" />}
+      {sortedTop.length > 0 && <div className="mx-4 my-1 border-t border-fq-border/60" />}
 
       {/* Folder list */}
       <div className="px-3 pb-4 space-y-0.5">
-        {sorted.map((folder) => (
-          <button
-            key={folder.folder_id}
-            onClick={() => onSelectFolder(folder.folder_id)}
-            className={rowClass(selectedFolder === folder.folder_id)}
-          >
-            <span className="text-fq-muted/55 shrink-0">
-              <FolderIcon name={folder.display_name} />
-            </span>
-            <span className="flex-1 truncate">{folder.display_name}</span>
-            {folder.unread_count > 0 && (
-              <span className="text-[10px] font-semibold bg-fq-sage text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
-                {folder.unread_count > 99 ? '99+' : folder.unread_count}
+        {sortedTop.map((folder) => (
+          <div key={folder.folder_id}>
+            {/* Top-level folder row */}
+            <button
+              onClick={() => onSelectFolder(folder.folder_id)}
+              className={rowCls(selectedFolder === folder.folder_id)}
+            >
+              <span className="text-fq-muted/55 shrink-0">
+                <FolderIcon name={folder.display_name} />
               </span>
+              <span className="flex-1 truncate">{folder.display_name}</span>
+              <UnreadBadge count={folder.unread_count} />
+            </button>
+
+            {/* Inbox subfolders — rendered right after the Inbox row */}
+            {folder.folder_id === inboxId && inboxChildren.length > 0 && (
+              <div className="ml-3 mt-0.5 space-y-0.5 border-l border-fq-border/50 pl-2">
+                {inboxChildren.map((child) => (
+                  <button
+                    key={child.folder_id}
+                    onClick={() => onSelectFolder(child.folder_id)}
+                    className={rowCls(selectedFolder === child.folder_id, true)}
+                  >
+                    <span className="text-fq-muted/45 shrink-0">
+                      <FolderIcon name={child.display_name} />
+                    </span>
+                    <span className="flex-1 truncate">
+                      {stripNumberPrefix(child.display_name)}
+                    </span>
+                    <UnreadBadge count={child.unread_count} />
+                  </button>
+                ))}
+              </div>
             )}
-          </button>
+          </div>
         ))}
 
         {folders.length === 0 && (
