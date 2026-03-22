@@ -215,9 +215,11 @@ export async function graphFetch(
     throw new Error(`GRAPH_ERROR_${res.status}: ${body}`);
   }
 
-  // 204 No Content
-  if (res.status === 204) return null;
-  return res.json();
+  // 202 Accepted (sendMail) and 204 No Content both have empty bodies
+  if (res.status === 204 || res.status === 202) return null;
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 // ─── Email helpers ────────────────────────────────────────────────────────────
