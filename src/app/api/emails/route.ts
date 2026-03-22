@@ -9,10 +9,11 @@
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
 import { fetchMessages, markAsRead } from '@/lib/microsoft-graph';
-import { matchEmailToProject } from '@/lib/email-matching';
+import { matchEmailToProject, type PreloadedMatchData } from '@/lib/email-matching';
 import type { GraphMessage } from '@/lib/microsoft-graph';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
 
   const folderId = url.searchParams.get('folder_id') ?? undefined;
   const skip = parseInt(url.searchParams.get('skip') ?? '0', 10);
-  const top = parseInt(url.searchParams.get('top') ?? '50', 10);
+  const top = parseInt(url.searchParams.get('top') ?? '25', 10);
   const dateFrom = url.searchParams.get('date_from') ?? undefined;
   const dateTo = url.searchParams.get('date_to') ?? undefined;
   const filter = url.searchParams.get('filter'); // 'all'|'tagged'|'untagged'|'followup'
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
   // ── Sync from Graph API ──────────────────────────────────────────────────
   if (doSync) {
     try {
-      await syncEmails({ folderId, top: 50, dateFrom, dateTo }, supabase);
+      await syncEmails({ folderId, top: 25, dateFrom, dateTo }, supabase);
     } catch (err) {
       // If NOT_CONNECTED, let caller handle it
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
@@ -120,25 +121,56 @@ export async function PATCH(request: Request) {
 
 // ─── Sync helper ──────────────────────────────────────────────────────────────
 
+const SYNC_BATCH = 10; // parallel upserts per round
+
 async function syncEmails(
   opts: { folderId?: string; top?: number; dateFrom?: string; dateTo?: string },
   supabase: ReturnType<typeof getServiceSupabase>,
 ) {
-  // Default: last 90 days for initial sync if no date specified
+  // Default: last 30 days (reduced from 90 to keep sync fast)
   const dateFrom =
     opts.dateFrom ??
-    new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const { messages } = await fetchMessages(
-    { ...opts, dateFrom, top: opts.top ?? 50 },
+    { ...opts, dateFrom, top: opts.top ?? 25 },
     'default',
   );
 
   if (!messages.length) return;
 
-  // Upsert each message
-  for (const msg of messages) {
-    await upsertEmail(msg, opts.folderId ?? msg.parentFolderId, supabase);
+  // ── Load lookup data once for all messages ───────────────────────────────
+  const [projectsRes, vendorsRes, existingRes] = await Promise.all([
+    supabase
+      .from('projects')
+      .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer')
+      .in('status', ['active', 'completed']),
+    supabase.from('vendors').select('project_id, email'),
+    supabase
+      .from('emails')
+      .select('message_id, project_id, match_confidence')
+      .in('message_id', messages.map(m => m.id)),
+  ]);
+
+  const preloaded: PreloadedMatchData = {
+    projects: (projectsRes.data ?? []) as PreloadedMatchData['projects'],
+    vendors: (vendorsRes.data ?? []) as PreloadedMatchData['vendors'],
+  };
+
+  // Build existing map: message_id → { project_id, match_confidence }
+  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null }>();
+  for (const row of existingRes.data ?? []) {
+    existingMap.set(row.message_id, row);
+  }
+
+  // ── Process in parallel batches ──────────────────────────────────────────
+  for (let i = 0; i < messages.length; i += SYNC_BATCH) {
+    const batch = messages.slice(i, i + SYNC_BATCH);
+    await Promise.allSettled(
+      batch.map(msg =>
+        upsertEmail(msg, opts.folderId ?? msg.parentFolderId, supabase, preloaded, existingMap),
+      ),
+    );
   }
 }
 
@@ -146,20 +178,14 @@ async function upsertEmail(
   msg: GraphMessage,
   folderId: string,
   supabase: ReturnType<typeof getServiceSupabase>,
+  preloaded: PreloadedMatchData,
+  existingMap: Map<string, { project_id: string | null; match_confidence: string | null }>,
 ) {
   const fromEmail = msg.from?.emailAddress?.address ?? '';
   const fromName = msg.from?.emailAddress?.name ?? '';
-
-  // Detect Zoom AI Companion meeting summaries
   const isMeetingSummary = detectMeetingSummary(fromEmail, msg.subject ?? '');
 
-  // Check if already tagged (don't overwrite manual assignments)
-  const { data: existing } = await supabase
-    .from('emails')
-    .select('project_id, match_confidence')
-    .eq('message_id', msg.id)
-    .single();
-
+  const existing = existingMap.get(msg.id);
   let projectId: string | null = existing?.project_id ?? null;
   let confidence: string | null = existing?.match_confidence ?? null;
 
@@ -171,9 +197,9 @@ async function upsertEmail(
       msg.body?.content ?? msg.bodyPreview ?? '',
       msg.conversationId,
       supabase,
+      preloaded,
     );
 
-    // Only auto-apply if confidence is better than what we have
     const shouldApply =
       !existing?.project_id ||
       (match.confidence === 'exact' && existing.match_confidence !== 'exact') ||

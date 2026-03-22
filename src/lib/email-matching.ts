@@ -102,14 +102,21 @@ function textContains(haystack: string, needle: string): boolean {
 
 // ─── Core matching ────────────────────────────────────────────────────────────
 
+export interface PreloadedMatchData {
+  projects: ProjectLike[];
+  vendors: VendorLike[];
+}
+
 /**
  * Runs matching logic and returns the best project match.
  *
  * Priority order:
  * 1. Exact email match against project client emails
  * 2. Exact email match against vendor emails
- * 3. Conversation thread match (checked before calling this — caller should pass existingThreadProjectId)
+ * 3. Conversation thread match
  * 4. Multi-signal text match (2+ = 'high', 1 = 'suggested', venue-only = 'suggested')
+ *
+ * Pass `preloaded` to avoid redundant DB queries when matching many emails in bulk.
  */
 export async function matchEmailToProject(
   fromEmail: string,
@@ -117,22 +124,29 @@ export async function matchEmailToProject(
   body: string,
   conversationId: string,
   supabase: SupabaseClient,
+  preloaded?: PreloadedMatchData,
 ): Promise<MatchResult> {
   const emailLower = (fromEmail ?? '').toLowerCase().trim();
   const searchText = `${subject ?? ''} ${body ?? ''}`;
 
-  // ── 1. Load projects ──────────────────────────────────────────────────────
-  const { data: projects } = await supabase
-    .from('projects')
-    .select(
-      'id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer',
-    )
-    .in('status', ['active', 'completed']);
+  // ── 1. Load projects (once, or use pre-loaded) ────────────────────────────
+  let projects: ProjectLike[];
+  if (preloaded) {
+    projects = preloaded.projects;
+  } else {
+    const { data } = await supabase
+      .from('projects')
+      .select(
+        'id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer',
+      )
+      .in('status', ['active', 'completed']);
+    projects = (data ?? []) as ProjectLike[];
+  }
 
-  if (!projects || projects.length === 0) return { projectId: null, confidence: null };
+  if (!projects.length) return { projectId: null, confidence: null };
 
   // ── 2. Exact client email match ───────────────────────────────────────────
-  for (const p of projects as ProjectLike[]) {
+  for (const p of projects) {
     if (
       (p.client1_email && p.client1_email.toLowerCase() === emailLower) ||
       (p.client2_email && p.client2_email.toLowerCase() === emailLower)
@@ -143,14 +157,18 @@ export async function matchEmailToProject(
 
   // ── 3. Exact vendor email match ───────────────────────────────────────────
   if (emailLower) {
-    const { data: vendors } = await supabase
-      .from('vendors')
-      .select('project_id, email')
-      .ilike('email', emailLower);
+    const vendors: VendorLike[] = preloaded
+      ? preloaded.vendors.filter(v => v.email?.toLowerCase() === emailLower)
+      : await (async () => {
+          const { data } = await supabase
+            .from('vendors')
+            .select('project_id, email')
+            .ilike('email', emailLower);
+          return (data ?? []) as VendorLike[];
+        })();
 
-    if (vendors && vendors.length > 0) {
-      const vendor = vendors[0] as VendorLike;
-      return { projectId: vendor.project_id, confidence: 'exact' };
+    if (vendors.length > 0) {
+      return { projectId: vendors[0].project_id, confidence: 'exact' };
     }
   }
 
