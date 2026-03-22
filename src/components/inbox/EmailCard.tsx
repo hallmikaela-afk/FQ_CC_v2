@@ -25,6 +25,10 @@ export interface Email {
   conversation_id: string | null;
   folder_id: string | null;
   is_meeting_summary: boolean;
+  dismissed: boolean;
+  resolved: boolean;
+  draft_message_id: string | null;
+  category: string | null;
   projects: EmailProject | null;
 }
 
@@ -43,6 +47,7 @@ interface Props {
   onConfirmSuggested: (email: Email) => void;
   onDismissSuggested: (email: Email) => void;
   onToggleFollowup: (email: Email) => void;
+  onResolve: (email: Email) => void;
 }
 
 /* ── Design tokens ── */
@@ -124,6 +129,7 @@ export default function EmailCard({
   onConfirmSuggested,
   onDismissSuggested,
   onToggleFollowup,
+  onResolve,
 }: Props) {
   const proj   = email.projects;
   const isUntagged  = !email.project_id;
@@ -243,6 +249,19 @@ export default function EmailCard({
                 )}
               </div>
             </div>
+
+            {/* Resolve button (project emails only, shown on hover) */}
+            {!!email.project_id && !email.resolved && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onResolve(email); }}
+                title="Mark as resolved — no action needed"
+                className="mt-0.5 shrink-0 opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded-full bg-fq-sage-light text-fq-sage hover:bg-fq-sage hover:text-white transition-all duration-150"
+              >
+                <svg width="10" height="10" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 7l4 4 6-6" />
+                </svg>
+              </button>
+            )}
 
             {/* Chevron */}
             <svg

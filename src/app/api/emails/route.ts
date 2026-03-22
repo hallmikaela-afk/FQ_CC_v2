@@ -52,6 +52,7 @@ export async function GET(request: Request) {
       `id, message_id, subject, from_name, from_email, body_preview, body,
        received_at, is_read, project_id, match_confidence, conversation_id,
        folder_id, needs_followup, followup_due_date, is_meeting_summary, created_at,
+       category, dismissed, resolved, draft_message_id,
        projects(id, name, type, color, event_date)`,
     )
     .order('received_at', { ascending: false })
@@ -62,8 +63,9 @@ export async function GET(request: Request) {
   if (dateTo) query = query.lte('received_at', dateTo);
   if (projectId) query = query.eq('project_id', projectId);
 
-  // Never surface receipts in the main inbox view
+  // Never surface receipts or dismissed emails in the main inbox view
   query = query.or('category.is.null,category.neq.receipt');
+  query = query.or('dismissed.is.null,dismissed.eq.false');
 
   if (filter === 'tagged') query = query.not('project_id', 'is', null);
   if (filter === 'untagged') query = query.is('project_id', null);
@@ -105,6 +107,8 @@ export async function PATCH(request: Request) {
     'needs_followup',
     'followup_due_date',
     'is_read',
+    'resolved',
+    'dismissed',
   ];
   const safeUpdates: Record<string, unknown> = {};
   for (const key of allowedFields) {
@@ -349,13 +353,20 @@ async function upsertEmail(
   const alreadyReceipt = existing?.category === 'receipt';
   const isReceipt =
     alreadyReceipt ||
-    (!projectId &&
-      detectReceipt(fromEmail, msg.subject ?? '', vendorEmails));
+    (!projectId && detectReceipt(fromEmail, msg.subject ?? '', vendorEmails));
 
-  const extraFields: Record<string, unknown> = {};
+  // ── Dismissed state ───────────────────────────────────────────────────────
+  // receipts: always dismissed
+  // matched emails (projectId set): ensure not dismissed (un-dismiss if re-matched)
+  // unmatched emails (no projectId, no confidence): auto-dismiss
+  let dismissed: boolean;
   if (isReceipt) {
-    extraFields.category = 'receipt';
-    extraFields.dismissed = true;
+    dismissed = true;
+  } else if (projectId) {
+    dismissed = false;
+  } else {
+    // No project match — auto-dismiss; stays hidden from main inbox
+    dismissed = true;
   }
 
   await supabase.from('emails').upsert(
@@ -373,12 +384,13 @@ async function upsertEmail(
       project_id: projectId,
       match_confidence: confidence,
       is_meeting_summary: isMeetingSummary,
-      ...extraFields,
+      dismissed,
+      ...(isReceipt ? { category: 'receipt' } : {}),
     },
     { onConflict: 'message_id' },
   );
 
-  // Move to Receipts folder in Outlook (fire-and-forget, only if not already there)
+  // Move receipts to Receipts folder in Outlook (fire-and-forget, only if not already there)
   if (isReceipt && !alreadyReceipt && receiptsFolderId && folderId !== receiptsFolderId) {
     moveMessage(msg.id, receiptsFolderId).catch(err =>
       console.error('[emails] receipt move error:', err),

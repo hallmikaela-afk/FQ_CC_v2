@@ -1,19 +1,22 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import FolderSidebar, { type Folder } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
 import EmailDetail from '@/components/inbox/EmailDetail';
 
 /* ── Filter types ── */
-type TabFilter = 'all' | 'tagged' | 'untagged' | 'followup';
+type TabFilter = 'active' | 'needs_response' | 'draft_ready' | 'followup' | 'resolved';
 
 const TAB_FILTERS: { key: TabFilter; label: string }[] = [
-  { key: 'all',      label: 'All' },
-  { key: 'tagged',   label: 'Tagged' },
-  { key: 'untagged', label: 'Untagged' },
-  { key: 'followup', label: 'Needs Follow-up' },
+  { key: 'active',         label: 'Active' },
+  { key: 'needs_response', label: 'Needs Response' },
+  { key: 'draft_ready',    label: 'Draft Ready' },
+  { key: 'followup',       label: 'Needs Follow-up' },
+  { key: 'resolved',       label: 'Resolved' },
 ];
+
+const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
 
 /* ── Inbox rules ── */
 interface InboxRule {
@@ -120,9 +123,13 @@ export default function InboxPage() {
 
   /* ── Filter/nav state ── */
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-  const [tabFilter,      setTabFilter]      = useState<TabFilter>('all');
+  const [tabFilter,      setTabFilter]      = useState<TabFilter>('active');
   const [projectFilter,  setProjectFilter]  = useState('');
   const [selectedId,     setSelectedId]     = useState<string | null>(null);
+
+  /* ── Undo toast ── */
+  const [undoToast, setUndoToast] = useState<{ message: string; undo: () => void } | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── "now" tick — updates relative "synced X ago" label every minute ── */
   useEffect(() => {
@@ -223,25 +230,61 @@ export default function InboxPage() {
   }, [selectedFolder]);
 
   /* ── Derived email list ── */
-  const visibleEmails = emails.filter((e) => !shouldFilterEmail(e, rules));
+  // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net
+  const visibleEmails = useMemo(
+    () => emails.filter((e) => !shouldFilterEmail(e, rules)),
+    [emails, rules],
+  );
 
-  const filteredEmails = visibleEmails
-    .filter((e) => {
-      if (tabFilter === 'tagged')   return !!e.project_id;
-      if (tabFilter === 'untagged') return !e.project_id;
-      if (tabFilter === 'followup') return e.needs_followup;
-      return true;
-    })
-    .filter((e) => !projectFilter || e.project_id === projectFilter);
+  const filteredEmails = useMemo(() => {
+    const now = Date.now();
+    return visibleEmails
+      .filter((e) => {
+        switch (tabFilter) {
+          case 'active':
+            return !!e.project_id && !e.resolved;
+          case 'needs_response': {
+            const age = e.received_at ? now - new Date(e.received_at).getTime() : 0;
+            return !!e.project_id && !e.draft_message_id && age > TWENTY_FOUR_HOURS && !e.resolved;
+          }
+          case 'draft_ready':
+            return !!e.draft_message_id && !e.resolved;
+          case 'followup':
+            return e.needs_followup && !e.resolved;
+          case 'resolved':
+            return !!e.project_id && e.resolved;
+          default:
+            return false;
+        }
+      })
+      .filter((e) => !projectFilter || e.project_id === projectFilter);
+  }, [visibleEmails, tabFilter, projectFilter]);
 
-  const countFor = (tab: TabFilter) => {
-    if (tab === 'tagged')   return visibleEmails.filter((e) => !!e.project_id).length;
-    if (tab === 'untagged') return visibleEmails.filter((e) => !e.project_id).length;
-    if (tab === 'followup') return visibleEmails.filter((e) => e.needs_followup).length;
-    return visibleEmails.length;
-  };
+  const countFor = useCallback(
+    (tab: TabFilter) => {
+      const now = Date.now();
+      switch (tab) {
+        case 'active':
+          return visibleEmails.filter((e) => !!e.project_id && !e.resolved).length;
+        case 'needs_response':
+          return visibleEmails.filter((e) => {
+            const age = e.received_at ? now - new Date(e.received_at).getTime() : 0;
+            return !!e.project_id && !e.draft_message_id && age > TWENTY_FOUR_HOURS && !e.resolved;
+          }).length;
+        case 'draft_ready':
+          return visibleEmails.filter((e) => !!e.draft_message_id && !e.resolved).length;
+        case 'followup':
+          return visibleEmails.filter((e) => e.needs_followup && !e.resolved).length;
+        case 'resolved':
+          return visibleEmails.filter((e) => !!e.project_id && e.resolved).length;
+        default:
+          return 0;
+      }
+    },
+    [visibleEmails],
+  );
 
-  const totalUnread = visibleEmails.filter((e) => !e.is_read).length;
+  const totalUnread = visibleEmails.filter((e) => !e.is_read && !!e.project_id && !e.resolved).length;
   const selected    = selectedId ? emails.find((e) => e.id === selectedId) ?? null : null;
 
   /* ── Email actions ── */
@@ -271,8 +314,23 @@ export default function InboxPage() {
   };
 
   const handleDismissSuggested = (email: Email) => {
-    patch(email.id, { project_id: null, match_confidence: null });
+    // No project → auto-dismiss completely from main view
+    patch(email.id, { project_id: null, match_confidence: null, dismissed: true });
   };
+
+  const showToast = useCallback((message: string, undo: () => void) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setUndoToast({ message, undo });
+    toastTimerRef.current = setTimeout(() => setUndoToast(null), 5000);
+  }, []);
+
+  const handleResolve = useCallback(
+    (email: Email) => {
+      patch(email.id, { resolved: true });
+      showToast('Marked as resolved', () => patch(email.id, { resolved: false }));
+    },
+    [patch, showToast],
+  );
 
   const handleToggleFollowup = (email: Email) => {
     patch(email.id, { needs_followup: !email.needs_followup });
@@ -463,10 +521,16 @@ export default function InboxPage() {
           {!loading && filteredEmails.length === 0 && (
             <div className="text-center mt-12">
               <p className={`font-body text-[13px] ${tk.light}`}>
-                {tabFilter === 'untagged'
-                  ? 'All emails are tagged — nice work.'
+                {tabFilter === 'active'
+                  ? 'No active project emails.'
+                  : tabFilter === 'needs_response'
+                  ? 'No emails need a response right now.'
+                  : tabFilter === 'draft_ready'
+                  ? 'No drafts are ready to send.'
                   : tabFilter === 'followup'
                   ? 'No emails need follow-up right now.'
+                  : tabFilter === 'resolved'
+                  ? 'No resolved emails yet.'
                   : 'No emails in this view.'}
               </p>
             </div>
@@ -481,10 +545,28 @@ export default function InboxPage() {
               onConfirmSuggested={handleConfirmSuggested}
               onDismissSuggested={handleDismissSuggested}
               onToggleFollowup={handleToggleFollowup}
+              onResolve={handleResolve}
             />
           ))}
         </div>
       </div>
+
+      {/* ── Undo toast ── */}
+      {undoToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-xl bg-fq-dark text-white shadow-lg font-body text-[13px] whitespace-nowrap">
+          <span className="text-white/80">{undoToast.message}</span>
+          <button
+            onClick={() => {
+              undoToast.undo();
+              setUndoToast(null);
+              if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+            }}
+            className="font-medium text-fq-accent hover:text-fq-accent/80 transition-colors"
+          >
+            Undo
+          </button>
+        </div>
+      )}
 
       {/* ── Detail panel ── */}
       {selected ? (
