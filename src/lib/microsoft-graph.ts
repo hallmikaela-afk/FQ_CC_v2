@@ -142,7 +142,7 @@ export async function storeTokens(
   const supabase = getServiceSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-  await supabase.from('microsoft_tokens').upsert(
+  const { error } = await supabase.from('microsoft_tokens').upsert(
     {
       user_id: userId,
       access_token: accessToken,
@@ -152,6 +152,10 @@ export async function storeTokens(
     },
     { onConflict: 'user_id' },
   );
+
+  if (error) {
+    throw new Error(`Failed to store Microsoft tokens: ${error.message}`);
+  }
 }
 
 /**

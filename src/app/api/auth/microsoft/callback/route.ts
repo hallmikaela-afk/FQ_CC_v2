@@ -25,7 +25,9 @@ export async function GET(request: Request) {
   const clientId = process.env.AZURE_CLIENT_ID!;
   const clientSecret = process.env.AZURE_CLIENT_SECRET!;
 
-  const redirectUri = `${url.origin}/api/auth/microsoft/callback`;
+  // Must match exactly what was sent in the login request — use the same env var.
+  const appOrigin = process.env.NEXT_PUBLIC_APP_URL ?? url.origin;
+  const redirectUri = `${appOrigin}/api/auth/microsoft/callback`;
 
   // Exchange code for tokens
   const tokenParams = new URLSearchParams({
@@ -62,13 +64,20 @@ export async function GET(request: Request) {
   const tokens = await tokensRes.json();
 
   // Store in Supabase (single-user: userId = 'default')
-  await storeTokens(
-    'default',
-    tokens.access_token,
-    tokens.refresh_token ?? null,
-    tokens.expires_in,
-    tokens.scope ?? '',
-  );
+  try {
+    await storeTokens(
+      'default',
+      tokens.access_token,
+      tokens.refresh_token ?? null,
+      tokens.expires_in,
+      tokens.scope ?? '',
+    );
+  } catch (err) {
+    console.error('[auth/microsoft/callback] storeTokens failed:', err);
+    const errUrl = new URL('/inbox', url.origin);
+    errUrl.searchParams.set('auth_error', 'Failed to save token. Check server logs.');
+    return NextResponse.redirect(errUrl);
+  }
 
   // Redirect to inbox with success flag
   const redirectUrl = new URL('/inbox', url.origin);

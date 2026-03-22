@@ -14,9 +14,11 @@ export async function GET(request: Request) {
     );
   }
 
-  // Build redirect URI from request origin
+  // Build redirect URI — prefer explicit env var so it stays stable across
+  // Vercel preview deployments and internal/external origin mismatches.
   const url = new URL(request.url);
-  const redirectUri = `${url.origin}/api/auth/microsoft/callback`;
+  const appOrigin = process.env.NEXT_PUBLIC_APP_URL ?? url.origin;
+  const redirectUri = `${appOrigin}/api/auth/microsoft/callback`;
 
   // Random state to prevent CSRF
   const state = Math.random().toString(36).substring(2, 18);
