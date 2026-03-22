@@ -1,7 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { projects } from '@/data/seed';
+import { useState, useEffect, useCallback } from 'react';
 
 /* ── colour / typography tokens (matches rest of app) ── */
 const t = {
@@ -9,178 +8,89 @@ const t = {
   body: 'text-fq-muted/90',
   light: 'text-fq-muted/70',
   icon: 'text-fq-muted/60',
-  label: 'text-fq-muted/80',
 };
 
 /* ── Types ── */
-type EmailStatus = 'flagged' | 'draft_ready' | 'responded' | 'dismissed';
-
-interface InboxEmail {
+interface EmailRow {
   id: string;
-  from_name: string;
-  from_email: string;
-  subject: string;
-  preview: string;
-  body: string;
-  received: string;          // ISO date-time
-  status: EmailStatus;
-  project_id: string | null; // link to project
-  project_label: string;     // display name
-  alert?: string;            // e.g. "Deadline mentioned — action needed"
-  draft?: string;            // AI-drafted response
+  message_id: string;
+  subject: string | null;
+  from_name: string | null;
+  from_email: string | null;
+  body_preview: string | null;
+  body: string | null;
+  received_at: string | null;
+  is_read: boolean;
+  needs_followup: boolean;
+  project_id: string | null;
+  match_confidence: string | null;
+  conversation_id: string | null;
+  folder_id: string | null;
+  is_meeting_summary: boolean;
+  projects: { id: string; name: string; type: string; color: string | null; event_date: string | null } | null;
 }
 
-/* ── Seed inbox data (matches screenshot) ── */
-const emails: InboxEmail[] = [
-  {
-    id: 'e1',
-    from_name: 'Wave Resort Events',
-    from_email: 'events@waveresort.com',
-    subject: 'Re: Julia & Frank Wedding - Room Block Update',
-    preview: 'Hi Mikaela, I wanted to follow up on the June 7th wedding. We currently have 25 rooms rese…',
-    body: 'Hi Mikaela, I wanted to follow up on the room block for the June 7th wedding. We currently have 25 rooms reserved and need final numbers by April 15th...',
-    received: '2026-03-08T04:30:00',
-    status: 'draft_ready',
-    project_id: 'julia-frank',
-    project_label: 'Julia & Frank',
-    alert: 'Deadline mentioned — action needed',
-    draft: `Hi [Wave Resort Events Team],
+type FilterKey = 'all' | 'unread' | 'followup' | 'read';
 
-Thank you for the update on the room block. I'll confirm final numbers with Julia & Frank and get back to you well before the April 15th deadline.
-
-Best,
-Mikaela Hall
-Fox & Quinn`,
-  },
-  {
-    id: 'e2',
-    from_name: 'Enrich Events',
-    from_email: 'cassandra@enrichevents.com',
-    subject: 'Menorca Floral Proposal - Interwoven Shoot',
-    preview: 'Mikaela, Please find attached our floral design proposal for the Interwoven shoot at Vestige Son Vell. We\'ve inc…',
-    body: 'Mikaela, Please find attached our floral design proposal for the Interwoven shoot at Vestige Son Vell. We\'ve included three concept options with mood boards and pricing for each arrangement. The first option features locally sourced Mediterranean wildflowers, while the second uses imported garden roses with olive branch accents. The third is a hybrid approach. Please let us know which direction you\'d like to go, and we can schedule a follow-up call to finalize details.\n\nBest,\nCassandra\nEnrich Events',
-    received: '2026-03-08T10:45:00',
-    status: 'flagged',
-    project_id: 'menorca',
-    project_label: 'Menorca: Interwoven',
-    draft: `Hi Cassandra,
-
-Thank you so much for putting these concepts together — all three options are beautiful. I'm leaning toward the hybrid approach (Option 3) as it balances the local Mediterranean feel with the romantic garden rose aesthetic we discussed.
-
-I'd love to schedule a call this week to walk through the details. Are you available Thursday or Friday afternoon?
-
-Best,
-Mikaela Hall
-Fox & Quinn`,
-  },
-  {
-    id: 'e3',
-    from_name: 'Tippi Reynolds',
-    from_email: 'tippi.reynolds@gmail.com',
-    subject: 'Question about photographer timeline',
-    preview: 'Hi! Justin and I were wondering about the timeline for selecting a photographer. We saw someone on Instagra…',
-    body: 'Hi! Justin and I were wondering about the timeline for selecting a photographer. We saw someone on Instagram (@KateHarrisPhoto) and really loved their work. Is it too early to reach out? Also, do we need to have our venue confirmed before booking a photographer, or can we do that in parallel? We want to make sure we don\'t miss out on our top choice.\n\nThanks!\nTippi',
-    received: '2026-03-08T06:20:00',
-    status: 'flagged',
-    project_id: 'tippi-justin',
-    project_label: 'Tippi & Justin',
-    draft: `Hi Tippi!
-
-Great taste — I'll look into @KateHarrisPhoto right away! You're actually at the perfect time to start booking a photographer. You don't need the venue finalized first; most photographers book based on date availability, so it's smart to reach out early.
-
-I'll do some research on Kate and a couple of other options that match your style, and we can review them together on our next call.
-
-Best,
-Mikaela Hall
-Fox & Quinn`,
-  },
-  {
-    id: 'e4',
-    from_name: 'Lilysh Floral',
-    from_email: 'contact@lilyshdesign.com',
-    subject: 'Floral mockup photos - Julia & Frank',
-    preview: 'Hi Mikaela, Attached are the mockup photos for the centerpiece and ceremony arch. Let me know if you\'d like…',
-    body: 'Hi Mikaela, Attached are the mockup photos for the centerpiece and ceremony arch. Let me know if you\'d like any adjustments before we finalize. The greenery-forward palette with blush and white accents turned out beautifully. I think Julia will love it!\n\nBest,\nLiliya\nLilysh Floral',
-    received: '2026-03-07T14:10:00',
-    status: 'responded',
-    project_id: 'julia-frank',
-    project_label: 'Julia & Frank',
-  },
-  {
-    id: 'e5',
-    from_name: 'EFEGE Photography',
-    from_email: 'hello@efegephoto.com',
-    subject: 'Re: Menorca shoot dates confirmed',
-    preview: 'Mikaela, Great news — May 18th works perfectly for us. We\'ve blocked the full day…',
-    body: 'Mikaela, Great news — May 18th works perfectly for us. We\'ve blocked the full day for the shoot. Looking forward to collaborating on this!\n\nCheers,\nEFEGE',
-    received: '2026-03-07T09:30:00',
-    status: 'dismissed',
-    project_id: 'menorca',
-    project_label: 'Menorca',
-  },
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: 'all',     label: 'All' },
+  { key: 'unread',  label: 'Unread' },
+  { key: 'followup',label: 'Needs Follow-up' },
+  { key: 'read',    label: 'Read' },
 ];
 
-/* ── Filter tabs ── */
-const FILTERS: { key: EmailStatus | 'all'; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'flagged', label: 'Flagged' },
-  { key: 'draft_ready', label: 'Draft Ready' },
-  { key: 'responded', label: 'Responded' },
-  { key: 'dismissed', label: 'Dismissed' },
-];
-
-function countByStatus(status: EmailStatus | 'all') {
-  if (status === 'all') return emails.length;
-  return emails.filter(e => e.status === status).length;
+/* ── Status badge ── */
+function StatusBadge({ email }: { email: EmailRow }) {
+  if (email.needs_followup) {
+    return <span className="text-[11px] font-body font-medium px-2 py-0.5 rounded-full bg-fq-amber-light text-fq-amber">Follow-up</span>;
+  }
+  if (!email.is_read) {
+    return <span className="text-[11px] font-body font-medium px-2 py-0.5 rounded-full bg-fq-sage-light text-fq-sage">Unread</span>;
+  }
+  return <span className="text-[11px] font-body font-medium px-2 py-0.5 rounded-full bg-fq-light-accent text-fq-muted">Read</span>;
 }
 
-/* ── Status badge component ── */
-function StatusBadge({ status }: { status: EmailStatus }) {
-  const cfg: Record<EmailStatus, { label: string; bg: string; text: string }> = {
-    flagged: { label: 'Flagged', bg: 'bg-fq-amber-light', text: 'text-fq-amber' },
-    draft_ready: { label: 'Draft Ready', bg: 'bg-fq-sage-light', text: 'text-fq-sage' },
-    responded: { label: 'Responded', bg: 'bg-fq-blue-light', text: 'text-fq-blue' },
-    dismissed: { label: 'Dismissed', bg: 'bg-fq-light-accent', text: 'text-fq-muted' },
-  };
-  const c = cfg[status];
-  return (
-    <span className={`text-[11px] font-body font-medium px-2 py-0.5 rounded-full ${c.bg} ${c.text}`}>
-      {c.label}
-    </span>
-  );
-}
-
-/* ── Status icon for list ── */
-function StatusIcon({ status }: { status: EmailStatus }) {
-  if (status === 'draft_ready') {
+/* ── Status icon ── */
+function StatusIcon({ email }: { email: EmailRow }) {
+  if (email.needs_followup) {
     return (
-      <span className="text-fq-sage">
+      <span className="text-fq-amber">
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14.5 3.5l2 2L7 15l-3.5.5.5-3.5z" />
+          <path d="M10 3L2 17h16L10 3z" /><path d="M10 8v4M10 14h.01" />
         </svg>
       </span>
     );
   }
-  // flagged / default — warning triangle
+  if (!email.is_read) {
+    return (
+      <span className="text-fq-sage">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="14" height="12" rx="2" /><path d="M3 7l7 4 7-4" />
+        </svg>
+      </span>
+    );
+  }
   return (
-    <span className="text-fq-amber">
+    <span className="text-fq-muted/40">
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M10 3L2 17h16L10 3z" />
-        <path d="M10 8v4M10 14h.01" />
+        <rect x="3" y="4" width="14" height="12" rx="2" /><path d="M3 7l7 4 7-4" />
       </svg>
     </span>
   );
 }
 
-/* ── Format time ── */
-function formatTime(iso: string) {
+function formatTime(iso: string | null) {
+  if (!iso) return '';
   const d = new Date(iso);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  if (isToday) return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+  return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
 }
 
-function formatDateTime(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString('en-US', {
+function formatDateTime(iso: string | null) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('en-US', {
     month: 'numeric', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
@@ -188,41 +98,80 @@ function formatDateTime(iso: string) {
 
 /* ── Main page ── */
 export default function InboxPage() {
-  const [activeFilter, setActiveFilter] = useState<EmailStatus | 'all'>('all');
+  const [emails, setEmails] = useState<EmailRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notConnected, setNotConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editingDraft, setEditingDraft] = useState<string | null>(null);
-  const [draftTexts, setDraftTexts] = useState<Record<string, string>>({});
-  const [emailStatuses, setEmailStatuses] = useState<Record<string, EmailStatus>>({});
-  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const getStatus = (e: InboxEmail) => emailStatuses[e.id] ?? e.status;
+  const loadEmails = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/emails');
+      const data = await res.json();
+      if (data.error === 'NOT_CONNECTED') {
+        setNotConnected(true);
+        return;
+      }
+      if (!res.ok) throw new Error(data.error ?? 'Failed to load emails');
+      setEmails(data.emails ?? []);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const filtered = activeFilter === 'all'
-    ? emails
-    : emails.filter(e => getStatus(e) === activeFilter);
+  useEffect(() => { loadEmails(); }, [loadEmails]);
+
+  const patch = async (id: string, updates: Partial<Pick<EmailRow, 'is_read' | 'needs_followup' | 'project_id'>>) => {
+    setEmails(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    await fetch('/api/emails', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...updates }),
+    });
+  };
+
+  const filtered = emails.filter(e => {
+    if (activeFilter === 'unread') return !e.is_read;
+    if (activeFilter === 'followup') return e.needs_followup;
+    if (activeFilter === 'read') return e.is_read;
+    return true;
+  });
+
+  const countFor = (key: FilterKey) => {
+    if (key === 'all') return emails.length;
+    if (key === 'unread') return emails.filter(e => !e.is_read).length;
+    if (key === 'followup') return emails.filter(e => e.needs_followup).length;
+    if (key === 'read') return emails.filter(e => e.is_read).length;
+    return 0;
+  };
 
   const selected = selectedId ? emails.find(e => e.id === selectedId) ?? null : null;
-  const selectedStatus = selected ? getStatus(selected) : null;
-  const project = selected?.project_id
-    ? projects.find(p => p.id === selected.project_id) ?? null
-    : null;
 
-  const getDraftText = (e: InboxEmail) => draftTexts[e.id] ?? e.draft ?? '';
-
-  const handleDismiss = (id: string) => {
-    setEmailStatuses(prev => ({ ...prev, [id]: 'dismissed' }));
-    setSelectedId(null);
-  };
-
-  const handleMarkResponded = (id: string) => {
-    setEmailStatuses(prev => ({ ...prev, [id]: 'responded' }));
-  };
-
-  const handleCopyDraft = (e: InboxEmail) => {
-    navigator.clipboard.writeText(getDraftText(e));
-    setCopiedId(e.id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
+  /* ── Not connected state ── */
+  if (notConnected) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center max-w-sm">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-fq-muted/30 mb-4">
+            <rect x="6" y="10" width="36" height="28" rx="4" /><path d="M6 16l18 10 18-10" />
+          </svg>
+          <h2 className={`font-heading text-[20px] font-semibold ${t.heading} mb-2`}>Connect your Outlook</h2>
+          <p className={`font-body text-[13px] ${t.light} mb-6`}>Sign in with Microsoft to sync your Outlook inbox.</p>
+          <a
+            href="/api/auth/microsoft/login"
+            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-fq-accent text-white font-body text-[13px] font-medium hover:bg-fq-accent/90 transition-colors"
+          >
+            Connect Outlook
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen">
@@ -231,91 +180,94 @@ export default function InboxPage() {
         {/* Header */}
         <div className="px-8 pt-10 pb-2">
           <h1 className={`font-heading text-[32px] font-semibold ${t.heading}`}>Inbox</h1>
-          <p className={`font-body text-[14px] ${t.light} mt-0.5`}>Monitored emails requiring attention</p>
+          <p className={`font-body text-[14px] ${t.light} mt-0.5`}>Synced from Outlook</p>
         </div>
 
-        {/* Info banner */}
-        <div className="mx-8 mt-4 mb-5 px-4 py-3 rounded-lg border border-fq-border bg-fq-card">
-          <p className={`font-body text-[12px] ${t.body} flex items-center gap-2`}>
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-              <rect x="3" y="4" width="14" height="12" rx="2" />
-              <path d="M3 7l7 4 7-4" />
-            </svg>
-            Inbox monitoring polls your Outlook every 15 minutes. Connect your Outlook account in Settings to enable live monitoring.
-          </p>
-        </div>
+        {/* Error / loading banner */}
+        {error && (
+          <div className="mx-8 mt-4 px-4 py-3 rounded-lg border border-red-200 bg-red-50">
+            <p className="font-body text-[12px] text-red-600">{error}</p>
+          </div>
+        )}
 
         {/* Filter tabs */}
-        <div className="flex gap-1 px-8 mb-4">
+        <div className="flex gap-1 px-8 mt-5 mb-4">
           {FILTERS.map(f => {
-            const count = f.key === 'all'
-              ? emails.length
-              : emails.filter(e => getStatus(e) === f.key).length;
+            const count = countFor(f.key);
             const isActive = activeFilter === f.key;
             return (
               <button
                 key={f.key}
                 onClick={() => setActiveFilter(f.key)}
-                className={`
-                  font-body text-[13px] px-3 py-1.5 rounded-full transition-all duration-200
-                  ${isActive
+                className={`font-body text-[13px] px-3 py-1.5 rounded-full transition-all duration-200 ${
+                  isActive
                     ? 'bg-fq-dark text-white font-medium'
                     : 'text-fq-muted hover:text-fq-dark hover:bg-fq-light-accent'
-                  }
-                `}
+                }`}
               >
                 {f.label}
                 <span className={`ml-1.5 ${isActive ? 'text-white/70' : 'text-fq-muted/50'}`}>{count}</span>
               </button>
             );
           })}
+          <button
+            onClick={loadEmails}
+            className="ml-auto text-fq-muted/60 hover:text-fq-dark transition-colors p-1.5 rounded-lg hover:bg-fq-light-accent"
+            title="Refresh"
+          >
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 10a6 6 0 1 0 1.3-3.8"/><path d="M4 6v4h4"/>
+            </svg>
+          </button>
         </div>
 
         {/* Email list */}
         <div className="flex-1 overflow-y-auto px-5 pb-6">
-          {filtered.length === 0 && (
+          {loading && (
+            <p className={`font-body text-[13px] ${t.light} text-center mt-10`}>Syncing emails…</p>
+          )}
+          {!loading && filtered.length === 0 && (
             <p className={`font-body text-[13px] ${t.light} text-center mt-10`}>No emails in this category</p>
           )}
           {filtered.map(email => {
             const isSelected = selectedId === email.id;
-            const status = getStatus(email);
             return (
               <button
                 key={email.id}
-                onClick={() => setSelectedId(email.id)}
-                className={`
-                  w-full text-left px-5 py-4 rounded-xl mb-2 transition-all duration-200 border
-                  ${isSelected
+                onClick={() => {
+                  setSelectedId(email.id);
+                  if (!email.is_read) patch(email.id, { is_read: true });
+                }}
+                className={`w-full text-left px-5 py-4 rounded-xl mb-2 transition-all duration-200 border ${
+                  isSelected
                     ? 'bg-fq-light-accent border-fq-accent/30 shadow-sm'
                     : 'bg-fq-card border-fq-border hover:border-fq-accent/20 hover:shadow-sm'
-                  }
-                `}
+                }`}
               >
                 <div className="flex items-start gap-3">
-                  <div className="mt-0.5">
-                    <StatusIcon status={status} />
-                  </div>
+                  <div className="mt-0.5"><StatusIcon email={email} /></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className={`font-body text-[14px] font-semibold ${t.heading} truncate`}>
-                        {email.from_name}
+                        {email.from_name || email.from_email || 'Unknown'}
                       </span>
                       <span className={`font-body text-[12px] ${t.light} shrink-0`}>
-                        {formatTime(email.received)}
+                        {formatTime(email.received_at)}
                       </span>
                     </div>
                     <p className={`font-body text-[13px] ${t.heading} font-medium mt-0.5 truncate`}>
-                      {email.subject}
+                      {email.subject || '(no subject)'}
                     </p>
                     <p className={`font-body text-[12px] ${t.light} mt-0.5 truncate`}>
-                      {email.preview}
+                      {email.body_preview}
                     </p>
                     <div className="flex items-center gap-2 mt-2">
-                      <StatusBadge status={status} />
-                      <span className={`font-body text-[11px] ${t.light}`}>{email.project_label}</span>
+                      <StatusBadge email={email} />
+                      {email.projects && (
+                        <span className={`font-body text-[11px] ${t.light}`}>{email.projects.name}</span>
+                      )}
                     </div>
                   </div>
-                  {/* chevron */}
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`mt-3 shrink-0 ${t.icon}`}>
                     <path d="M5 3l4 4-4 4" />
                   </svg>
@@ -331,16 +283,13 @@ export default function InboxPage() {
         <div className="flex-1 flex flex-col overflow-hidden bg-fq-bg">
           {/* Panel header */}
           <div className="flex items-start justify-between px-8 pt-8 pb-4 border-b border-fq-border bg-fq-card">
-            <div>
-              <h2 className={`font-heading text-[22px] font-semibold ${t.heading}`}>Email Details</h2>
-            </div>
+            <h2 className={`font-heading text-[22px] font-semibold ${t.heading}`}>Email Details</h2>
             <button
               onClick={() => setSelectedId(null)}
               className={`p-1 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon}`}
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <circle cx="10" cy="10" r="7" />
-                <path d="M7.5 7.5l5 5M12.5 7.5l-5 5" />
+                <circle cx="10" cy="10" r="7" /><path d="M7.5 7.5l5 5M12.5 7.5l-5 5" />
               </svg>
             </button>
           </div>
@@ -349,163 +298,69 @@ export default function InboxPage() {
             {/* Subject + meta */}
             <div>
               <h3 className={`font-heading text-[20px] font-semibold ${t.heading} leading-tight`}>
-                {selected.subject}
+                {selected.subject || '(no subject)'}
               </h3>
               <div className={`font-body text-[13px] ${t.body} mt-2 space-y-0.5`}>
                 <p>From: <span className="font-medium text-fq-dark/80">{selected.from_name}</span> &lt;{selected.from_email}&gt;</p>
-                <p>Received: {formatDateTime(selected.received)}</p>
-                {selected.project_label && (
-                  <p>Project: <span className="font-medium text-fq-dark/80">{selected.project_label}</span></p>
+                <p>Received: {formatDateTime(selected.received_at)}</p>
+                {selected.projects && (
+                  <p>Project: <span className="font-medium text-fq-dark/80">{selected.projects.name}</span>
+                    {selected.match_confidence && (
+                      <span className={`ml-2 text-[11px] px-1.5 py-0.5 rounded-full ${
+                        selected.match_confidence === 'exact' ? 'bg-fq-sage-light text-fq-sage' :
+                        selected.match_confidence === 'high' ? 'bg-fq-blue-light text-fq-blue' :
+                        'bg-fq-light-accent text-fq-muted'
+                      }`}>{selected.match_confidence}</span>
+                    )}
+                  </p>
                 )}
               </div>
             </div>
 
-            {/* Alert */}
-            {selected.alert && (
-              <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-fq-amber-light/60 border border-fq-amber/20">
-                <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-amber shrink-0">
-                  <path d="M10 3L2 17h16L10 3z" />
-                  <path d="M10 8v4M10 14h.01" />
-                </svg>
-                <span className="font-body text-[13px] font-medium text-fq-amber">{selected.alert}</span>
-              </div>
-            )}
-
-            {/* Email body preview */}
+            {/* Email body */}
             <div>
-              <h4 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2`}>Email Preview</h4>
+              <h4 className={`font-heading text-[15px] font-semibold ${t.heading} mb-2`}>Message</h4>
               <div className="bg-fq-card border border-fq-border rounded-xl px-5 py-4">
                 <p className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-line`}>
-                  {selected.body}
+                  {selected.body || selected.body_preview || '(no content)'}
                 </p>
               </div>
             </div>
-
-            {/* AI Draft Response */}
-            {(getDraftText(selected)) && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className={`font-heading text-[15px] font-semibold ${t.heading} flex items-center gap-2`}>
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="3" y="4" width="14" height="12" rx="2" />
-                      <path d="M3 7l7 4 7-4" />
-                    </svg>
-                    AI Draft Response
-                  </h4>
-                  <span className="flex items-center gap-1 text-[12px] font-body text-fq-accent font-medium bg-fq-light-accent px-2.5 py-1 rounded-full">
-                    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10 2l2 4 4.5.7-3.3 3.1.8 4.5L10 12.2 5.9 14.3l.8-4.5L3.5 6.7 8 6z" />
-                    </svg>
-                    AI Assist
-                  </span>
-                </div>
-                <div className="bg-fq-amber-light/30 border border-fq-amber/15 rounded-xl px-5 py-4">
-                  {editingDraft === selected.id ? (
-                    <textarea
-                      value={getDraftText(selected)}
-                      onChange={e => setDraftTexts(prev => ({ ...prev, [selected.id]: e.target.value }))}
-                      className="w-full bg-transparent font-body text-[13px] text-fq-dark/85 leading-relaxed resize-none outline-none min-h-[180px]"
-                      autoFocus
-                    />
-                  ) : (
-                    <p className="font-body text-[13px] text-fq-dark/85 leading-relaxed whitespace-pre-line">
-                      {getDraftText(selected)}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Project context (if linked) */}
-            {project && (
-              <div className="bg-fq-card border border-fq-border rounded-xl px-5 py-4">
-                <h4 className={`font-heading text-[14px] font-semibold ${t.heading} mb-2`}>Project Context</h4>
-                <div className={`font-body text-[12px] ${t.body} space-y-1`}>
-                  <p className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: project.color }} />
-                    <span className="font-medium text-fq-dark/80">{project.name}</span>
-                    {project.venue_name && <span>· {project.venue_name}</span>}
-                  </p>
-                  {project.event_date && (
-                    <p>Event: {new Date(project.event_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
-                  )}
-                  <p>Tasks: {project.tasks_completed}/{project.tasks_total} complete</p>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Action bar */}
           <div className="px-8 py-4 border-t border-fq-border bg-fq-card flex items-center gap-3">
-            {getDraftText(selected) && selectedStatus !== 'responded' && selectedStatus !== 'dismissed' && (
-              <>
-                <button
-                  onClick={() => handleCopyDraft(selected)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-fq-accent text-white font-body text-[13px] font-medium hover:bg-fq-accent/90 transition-colors"
-                >
-                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="6" y="6" width="10" height="10" rx="1.5" />
-                    <path d="M6 14H5a1.5 1.5 0 01-1.5-1.5V5A1.5 1.5 0 015 3.5h7.5A1.5 1.5 0 0114 5v1" />
-                  </svg>
-                  {copiedId === selected.id ? 'Copied!' : 'Copy Draft'}
-                </button>
-                <button
-                  onClick={() => handleMarkResponded(selected.id)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[13px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors"
-                >
-                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 10l3 3 7-7" />
-                  </svg>
-                  Mark Responded
-                </button>
-                <button
-                  onClick={() => {
-                    if (editingDraft === selected.id) {
-                      setEditingDraft(null);
-                    } else {
-                      setEditingDraft(selected.id);
-                      if (!draftTexts[selected.id]) {
-                        setDraftTexts(prev => ({ ...prev, [selected.id]: selected.draft ?? '' }));
-                      }
-                    }
-                  }}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg border border-fq-border bg-fq-card font-body text-[13px] font-medium text-fq-dark/80 hover:bg-fq-light-accent transition-colors"
-                >
-                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14.5 3.5l2 2L7 15l-3.5.5.5-3.5z" />
-                  </svg>
-                  {editingDraft === selected.id ? 'Done Editing' : 'Edit Draft'}
-                </button>
-              </>
-            )}
-            <button className="flex items-center gap-2 px-5 py-2.5 rounded-lg border border-fq-border bg-fq-card font-body text-[13px] font-medium text-fq-dark/80 hover:bg-fq-light-accent transition-colors">
+            <button
+              onClick={() => patch(selected.id, { needs_followup: !selected.needs_followup })}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border font-body text-[13px] font-medium transition-colors ${
+                selected.needs_followup
+                  ? 'border-fq-amber/30 bg-fq-amber-light text-fq-amber'
+                  : 'border-fq-border bg-fq-card text-fq-dark/80 hover:bg-fq-light-accent'
+              }`}
+            >
               <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="10" cy="10" r="7" />
-                <path d="M10 7v6M7 10h6" />
+                <path d="M10 3L2 17h16L10 3z" /><path d="M10 8v4M10 14h.01" />
               </svg>
-              Create Task
+              {selected.needs_followup ? 'Remove Follow-up' : 'Flag Follow-up'}
             </button>
-            {selectedStatus !== 'dismissed' && (
+            {!selected.is_read && (
               <button
-                onClick={() => handleDismiss(selected.id)}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-lg border border-fq-border bg-fq-card font-body text-[13px] font-medium ${t.light} hover:bg-fq-light-accent transition-colors`}
+                onClick={() => patch(selected.id, { is_read: true })}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[13px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors"
               >
                 <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="10" cy="10" r="7" />
-                  <path d="M7.5 7.5l5 5M12.5 7.5l-5 5" />
+                  <path d="M5 10l3 3 7-7" />
                 </svg>
-                Dismiss
+                Mark Read
               </button>
             )}
           </div>
         </div>
       ) : (
-        /* Empty state */
         <div className="flex-1 flex items-center justify-center bg-fq-bg">
           <div className="text-center">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="mx-auto text-fq-muted/30 mb-4">
-              <rect x="6" y="10" width="36" height="28" rx="4" />
-              <path d="M6 16l18 10 18-10" />
+              <rect x="6" y="10" width="36" height="28" rx="4" /><path d="M6 16l18 10 18-10" />
             </svg>
             <p className={`font-body text-[14px] ${t.light}`}>Select an email to view details</p>
           </div>
