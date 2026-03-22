@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
+import { getISOWeek } from '@/lib/week';
 
 interface Props {
   email: Email;
@@ -48,6 +49,15 @@ function fmtFull(iso: string | null): string {
     weekday: 'short', month: 'short', day: 'numeric',
     year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
   });
+}
+
+function getFridayISO(): string {
+  const today = new Date();
+  const day = today.getDay(); // 0=Sun … 5=Fri … 6=Sat
+  const daysUntilFriday = (5 - day + 7) % 7; // 0 when already Friday
+  const friday = new Date(today);
+  friday.setDate(today.getDate() + daysUntilFriday);
+  return friday.toISOString().split('T')[0];
 }
 
 /* ─── Email body processing helpers ─────────────────────────────────────── */
@@ -324,17 +334,22 @@ function TriagePanel({
 function ReplyPanel({
   email,
   onClose,
+  initialText = '',
 }: {
   email: Email;
   onClose: () => void;
+  initialText?: string;
 }) {
-  const [text, setText]       = useState('');
+  const [text, setText]       = useState(initialText);
   const [sending, setSending] = useState(false);
   const [sent, setSent]       = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { textareaRef.current?.focus(); }, []);
+
+  // Pick up AI draft arriving asynchronously (from Add to Sprint)
+  useEffect(() => { if (initialText) setText(initialText); }, [initialText]);
 
   const handleSend = async () => {
     if (!text.trim()) return;
@@ -438,11 +453,13 @@ function CreateTaskPanel({
   projects: Project[];
   onClose: () => void;
 }) {
-  const [taskText, setTaskText]       = useState(`Follow up: ${email.subject ?? 'email'}`);
-  const [projectId, setProjectId]     = useState(email.project_id ?? '');
-  const [dueDate, setDueDate]         = useState('');
-  const [saving, setSaving]           = useState(false);
-  const [saved, setSaved]             = useState(false);
+  const [taskText, setTaskText]   = useState(email.subject ?? '');
+  const [projectId, setProjectId] = useState(email.project_id ?? '');
+  const [dueDate, setDueDate]     = useState('');
+  const [priority, setPriority]   = useState<'low' | 'medium' | 'high'>('medium');
+  const [category, setCategory]   = useState('Communication');
+  const [saving, setSaving]       = useState(false);
+  const [saved, setSaved]         = useState(false);
 
   const handleSave = async () => {
     if (!taskText.trim() || !projectId) return;
@@ -456,8 +473,8 @@ function CreateTaskPanel({
           text: taskText,
           completed: false,
           due_date: dueDate || null,
-          category: 'Communication',
-          priority: 'medium',
+          category,
+          priority,
           sort_order: 0,
         }),
       });
@@ -471,25 +488,21 @@ function CreateTaskPanel({
     return (
       <div className="px-4 py-3 rounded-xl bg-fq-sage-light border border-fq-sage/20 flex items-center justify-between">
         <p className="font-body text-[12.5px] text-fq-sage">✓ Task created.</p>
-        <button onClick={onClose} className={`font-body text-[11px] ${tk.light} hover:text-fq-dark`}>
-          Close
-        </button>
+        <button onClick={onClose} className={`font-body text-[11px] ${tk.light} hover:text-fq-dark`}>Close</button>
       </div>
     );
   }
 
   return (
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
-      <div className={`px-4 py-2.5 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between`}>
+      <div className="px-4 py-2.5 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
         <span className={`font-body text-[12px] font-medium ${tk.heading}`}>Create task from email</span>
-        <button onClick={onClose} className={`font-body text-[11px] ${tk.light} hover:text-fq-dark`}>
-          Cancel
-        </button>
+        <button onClick={onClose} className={`font-body text-[11px] ${tk.light} hover:text-fq-dark`}>Cancel</button>
       </div>
 
       <div className="px-4 py-3.5 space-y-3">
         <div>
-          <label className={`font-body text-[11px] ${tk.light} block mb-1`}>Task</label>
+          <label className={`font-body text-[11px] ${tk.light} block mb-1`}>Task name</label>
           <input
             value={taskText}
             onChange={(e) => setTaskText(e.target.value)}
@@ -511,7 +524,6 @@ function CreateTaskPanel({
               ))}
             </select>
           </div>
-
           <div>
             <label className={`font-body text-[11px] ${tk.light} block mb-1`}>Due date</label>
             <input
@@ -522,6 +534,41 @@ function CreateTaskPanel({
             />
           </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={`font-body text-[11px] ${tk.light} block mb-1`}>Priority</label>
+            <div className="flex gap-1.5">
+              {(['low', 'medium', 'high'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPriority(p)}
+                  className={`flex-1 px-2 py-1.5 rounded-lg border font-body text-[11px] font-medium capitalize transition-colors ${
+                    priority === p
+                      ? p === 'high'   ? 'border-red-300 bg-red-50 text-red-600'
+                      : p === 'medium' ? 'border-fq-amber/35 bg-fq-amber-light text-fq-amber'
+                      :                  'border-fq-sage/30 bg-fq-sage-light text-fq-sage'
+                      : `border-fq-border ${tk.light} hover:bg-fq-light-accent`
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={`font-body text-[11px] ${tk.light} block mb-1`}>Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className={`w-full font-body text-[12px] ${tk.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-fq-accent/30`}
+            >
+              {['Communication', 'Planning', 'Vendor', 'Client', 'Administrative', 'Creative'].map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
       </div>
 
       <div className="px-4 py-2.5 border-t border-fq-border">
@@ -530,12 +577,124 @@ function CreateTaskPanel({
           disabled={saving || !taskText.trim() || !projectId}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fq-dark text-white font-body text-[12.5px] font-medium hover:bg-fq-dark/85 transition-colors disabled:opacity-40"
         >
-          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M7 10l2 2 4-4" />
-          </svg>
+          <CheckSquare size={12} />
           {saving ? 'Saving…' : 'Create Task'}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ── Add to existing task panel ── */
+function AddToTaskPanel({
+  email,
+  onClose,
+}: {
+  email: Email;
+  onClose: () => void;
+}) {
+  const [tasks, setTasks]       = useState<Array<{ id: string; text: string }>>([]);
+  const [loading, setLoading]   = useState(true);
+  const [selectedId, setSelectedId] = useState('');
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+
+  useEffect(() => {
+    if (!email.project_id) { setLoading(false); return; }
+    fetch(`/api/tasks?project_id=${email.project_id}`)
+      .then((r) => r.json())
+      .then((data: Array<{ id: string; text: string; completed: boolean }>) => {
+        setTasks((data ?? []).filter((t) => !t.completed));
+      })
+      .finally(() => setLoading(false));
+  }, [email.project_id]);
+
+  const handleSave = async () => {
+    if (!selectedId) return;
+    setSaving(true);
+    try {
+      await fetch('/api/subtasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: selectedId,
+          text: `Email: ${email.subject ?? '(no subject)'}`,
+          completed: false,
+          sort_order: 0,
+        }),
+      });
+      setSaved(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (saved) {
+    return (
+      <div className="px-4 py-3 rounded-xl bg-fq-sage-light border border-fq-sage/20 flex items-center justify-between">
+        <p className="font-body text-[12.5px] text-fq-sage">✓ Added to task.</p>
+        <button onClick={onClose} className={`font-body text-[11px] ${tk.light} hover:text-fq-dark`}>Close</button>
+      </div>
+    );
+  }
+
+  if (!email.project_id) {
+    return (
+      <div className="border border-fq-border rounded-xl px-5 py-4 bg-fq-card">
+        <p className={`font-body text-[12.5px] ${tk.light}`}>
+          Assign this email to a project first to add it to an existing task.
+        </p>
+        <button onClick={onClose} className={`mt-2 font-body text-[11px] ${tk.light} hover:text-fq-dark`}>Close</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
+      <div className="px-4 py-2.5 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
+        <span className={`font-body text-[12px] font-medium ${tk.heading}`}>Add email to existing task</span>
+        <button onClick={onClose} className={`font-body text-[11px] ${tk.light} hover:text-fq-dark`}>Cancel</button>
+      </div>
+
+      <div className="px-4 py-3.5">
+        {loading ? (
+          <p className={`font-body text-[12px] ${tk.light}`}>Loading tasks…</p>
+        ) : tasks.length === 0 ? (
+          <p className={`font-body text-[12px] ${tk.light}`}>No open tasks found for this project.</p>
+        ) : (
+          <div className="space-y-2">
+            <div>
+              <label className={`font-body text-[11px] ${tk.light} block mb-1`}>Select task</label>
+              <select
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className={`w-full font-body text-[12.5px] ${tk.body} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-fq-accent/30`}
+              >
+                <option value="">Choose a task…</option>
+                {tasks.map((t) => (
+                  <option key={t.id} value={t.id}>{t.text}</option>
+                ))}
+              </select>
+            </div>
+            <p className={`font-body text-[11px] ${tk.light}`}>
+              Will add subtask: &ldquo;Email: {email.subject ?? '(no subject)'}&rdquo;
+            </p>
+          </div>
+        )}
+      </div>
+
+      {!loading && tasks.length > 0 && (
+        <div className="px-4 py-2.5 border-t border-fq-border">
+          <button
+            onClick={handleSave}
+            disabled={saving || !selectedId}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fq-dark text-white font-body text-[12.5px] font-medium hover:bg-fq-dark/85 transition-colors disabled:opacity-40"
+          >
+            <ListPlus size={12} />
+            {saving ? 'Adding…' : 'Add to Task'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -546,17 +705,66 @@ function CreateTaskPanel({
 export default function EmailDetail({ email, projects, onClose, onPatch, onTriageSave }: Props) {
   const [replyOpen, setReplyOpen]         = useState(false);
   const [taskOpen, setTaskOpen]           = useState(false);
+  const [addToTaskOpen, setAddToTaskOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting]           = useState(false);
   const [badgeOpen, setBadgeOpen]         = useState(false);
-  const badgeRef = useRef<HTMLDivElement>(null);
+  const [sprintAdding, setSprintAdding]   = useState(false);
+  const [draftText, setDraftText]         = useState('');
+  const [toast, setToast]                 = useState<string | null>(null);
+  const badgeRef    = useRef<HTMLDivElement>(null);
+  const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(msg);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  };
+
+  const openPanel = (panel: 'task' | 'addToTask' | 'reply' | 'none') => {
+    setTaskOpen(panel === 'task');
+    setAddToTaskOpen(panel === 'addToTask');
+    setReplyOpen(panel === 'reply');
+  };
+
+  const handleAddToSprint = async () => {
+    setSprintAdding(true);
+    try {
+      await fetch('/api/sprint-tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Follow up: ${email.subject ?? 'email'}`,
+          bucket: email.projects?.name ?? 'Fox & Quinn — Operations',
+          tag: 'action',
+          sprint_week: getISOWeek(),
+          done: false,
+          sort_order: 0,
+        }),
+      });
+      openPanel('reply');
+      const draftRes = await fetch('/api/emails/draft-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_id: email.id }),
+      });
+      const draftData = await draftRes.json();
+      if (draftData.draft) setDraftText(draftData.draft);
+      showToast('Added to Sprint + Draft Ready');
+    } finally {
+      setSprintAdding(false);
+    }
+  };
 
   // Reset panels when email changes
   useEffect(() => {
     setReplyOpen(false);
     setTaskOpen(false);
+    setAddToTaskOpen(false);
     setDeleteConfirm(false);
     setBadgeOpen(false);
+    setDraftText('');
+    setToast(null);
   }, [email.id]);
 
   // Close badge dropdown on outside click
@@ -759,12 +967,17 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
 
         {/* Reply compose */}
         {replyOpen && (
-          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} />
+          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} />
         )}
 
         {/* Create task form */}
         {taskOpen && (
           <CreateTaskPanel email={email} projects={projects} onClose={() => setTaskOpen(false)} />
+        )}
+
+        {/* Add to existing task */}
+        {addToTaskOpen && (
+          <AddToTaskPanel email={email} onClose={() => setAddToTaskOpen(false)} />
         )}
 
         {/* Delete confirmation */}
@@ -801,15 +1014,22 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
         <div className="h-2" /> {/* Bottom padding */}
       </div>
 
+      {/* ── Toast ── */}
+      {toast && (
+        <div className="px-7 py-2 bg-fq-sage-light border-t border-fq-sage/20 shrink-0">
+          <p className="font-body text-[12.5px] text-fq-sage">{toast}</p>
+        </div>
+      )}
+
       {/* ── Action bar ── */}
-      <div className="px-7 py-3.5 border-t border-fq-border bg-fq-card flex items-center gap-2 flex-wrap shrink-0">
+      <div className="px-7 py-3 border-t border-fq-border bg-fq-card flex items-center gap-1.5 flex-wrap shrink-0">
         {/* Reply */}
         {!replyOpen && (
           <button
-            onClick={() => { setReplyOpen(true); setTaskOpen(false); }}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border border-fq-border font-body text-[12.5px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
+            onClick={() => openPanel('reply')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
           >
-            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 7L4 12l5 5" /><path d="M4 12h8a4 4 0 0 1 4 4v1" />
             </svg>
             Reply
@@ -819,13 +1039,13 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
         {/* Flag follow-up */}
         <button
           onClick={() => onPatch(email.id, { needs_followup: !email.needs_followup })}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border font-body text-[12.5px] font-medium transition-colors ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-body text-[12px] font-medium transition-colors ${
             email.needs_followup
               ? 'border-fq-amber/35 bg-fq-amber-light text-fq-amber'
               : `border-fq-border ${tk.body} hover:bg-fq-light-accent`
           }`}
         >
-          <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 3L2 17h16L10 3z" /><path d="M10 8v4M10 14h.01" />
           </svg>
           {email.needs_followup ? 'Flagged' : 'Flag'}
@@ -835,34 +1055,58 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
         {!email.is_read && (
           <button
             onClick={() => onPatch(email.id, { is_read: true })}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[12.5px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[12px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors"
           >
-            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M5 10l3 3 7-7" />
             </svg>
             Mark Read
           </button>
         )}
 
-        {/* Create task */}
+        {/* Divider */}
+        <div className="w-px h-5 bg-fq-border mx-0.5 shrink-0" />
+
+        {/* Create Task */}
         <button
-          onClick={() => { setTaskOpen((v) => !v); setReplyOpen(false); }}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border font-body text-[12.5px] font-medium transition-colors ${
+          onClick={() => openPanel(taskOpen ? 'none' : 'task')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-body text-[12px] font-medium transition-colors ${
             taskOpen
               ? 'border-fq-accent/30 bg-fq-light-accent text-fq-dark/80'
               : `border-fq-border ${tk.body} hover:bg-fq-light-accent`
           }`}
         >
-          <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M7 10l2 2 4-4" />
-          </svg>
+          <CheckSquare size={12} />
           Create Task
+        </button>
+
+        {/* Add to Task */}
+        <button
+          onClick={() => openPanel(addToTaskOpen ? 'none' : 'addToTask')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-body text-[12px] font-medium transition-colors ${
+            addToTaskOpen
+              ? 'border-fq-accent/30 bg-fq-light-accent text-fq-dark/80'
+              : `border-fq-border ${tk.body} hover:bg-fq-light-accent`
+          }`}
+        >
+          <ListPlus size={12} />
+          Add to Task
+        </button>
+
+        {/* Add to Sprint */}
+        <button
+          onClick={handleAddToSprint}
+          disabled={sprintAdding}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-body text-[12px] font-medium transition-colors border-fq-border ${tk.body} hover:bg-fq-light-accent disabled:opacity-50`}
+        >
+          <Calendar size={12} />
+          {sprintAdding ? 'Adding…' : 'Add to Sprint'}
         </button>
 
         {/* Delete — pushed to right */}
         <button
           onClick={() => setDeleteConfirm((v) => !v)}
-          className={`ml-auto flex items-center gap-1.5 px-3 py-2 rounded-lg border font-body text-[12px] transition-colors ${
+          className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-body text-[12px] transition-colors ${
             deleteConfirm
               ? 'border-red-200 bg-red-50 text-red-600'
               : `border-fq-border ${tk.light} hover:border-red-200 hover:text-red-500 hover:bg-red-50`
