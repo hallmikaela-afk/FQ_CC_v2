@@ -3,9 +3,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Mail } from 'lucide-react';
 import { useFullProjects } from '@/lib/hooks';
 import ProjectFileUpload from '@/components/ProjectFileUpload';
 import UploadModal from '@/components/UploadModal';
+import ComposePanel from '@/components/inbox/ComposePanel';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
 import type { Project, Vendor, CallNote, Task, SubTask, TeamMember } from '@/data/seed';
 
@@ -2016,6 +2018,7 @@ export default function ProjectDetailPage() {
   const { projects, getTeamMember: teamLookup, loading } = useFullProjects();
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [filesKey, setFilesKey] = useState(0);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   // Update the module-level lookup so sub-components can use it
   getTeamMember = teamLookup;
@@ -2049,7 +2052,14 @@ export default function ProjectDetailPage() {
         <select value={projectId} onChange={(e) => router.push(`/projects/${e.target.value}`)} className="font-body text-[14px] text-fq-dark bg-fq-bg border border-fq-border rounded-lg px-3 py-1.5 outline-none cursor-pointer">
           {activeProjects.map(p => (<option key={p.id} value={p.id}>{p.name}</option>))}
         </select>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setComposeOpen(true)}
+            className="flex items-center gap-1.5 font-body text-[13px] font-medium border border-fq-border bg-fq-card text-fq-dark/80 px-4 py-2 rounded-lg hover:bg-fq-light-accent transition-colors"
+          >
+            <Mail size={13} className="text-fq-accent" />
+            Send Email
+          </button>
           <button
             onClick={() => setShowUploadModal(true)}
             className="flex items-center gap-2 font-body text-[13px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors"
@@ -2086,6 +2096,15 @@ export default function ProjectDetailPage() {
           defaultProjectId={project.id}
           defaultProjectName={project.name}
           onUploaded={() => setFilesKey(k => k + 1)}
+        />
+      )}
+
+      {composeOpen && (
+        <ComposePanel
+          projects={activeProjects.map(p => ({ id: p.id, name: p.name, status: p.status, type: p.type, color: p.color ?? null }))}
+          initialProjectId={project.id}
+          initialTo={(project as unknown as Record<string, unknown>).client1_email as string | undefined}
+          onClose={() => setComposeOpen(false)}
         />
       )}
     </div>

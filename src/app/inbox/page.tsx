@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { Search, X, Mail } from 'lucide-react';
 import FolderSidebar, { type Folder } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
 import EmailDetail from '@/components/inbox/EmailDetail';
+import ComposePanel from '@/components/inbox/ComposePanel';
 
 /* ── Filter types ── */
 type TabFilter = 'active' | 'needs_response' | 'draft_ready' | 'followup' | 'resolved';
@@ -127,6 +129,16 @@ export default function InboxPage() {
   const [projectFilter,  setProjectFilter]  = useState('');
   const [selectedId,     setSelectedId]     = useState<string | null>(null);
 
+  /* ── Search state ── */
+  const [searchQuery,        setSearchQuery]        = useState('');
+  const [searchResults,      setSearchResults]      = useState<Email[] | null>(null);
+  const [searchLoading,      setSearchLoading]      = useState(false);
+  const [searchedGraph,      setSearchedGraph]      = useState(false);
+  const searchDebounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ── Compose state ── */
+  const [composeOpen, setComposeOpen] = useState(false);
+
   /* ── Undo toast ── */
   const [undoToast, setUndoToast] = useState<{ message: string; undo: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -228,6 +240,34 @@ export default function InboxPage() {
     if (!loading) loadEmails(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolder]);
+
+  /* ── Debounced search ── */
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!searchQuery.trim()) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      setSearchedGraph(false);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchedGraph(false);
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const res  = await fetch(`/api/emails/search?q=${encodeURIComponent(searchQuery)}`);
+        const data = await res.json();
+        setSearchResults(data.emails ?? []);
+        setSearchedGraph(data.searchedGraph ?? false);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchQuery]);
 
   /* ── Derived email list ── */
   // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net
@@ -432,27 +472,37 @@ export default function InboxPage() {
       {/* ── Email list panel ── */}
       <div
         className={`flex flex-col border-r border-fq-border bg-fq-bg transition-all ${
-          selected ? 'w-[400px] min-w-[400px]' : 'flex-1'
+          selected ? 'w-[400px] min-w-[400px]' : 'w-full max-w-[620px]'
         }`}
       >
         {/* Header */}
         <div className="px-6 pt-8 pb-2 bg-fq-bg">
           <div className="flex items-center justify-between mb-0.5">
             <h1 className={`font-heading text-[28px] font-semibold ${tk.heading}`}>Inbox</h1>
-            <button
-              onClick={() => loadEmails(false)}
-              disabled={syncing || loading}
-              title="Refresh"
-              className={`p-2 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} disabled:opacity-40`}
-            >
-              <svg
-                width="14" height="14" viewBox="0 0 20 20" fill="none"
-                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-                className={syncing ? 'animate-spin' : ''}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => loadEmails(false)}
+                disabled={syncing || loading}
+                title="Refresh"
+                className={`p-2 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} disabled:opacity-40`}
               >
-                <path d="M4 10a6 6 0 1 0 1.3-3.8" /><path d="M4 6v4h4" />
-              </svg>
-            </button>
+                <svg
+                  width="14" height="14" viewBox="0 0 20 20" fill="none"
+                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                  className={syncing ? 'animate-spin' : ''}
+                >
+                  <path d="M4 10a6 6 0 1 0 1.3-3.8" /><path d="M4 6v4h4" />
+                </svg>
+              </button>
+              {/* Compose button */}
+              <button
+                onClick={() => setComposeOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fq-accent text-white font-body text-[12px] font-medium hover:bg-fq-accent/90 transition-colors shadow-sm"
+              >
+                <Mail size={12} />
+                New Email
+              </button>
+            </div>
           </div>
           {/* Sync timestamp — re-renders each minute via nowTick */}
           <p className={`font-body text-[11.5px] ${tk.light}`} suppressHydrationWarning>
@@ -462,6 +512,43 @@ export default function InboxPage() {
           </p>
         </div>
 
+        {/* Search bar */}
+        <div className="px-5 pt-3 pb-1">
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${searchQuery ? 'border-fq-accent/30 bg-fq-card' : 'border-fq-border bg-fq-card'} transition-colors`}>
+            <Search size={13} className={`shrink-0 ${searchQuery ? 'text-fq-accent' : tk.icon}`} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                // Clear folder + filter when searching
+                if (e.target.value) {
+                  setSelectedFolder(null);
+                  setSelectedId(null);
+                }
+              }}
+              placeholder="Search emails…"
+              className={`flex-1 font-body text-[12.5px] ${tk.body} bg-transparent border-none outline-none placeholder:text-fq-muted/45`}
+            />
+            {searchLoading && (
+              <div className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin shrink-0" />
+            )}
+            {searchQuery && !searchLoading && (
+              <button
+                onClick={() => { setSearchQuery(''); setSearchResults(null); }}
+                className={`shrink-0 p-0.5 rounded hover:bg-fq-light-accent transition-colors ${tk.icon}`}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          {searchedGraph && (
+            <p className={`font-body text-[11px] ${tk.light} mt-1 px-1`}>
+              Searching all email…
+            </p>
+          )}
+        </div>
+
         {/* Error banner */}
         {error && (
           <div className="mx-5 mt-3 px-4 py-2.5 rounded-lg border border-red-200 bg-red-50">
@@ -469,85 +556,124 @@ export default function InboxPage() {
           </div>
         )}
 
-        {/* Tab filter bar */}
-        <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
-          {TAB_FILTERS.map((f) => {
-            const count  = countFor(f.key);
-            const active = tabFilter === f.key;
-            return (
-              <button
-                key={f.key}
-                onClick={() => setTabFilter(f.key)}
-                className={`font-body text-[12px] px-3 py-1.5 rounded-full transition-all ${
-                  active
-                    ? 'bg-fq-dark text-white font-medium'
-                    : `${tk.light} hover:text-fq-dark hover:bg-fq-light-accent`
-                }`}
-              >
-                {f.label}
-                {count > 0 && (
-                  <span className={`ml-1.5 ${active ? 'text-white/65' : 'text-fq-muted/45'}`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Tab filter bar — hidden when searching */}
+        {!searchQuery && (
+          <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
+            {TAB_FILTERS.map((f) => {
+              const count  = countFor(f.key);
+              const active = tabFilter === f.key;
+              return (
+                <button
+                  key={f.key}
+                  onClick={() => setTabFilter(f.key)}
+                  className={`font-body text-[12px] px-3 py-1.5 rounded-full transition-all ${
+                    active
+                      ? 'bg-fq-dark text-white font-medium'
+                      : `${tk.light} hover:text-fq-dark hover:bg-fq-light-accent`
+                  }`}
+                >
+                  {f.label}
+                  {count > 0 && (
+                    <span className={`ml-1.5 ${active ? 'text-white/65' : 'text-fq-muted/45'}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-        {/* Project filter dropdown */}
-        <div className="px-5 pb-3">
-          <select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            className={`w-full font-body text-[12px] ${tk.body} bg-fq-card border border-fq-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-fq-accent/30`}
-          >
-            <option value="">All Projects</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
+        {/* Project filter dropdown — hidden when searching */}
+        {!searchQuery && (
+          <div className="px-5 pb-3">
+            <select
+              value={projectFilter}
+              onChange={(e) => setProjectFilter(e.target.value)}
+              className={`w-full font-body text-[12px] ${tk.body} bg-fq-card border border-fq-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-fq-accent/30`}
+            >
+              <option value="">All Projects</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Email list */}
         <div className="flex-1 overflow-y-auto px-4 pb-6">
-          {loading && (
-            <div className="flex flex-col items-center justify-center mt-16 gap-3">
-              <div className="w-6 h-6 border-2 border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
-              <p className={`font-body text-[13px] ${tk.light}`}>Syncing from Outlook…</p>
-            </div>
+
+          {/* ── Search results mode ── */}
+          {searchQuery && (
+            <>
+              {searchLoading && (
+                <div className="flex flex-col items-center justify-center mt-16 gap-3">
+                  <div className="w-5 h-5 border-2 border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                  <p className={`font-body text-[12.5px] ${tk.light}`}>Searching…</p>
+                </div>
+              )}
+              {!searchLoading && searchResults !== null && searchResults.length === 0 && (
+                <div className="text-center mt-12">
+                  <p className={`font-body text-[13px] ${tk.light}`}>No results for &ldquo;{searchQuery}&rdquo;</p>
+                </div>
+              )}
+              {!searchLoading && searchResults?.map((email) => (
+                <EmailCard
+                  key={email.id}
+                  email={email}
+                  isSelected={selectedId === email.id}
+                  onSelect={() => handleSelectEmail(email)}
+                  onConfirmSuggested={handleConfirmSuggested}
+                  onDismissSuggested={handleDismissSuggested}
+                  onToggleFollowup={handleToggleFollowup}
+                  onResolve={handleResolve}
+                />
+              ))}
+            </>
           )}
 
-          {!loading && filteredEmails.length === 0 && (
-            <div className="text-center mt-12">
-              <p className={`font-body text-[13px] ${tk.light}`}>
-                {tabFilter === 'active'
-                  ? 'No active project emails.'
-                  : tabFilter === 'needs_response'
-                  ? 'No emails need a response right now.'
-                  : tabFilter === 'draft_ready'
-                  ? 'No drafts are ready to send.'
-                  : tabFilter === 'followup'
-                  ? 'No emails need follow-up right now.'
-                  : tabFilter === 'resolved'
-                  ? 'No resolved emails yet.'
-                  : 'No emails in this view.'}
-              </p>
-            </div>
-          )}
+          {/* ── Normal list mode ── */}
+          {!searchQuery && (
+            <>
+              {loading && (
+                <div className="flex flex-col items-center justify-center mt-16 gap-3">
+                  <div className="w-6 h-6 border-2 border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                  <p className={`font-body text-[13px] ${tk.light}`}>Syncing from Outlook…</p>
+                </div>
+              )}
 
-          {!loading && filteredEmails.map((email) => (
-            <EmailCard
-              key={email.id}
-              email={email}
-              isSelected={selectedId === email.id}
-              onSelect={() => handleSelectEmail(email)}
-              onConfirmSuggested={handleConfirmSuggested}
-              onDismissSuggested={handleDismissSuggested}
-              onToggleFollowup={handleToggleFollowup}
-              onResolve={handleResolve}
-            />
-          ))}
+              {!loading && filteredEmails.length === 0 && (
+                <div className="text-center mt-12">
+                  <p className={`font-body text-[13px] ${tk.light}`}>
+                    {tabFilter === 'active'
+                      ? 'No active project emails.'
+                      : tabFilter === 'needs_response'
+                      ? 'No emails need a response right now.'
+                      : tabFilter === 'draft_ready'
+                      ? 'No drafts are ready to send.'
+                      : tabFilter === 'followup'
+                      ? 'No emails need follow-up right now.'
+                      : tabFilter === 'resolved'
+                      ? 'No resolved emails yet.'
+                      : 'No emails in this view.'}
+                  </p>
+                </div>
+              )}
+
+              {!loading && filteredEmails.map((email) => (
+                <EmailCard
+                  key={email.id}
+                  email={email}
+                  isSelected={selectedId === email.id}
+                  onSelect={() => handleSelectEmail(email)}
+                  onConfirmSuggested={handleConfirmSuggested}
+                  onDismissSuggested={handleDismissSuggested}
+                  onToggleFollowup={handleToggleFollowup}
+                  onResolve={handleResolve}
+                />
+              ))}
+            </>
+          )}
         </div>
       </div>
 
@@ -589,6 +715,15 @@ export default function InboxPage() {
             <p className={`font-body text-[13.5px] ${tk.light}`}>Select an email to read</p>
           </div>
         </div>
+      )}
+
+      {/* ── Compose panel ── */}
+      {composeOpen && (
+        <ComposePanel
+          projects={projects}
+          onClose={() => setComposeOpen(false)}
+          onSent={() => loadEmails(false)}
+        />
       )}
     </div>
   );

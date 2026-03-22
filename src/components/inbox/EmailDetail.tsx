@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import type { Email, Project } from './EmailCard';
 
 interface Props {
@@ -48,12 +49,80 @@ function fmtFull(iso: string | null): string {
   });
 }
 
+/* ─── Email body processing helpers ─────────────────────────────────────── */
+
+/**
+ * Strips tracking pixels (1×1 or 0×0 images) and optionally blocks all
+ * external images. Also ensures every link opens in a new tab safely.
+ * Returns the processed HTML and whether any blockable images were found.
+ */
+function processEmailHtml(
+  rawHtml: string,
+  showImages: boolean,
+): { html: string; hasExternalImages: boolean } {
+  if (typeof window === 'undefined') return { html: rawHtml, hasExternalImages: false };
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(rawHtml, 'text/html');
+
+  let hasExternalImages = false;
+
+  doc.querySelectorAll<HTMLImageElement>('img').forEach((img) => {
+    // Strip tracking pixels (dimensions ≤ 1)
+    const w = parseInt(img.getAttribute('width') ?? img.style.width ?? '999', 10);
+    const h = parseInt(img.getAttribute('height') ?? img.style.height ?? '999', 10);
+    if (!isNaN(w) && !isNaN(h) && w <= 1 && h <= 1) {
+      img.remove();
+      return;
+    }
+
+    // Handle external images
+    const src = img.getAttribute('src') ?? '';
+    if (src.startsWith('http') || src.startsWith('//') || src.startsWith('cid:')) {
+      hasExternalImages = true;
+      if (!showImages) {
+        img.setAttribute('data-src', src);
+        img.removeAttribute('src');
+        img.style.cssText += ';display:none!important';
+      }
+    }
+  });
+
+  // Open all links in new tab safely
+  doc.querySelectorAll('a').forEach((a) => {
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
+
+  const sanitized = DOMPurify.sanitize(doc.body.innerHTML, {
+    ADD_ATTR: ['target', 'rel', 'data-src', 'style'],
+    ALLOW_DATA_ATTR: true,
+    FORCE_BODY: true,
+  });
+
+  return { html: sanitized, hasExternalImages };
+}
+
 /* ── HTML body: renders safely in a sandboxed iframe ── */
 function EmailBody({ html, plaintext }: { html: string | null; plaintext: string | null }) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeRef  = useRef<HTMLIFrameElement>(null);
   const [iframeHeight, setIframeHeight] = useState(320);
+  const [showImages, setShowImages]     = useState(false);
 
-  const content = html || (plaintext ? `<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0;">${plaintext}</pre>` : '<p style="color:#9B8E82">(no content)</p>');
+  // Process HTML (memoised so it only re-runs when html/showImages change)
+  const { html: processedHtml, hasExternalImages } = useMemo(() => {
+    if (!html) return { html: null, hasExternalImages: false };
+    return processEmailHtml(html, showImages);
+  }, [html, showImages]);
+
+  // Build the plain-text fallback
+  const plainContent = plaintext
+    ? `<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;margin:0;line-height:1.7">${
+        plaintext.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      }</pre>`
+    : '<p style="color:#9B8E82">(no content)</p>';
+
+  const bodyContent = processedHtml ?? plainContent;
 
   const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     *{box-sizing:border-box}
@@ -63,7 +132,7 @@ function EmailBody({ html, plaintext }: { html: string | null; plaintext: string
     blockquote{border-left:3px solid #E8E0D8;margin:12px 0;padding:0 12px;color:#9B8E82}
     p{margin:0 0 8px}
     table{border-collapse:collapse;max-width:100%}
-  </style></head><body>${content}</body></html>`;
+  </style></head><body>${bodyContent}</body></html>`;
 
   const handleLoad = () => {
     try {
@@ -76,15 +145,32 @@ function EmailBody({ html, plaintext }: { html: string | null; plaintext: string
   };
 
   return (
-    <iframe
-      ref={iframeRef}
-      srcDoc={srcDoc}
-      sandbox="allow-same-origin"
-      onLoad={handleLoad}
-      className="w-full rounded-xl border border-fq-border bg-fq-card"
-      style={{ height: iframeHeight, border: 'none' }}
-      title="Email body"
-    />
+    <div className="space-y-2">
+      {/* Load images banner */}
+      {hasExternalImages && !showImages && (
+        <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-fq-light-accent border border-fq-border">
+          <span className={`font-body text-[12px] ${tk.light}`}>
+            External images are blocked
+          </span>
+          <button
+            onClick={() => setShowImages(true)}
+            className={`font-body text-[11.5px] font-medium px-3 py-1 rounded-md border border-fq-border bg-fq-card ${tk.body} hover:bg-fq-bg transition-colors`}
+          >
+            Load images
+          </button>
+        </div>
+      )}
+
+      <iframe
+        ref={iframeRef}
+        srcDoc={srcDoc}
+        sandbox="allow-same-origin"
+        onLoad={handleLoad}
+        className="w-full rounded-xl border border-fq-border bg-fq-card"
+        style={{ height: iframeHeight, border: 'none' }}
+        title="Email body"
+      />
+    </div>
   );
 }
 
