@@ -313,3 +313,10 @@ export async function markAsRead(messageId: string, userId = 'default'): Promise
     userId,
   );
 }
+
+/**
+ * Permanently delete a message from Outlook.
+ */
+export async function deleteMessage(messageId: string, userId = 'default'): Promise<void> {
+  await graphFetch(`/me/messages/${messageId}`, { method: 'DELETE' }, userId);
+}

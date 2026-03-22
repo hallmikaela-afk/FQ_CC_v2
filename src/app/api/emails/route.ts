@@ -1,14 +1,15 @@
 /**
  * /api/emails
  *
- * GET  — Returns emails from Supabase cache. Triggers a Graph sync if stale.
- *        Query params: folder_id, skip, top, date_from, date_to, filter, project_id
- * PATCH — Update a single email (project assignment, needs_followup, is_read)
+ * GET    — Returns emails from Supabase cache. Triggers a Graph sync if stale.
+ *          Query params: folder_id, skip, top, date_from, date_to, filter, project_id
+ * PATCH  — Update a single email (project assignment, needs_followup, is_read)
+ * DELETE — Remove an email from Supabase and optionally from Outlook
  */
 
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { fetchMessages, markAsRead } from '@/lib/microsoft-graph';
+import { fetchMessages, markAsRead, deleteMessage } from '@/lib/microsoft-graph';
 import { matchEmailToProject, type PreloadedMatchData } from '@/lib/email-matching';
 import type { GraphMessage } from '@/lib/microsoft-graph';
 
@@ -119,6 +120,36 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ email: data });
 }
 
+// ─── DELETE ───────────────────────────────────────────────────────────────────
+
+export async function DELETE(request: Request) {
+  const supabase = getServiceSupabase();
+  const body = await request.json();
+  const { id, delete_from_outlook } = body;
+
+  if (!id) return NextResponse.json({ error: 'Missing email id' }, { status: 400 });
+
+  // Look up message_id before deleting (needed for Graph API call)
+  const { data: emailRow } = await supabase
+    .from('emails')
+    .select('message_id')
+    .eq('id', id)
+    .single();
+
+  // Remove from Supabase
+  const { error } = await supabase.from('emails').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Optionally delete from Outlook (fire-and-forget — don't fail if Graph errors)
+  if (delete_from_outlook && emailRow?.message_id) {
+    deleteMessage(emailRow.message_id).catch(err =>
+      console.error('[emails] Graph delete error:', err),
+    );
+  }
+
+  return NextResponse.json({ deleted: true });
+}
+
 // ─── Sync helper ──────────────────────────────────────────────────────────────
 
 const SYNC_BATCH = 10; // parallel upserts per round
@@ -140,7 +171,7 @@ async function syncEmails(
   if (!messages.length) return;
 
   // ── Load lookup data once for all messages ───────────────────────────────
-  const [projectsRes, vendorsRes, existingRes] = await Promise.all([
+  const [projectsRes, vendorsRes, existingRes, rulesRes] = await Promise.all([
     supabase
       .from('projects')
       .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer')
@@ -150,7 +181,22 @@ async function syncEmails(
       .from('emails')
       .select('message_id, project_id, match_confidence')
       .in('message_id', messages.map(m => m.id)),
+    supabase.from('inbox_rules').select('rule_type, value, action'),
   ]);
+
+  // Build rule set for fast lookup
+  const hideRules: { type: string; value: string }[] = (rulesRes.data ?? [])
+    .filter(r => r.action === 'hide')
+    .map(r => ({ type: r.rule_type, value: (r.value as string).toLowerCase() }));
+
+  function matchesHideRule(fromEmail: string): boolean {
+    const email = fromEmail.toLowerCase();
+    const domain = email.split('@')[1] ?? '';
+    return hideRules.some(r =>
+      (r.type === 'sender' && email === r.value) ||
+      (r.type === 'domain' && domain === r.value),
+    );
+  }
 
   const preloaded: PreloadedMatchData = {
     projects: (projectsRes.data ?? []) as PreloadedMatchData['projects'],
@@ -167,9 +213,14 @@ async function syncEmails(
   for (let i = 0; i < messages.length; i += SYNC_BATCH) {
     const batch = messages.slice(i, i + SYNC_BATCH);
     await Promise.allSettled(
-      batch.map(msg =>
-        upsertEmail(msg, opts.folderId ?? msg.parentFolderId, supabase, preloaded, existingMap),
-      ),
+      batch
+        .filter(msg => {
+          const fromEmail = msg.from?.emailAddress?.address ?? '';
+          return !matchesHideRule(fromEmail);
+        })
+        .map(msg =>
+          upsertEmail(msg, opts.folderId ?? msg.parentFolderId, supabase, preloaded, existingMap),
+        ),
     );
   }
 }
