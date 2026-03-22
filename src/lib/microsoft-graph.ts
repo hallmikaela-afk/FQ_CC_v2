@@ -139,23 +139,43 @@ export async function storeTokens(
   expiresIn: number,
   scope: string,
 ): Promise<void> {
+  console.log('[storeTokens] starting for userId:', userId);
+
   const supabase = getServiceSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-  const { error } = await supabase.from('microsoft_tokens').upsert(
-    {
-      user_id: userId,
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_at: expiresAt,
-      scope,
-    },
-    { onConflict: 'user_id' },
-  );
+  console.log('[storeTokens] upserting to microsoft_tokens, expires_at:', expiresAt);
+
+  const { data, error } = await supabase
+    .from('microsoft_tokens')
+    .upsert(
+      {
+        user_id: userId,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_at: expiresAt,
+        scope,
+      },
+      { onConflict: 'user_id' },
+    )
+    .select('id, user_id, expires_at');
 
   if (error) {
+    console.error('[storeTokens] upsert error:', error);
     throw new Error(`Failed to store Microsoft tokens: ${error.message}`);
   }
+
+  if (!data || data.length === 0) {
+    console.error(
+      '[storeTokens] upsert returned no rows — likely blocked by RLS. ' +
+      'Ensure SUPABASE_SERVICE_ROLE_KEY is set correctly.',
+    );
+    throw new Error(
+      'Token upsert affected 0 rows. Check that SUPABASE_SERVICE_ROLE_KEY is correct and that RLS allows service-role writes.',
+    );
+  }
+
+  console.log('[storeTokens] success, saved row:', data[0]);
 }
 
 /**
