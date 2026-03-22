@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { fetchMessages, fetchAllFolders, markAsRead, deleteMessage } from '@/lib/microsoft-graph';
+import { fetchMessages, fetchAllFolders, markAsRead, deleteMessage, moveMessage } from '@/lib/microsoft-graph';
 import { matchEmailToProject, type PreloadedMatchData } from '@/lib/email-matching';
 import type { GraphMessage } from '@/lib/microsoft-graph';
 
@@ -61,6 +61,9 @@ export async function GET(request: Request) {
   if (dateFrom) query = query.gte('received_at', dateFrom);
   if (dateTo) query = query.lte('received_at', dateTo);
   if (projectId) query = query.eq('project_id', projectId);
+
+  // Never surface receipts in the main inbox view
+  query = query.or('category.is.null,category.neq.receipt');
 
   if (filter === 'tagged') query = query.not('project_id', 'is', null);
   if (filter === 'untagged') query = query.is('project_id', null);
@@ -188,8 +191,10 @@ async function syncEmails(
 
   const projects = (projectsRes.data ?? []) as PreloadedMatchData['projects'];
 
-  // ── 2. Build folder → project map for numbered client folders ────────────
-  // "1 - Julia & Frank" → strip prefix → match to project by name
+  // ── 2. Find Receipts folder + build folder → project map ────────────────
+  const receiptsFolderId =
+    allFolders.find(f => f.displayName.toLowerCase() === 'receipts')?.id ?? null;
+
   const folderProjectMap = new Map<string, string>(); // folder_id → project_id
   const NUMBER_PREFIX = /^\d+\s*-\s*/;
 
@@ -248,10 +253,13 @@ async function syncEmails(
 
   const existingRes = await supabase
     .from('emails')
-    .select('message_id, project_id, match_confidence')
+    .select('message_id, project_id, match_confidence, category')
     .in('message_id', allPairs.map(({ msg }) => msg.id));
 
-  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null }>();
+  const existingMap = new Map<
+    string,
+    { project_id: string | null; match_confidence: string | null; category: string | null }
+  >();
   for (const row of existingRes.data ?? []) {
     existingMap.set(row.message_id, row);
   }
@@ -261,6 +269,11 @@ async function syncEmails(
     vendors: (vendorsRes.data ?? []) as PreloadedMatchData['vendors'],
   };
 
+  // Build vendor email set for receipt exclusion check
+  const vendorEmails = new Set(
+    (vendorsRes.data ?? []).map(v => (v.email as string).toLowerCase()),
+  );
+
   // ── 6. Upsert in parallel batches ────────────────────────────────────────
   for (let i = 0; i < allPairs.length; i += SYNC_BATCH) {
     const batch = allPairs.slice(i, i + SYNC_BATCH);
@@ -268,7 +281,16 @@ async function syncEmails(
       batch
         .filter(({ msg }) => !matchesHideRule(msg.from?.emailAddress?.address ?? ''))
         .map(({ msg, folderId }) =>
-          upsertEmail(msg, folderId, supabase, preloaded, existingMap, folderProjectMap),
+          upsertEmail(
+            msg,
+            folderId,
+            supabase,
+            preloaded,
+            existingMap,
+            folderProjectMap,
+            receiptsFolderId,
+            vendorEmails,
+          ),
         ),
     );
   }
@@ -279,8 +301,13 @@ async function upsertEmail(
   folderId: string,
   supabase: ReturnType<typeof getServiceSupabase>,
   preloaded: PreloadedMatchData,
-  existingMap: Map<string, { project_id: string | null; match_confidence: string | null }>,
+  existingMap: Map<
+    string,
+    { project_id: string | null; match_confidence: string | null; category: string | null }
+  >,
   folderProjectMap: Map<string, string>,
+  receiptsFolderId: string | null,
+  vendorEmails: Set<string>,
 ) {
   const fromEmail = msg.from?.emailAddress?.address ?? '';
   const fromName = msg.from?.emailAddress?.name ?? '';
@@ -318,6 +345,19 @@ async function upsertEmail(
     }
   }
 
+  // ── Receipt detection ────────────────────────────────────────────────────
+  const alreadyReceipt = existing?.category === 'receipt';
+  const isReceipt =
+    alreadyReceipt ||
+    (!projectId &&
+      detectReceipt(fromEmail, msg.subject ?? '', vendorEmails));
+
+  const extraFields: Record<string, unknown> = {};
+  if (isReceipt) {
+    extraFields.category = 'receipt';
+    extraFields.dismissed = true;
+  }
+
   await supabase.from('emails').upsert(
     {
       message_id: msg.id,
@@ -333,9 +373,65 @@ async function upsertEmail(
       project_id: projectId,
       match_confidence: confidence,
       is_meeting_summary: isMeetingSummary,
+      ...extraFields,
     },
     { onConflict: 'message_id' },
   );
+
+  // Move to Receipts folder in Outlook (fire-and-forget, only if not already there)
+  if (isReceipt && !alreadyReceipt && receiptsFolderId && folderId !== receiptsFolderId) {
+    moveMessage(msg.id, receiptsFolderId).catch(err =>
+      console.error('[emails] receipt move error:', err),
+    );
+  }
+}
+
+// ─── Receipt detection ────────────────────────────────────────────────────────
+
+const RECEIPT_SENDER_DOMAINS = new Set([
+  'anthropic.com',
+  'vercel.com',
+  'adobe.com',
+  'canva.com',
+  'notion.so',
+  'figma.com',
+  'zapier.com',
+  'google.com',
+  'microsoft.com',
+  'flodesk.com',
+  'honeybook.com',
+  'aisle-planner.com',
+]);
+
+const RECEIPT_SUBJECT_BILLING_WORDS = ['renewal', 'renewed', 'billed', 'charge', 'receipt', 'confirmed'];
+
+function detectReceipt(
+  fromEmail: string,
+  subject: string,
+  vendorEmails: Set<string>,
+): boolean {
+  const email = fromEmail.toLowerCase();
+  const subj = subject.toLowerCase();
+
+  // Never treat vendor emails as receipts
+  if (vendorEmails.has(email)) return false;
+
+  // Never treat invoices as receipts
+  if (subj.includes('invoice')) return false;
+
+  // Sender-domain-based detection
+  const domain = email.split('@')[1] ?? '';
+  if (RECEIPT_SENDER_DOMAINS.has(domain)) return true;
+
+  // Subject-based detection: must contain "subscription" + at least one billing word
+  if (
+    subj.includes('subscription') &&
+    RECEIPT_SUBJECT_BILLING_WORDS.some(w => subj.includes(w))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 // ─── Meeting summary detection ──────────────────────────────────────────────

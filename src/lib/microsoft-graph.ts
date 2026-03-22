@@ -355,3 +355,21 @@ export async function markAsRead(messageId: string, userId = 'default'): Promise
 export async function deleteMessage(messageId: string, userId = 'default'): Promise<void> {
   await graphFetch(`/me/messages/${messageId}`, { method: 'DELETE' }, userId);
 }
+
+/**
+ * Move a message to a different mail folder.
+ */
+export async function moveMessage(
+  messageId: string,
+  destinationFolderId: string,
+  userId = 'default',
+): Promise<void> {
+  await graphFetch(
+    `/me/messages/${messageId}/move`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ destinationId: destinationFolderId }),
+    },
+    userId,
+  );
+}
