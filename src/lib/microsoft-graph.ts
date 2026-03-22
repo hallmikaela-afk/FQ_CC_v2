@@ -55,6 +55,7 @@ export interface GraphFolder {
   totalItemCount: number;
   unreadItemCount: number;
   parentFolderId: string | null;
+  childFolderCount: number;
 }
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
@@ -268,15 +269,49 @@ export async function fetchMessages(
 }
 
 /**
- * Fetch all mail folders.
+ * Fetch top-level mail folders.
  */
 export async function fetchFolders(userId = 'default'): Promise<GraphFolder[]> {
   const data = (await graphFetch(
-    '/me/mailFolders?$top=50&$select=id,displayName,totalItemCount,unreadItemCount,parentFolderId',
+    '/me/mailFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount,parentFolderId,childFolderCount',
     {},
     userId,
   )) as { value: GraphFolder[] };
   return data.value ?? [];
+}
+
+/**
+ * Fetch child folders of a given parent folder.
+ */
+export async function fetchChildFolders(
+  parentFolderId: string,
+  userId = 'default',
+): Promise<GraphFolder[]> {
+  const data = (await graphFetch(
+    `/me/mailFolders/${parentFolderId}/childFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount,parentFolderId,childFolderCount`,
+    {},
+    userId,
+  )) as { value: GraphFolder[] };
+  return data.value ?? [];
+}
+
+/**
+ * Fetch all folders (top-level + one level of children).
+ */
+export async function fetchAllFolders(userId = 'default'): Promise<GraphFolder[]> {
+  const topLevel = await fetchFolders(userId);
+
+  const withChildren = topLevel.filter(f => f.childFolderCount > 0);
+  const childResults = await Promise.allSettled(
+    withChildren.map(f => fetchChildFolders(f.id, userId)),
+  );
+
+  const children: GraphFolder[] = [];
+  for (const result of childResults) {
+    if (result.status === 'fulfilled') children.push(...result.value);
+  }
+
+  return [...topLevel, ...children];
 }
 
 /**

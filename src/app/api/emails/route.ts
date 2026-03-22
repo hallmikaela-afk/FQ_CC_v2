@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { fetchMessages, markAsRead, deleteMessage } from '@/lib/microsoft-graph';
+import { fetchMessages, fetchAllFolders, markAsRead, deleteMessage } from '@/lib/microsoft-graph';
 import { matchEmailToProject, type PreloadedMatchData } from '@/lib/email-matching';
 import type { GraphMessage } from '@/lib/microsoft-graph';
 
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   // ── Sync from Graph API ──────────────────────────────────────────────────
   if (doSync) {
     try {
-      await syncEmails({ folderId, top: 25, dateFrom, dateTo }, supabase);
+      await syncEmails({ top: 25, dateFrom, dateTo }, supabase);
     } catch (err) {
       // If NOT_CONNECTED, let caller handle it
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
@@ -152,39 +152,86 @@ export async function DELETE(request: Request) {
 
 // ─── Sync helper ──────────────────────────────────────────────────────────────
 
-const SYNC_BATCH = 10; // parallel upserts per round
+const SYNC_BATCH = 10;   // parallel upserts per round
+const FOLDER_BATCH = 5;  // parallel folder fetches per round
+
+// Folders that contain no useful email for inbox purposes
+const SKIP_FOLDERS = new Set([
+  'conversation history',
+  'rss feeds',
+  'rss subscriptions',
+  'clutter',
+  'sync issues',
+  'outbox',
+  'junk email',
+  'deleted items',
+]);
 
 async function syncEmails(
-  opts: { folderId?: string; top?: number; dateFrom?: string; dateTo?: string },
+  opts: { top?: number; dateFrom?: string; dateTo?: string },
   supabase: ReturnType<typeof getServiceSupabase>,
 ) {
-  // Default: last 30 days (reduced from 90 to keep sync fast)
   const dateFrom =
     opts.dateFrom ??
     new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const { messages } = await fetchMessages(
-    { ...opts, dateFrom, top: opts.top ?? 25 },
-    'default',
-  );
-
-  if (!messages.length) return;
-
-  // ── Load lookup data once for all messages ───────────────────────────────
-  const [projectsRes, vendorsRes, existingRes, rulesRes] = await Promise.all([
+  // ── 1. Fetch all folders + lookup data in parallel ───────────────────────
+  const [allFolders, projectsRes, vendorsRes, rulesRes] = await Promise.all([
+    fetchAllFolders('default'),
     supabase
       .from('projects')
       .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer')
       .in('status', ['active', 'completed']),
     supabase.from('vendors').select('project_id, email'),
-    supabase
-      .from('emails')
-      .select('message_id, project_id, match_confidence')
-      .in('message_id', messages.map(m => m.id)),
     supabase.from('inbox_rules').select('rule_type, value, action'),
   ]);
 
-  // Build rule set for fast lookup
+  const projects = (projectsRes.data ?? []) as PreloadedMatchData['projects'];
+
+  // ── 2. Build folder → project map for numbered client folders ────────────
+  // "1 - Julia & Frank" → strip prefix → match to project by name
+  const folderProjectMap = new Map<string, string>(); // folder_id → project_id
+  const NUMBER_PREFIX = /^\d+\s*-\s*/;
+
+  for (const folder of allFolders) {
+    if (!NUMBER_PREFIX.test(folder.displayName)) continue;
+    const cleanName = folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase();
+    const project = projects.find(p => p.name.toLowerCase() === cleanName);
+    if (project) folderProjectMap.set(folder.id, project.id);
+  }
+
+  // ── 3. Filter to folders worth syncing ───────────────────────────────────
+  const foldersToSync = allFolders.filter(
+    f => !SKIP_FOLDERS.has(f.displayName.toLowerCase()),
+  );
+
+  // ── 4. Fetch messages from all folders in parallel batches ───────────────
+  const allPairs: Array<{ msg: import('@/lib/microsoft-graph').GraphMessage; folderId: string }> = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < foldersToSync.length; i += FOLDER_BATCH) {
+    const folderBatch = foldersToSync.slice(i, i + FOLDER_BATCH);
+    const results = await Promise.allSettled(
+      folderBatch.map(folder =>
+        fetchMessages({ folderId: folder.id, top: opts.top ?? 20, dateFrom }, 'default').then(
+          ({ messages }) =>
+            messages.map(msg => ({ msg, folderId: folder.id })),
+        ),
+      ),
+    );
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue;
+      for (const pair of result.value) {
+        if (seen.has(pair.msg.id)) continue;
+        seen.add(pair.msg.id);
+        allPairs.push(pair);
+      }
+    }
+  }
+
+  if (!allPairs.length) return;
+
+  // ── 5. Load existing email records + build helpers ───────────────────────
   const hideRules: { type: string; value: string }[] = (rulesRes.data ?? [])
     .filter(r => r.action === 'hide')
     .map(r => ({ type: r.rule_type, value: (r.value as string).toLowerCase() }));
@@ -192,34 +239,36 @@ async function syncEmails(
   function matchesHideRule(fromEmail: string): boolean {
     const email = fromEmail.toLowerCase();
     const domain = email.split('@')[1] ?? '';
-    return hideRules.some(r =>
-      (r.type === 'sender' && email === r.value) ||
-      (r.type === 'domain' && domain === r.value),
+    return hideRules.some(
+      r =>
+        (r.type === 'sender' && email === r.value) ||
+        (r.type === 'domain' && domain === r.value),
     );
   }
 
-  const preloaded: PreloadedMatchData = {
-    projects: (projectsRes.data ?? []) as PreloadedMatchData['projects'],
-    vendors: (vendorsRes.data ?? []) as PreloadedMatchData['vendors'],
-  };
+  const existingRes = await supabase
+    .from('emails')
+    .select('message_id, project_id, match_confidence')
+    .in('message_id', allPairs.map(({ msg }) => msg.id));
 
-  // Build existing map: message_id → { project_id, match_confidence }
   const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null }>();
   for (const row of existingRes.data ?? []) {
     existingMap.set(row.message_id, row);
   }
 
-  // ── Process in parallel batches ──────────────────────────────────────────
-  for (let i = 0; i < messages.length; i += SYNC_BATCH) {
-    const batch = messages.slice(i, i + SYNC_BATCH);
+  const preloaded: PreloadedMatchData = {
+    projects,
+    vendors: (vendorsRes.data ?? []) as PreloadedMatchData['vendors'],
+  };
+
+  // ── 6. Upsert in parallel batches ────────────────────────────────────────
+  for (let i = 0; i < allPairs.length; i += SYNC_BATCH) {
+    const batch = allPairs.slice(i, i + SYNC_BATCH);
     await Promise.allSettled(
       batch
-        .filter(msg => {
-          const fromEmail = msg.from?.emailAddress?.address ?? '';
-          return !matchesHideRule(fromEmail);
-        })
-        .map(msg =>
-          upsertEmail(msg, opts.folderId ?? msg.parentFolderId, supabase, preloaded, existingMap),
+        .filter(({ msg }) => !matchesHideRule(msg.from?.emailAddress?.address ?? ''))
+        .map(({ msg, folderId }) =>
+          upsertEmail(msg, folderId, supabase, preloaded, existingMap, folderProjectMap),
         ),
     );
   }
@@ -231,6 +280,7 @@ async function upsertEmail(
   supabase: ReturnType<typeof getServiceSupabase>,
   preloaded: PreloadedMatchData,
   existingMap: Map<string, { project_id: string | null; match_confidence: string | null }>,
+  folderProjectMap: Map<string, string>,
 ) {
   const fromEmail = msg.from?.emailAddress?.address ?? '';
   const fromName = msg.from?.emailAddress?.name ?? '';
@@ -240,8 +290,13 @@ async function upsertEmail(
   let projectId: string | null = existing?.project_id ?? null;
   let confidence: string | null = existing?.match_confidence ?? null;
 
-  // Only run matching if not already manually tagged
-  if (!projectId || confidence === 'suggested') {
+  // Folder-based match is the strongest signal — apply unless already confirmed
+  const folderProjectId = folderProjectMap.get(folderId) ?? null;
+  if (folderProjectId && existing?.match_confidence !== 'exact') {
+    projectId = folderProjectId;
+    confidence = 'exact';
+  } else if (!projectId || confidence === 'suggested') {
+    // Fall back to content-based matching
     const match = await matchEmailToProject(
       fromEmail,
       msg.subject ?? '',
