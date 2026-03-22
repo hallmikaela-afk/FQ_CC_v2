@@ -8,7 +8,6 @@ function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
 
-// Try to load Supabase client; returns null if env vars are missing
 function tryGetSupabase() {
   try {
     const { getServiceSupabase } = require('@/lib/supabase');
@@ -21,7 +20,15 @@ function tryGetSupabase() {
   }
 }
 
-// Build context from Supabase if available, otherwise fall back to seed data
+function currentWeekStr() {
+  // Returns YYYY-Www (ISO week) used as sprint_week key
+  const now = new Date();
+  const jan4 = new Date(now.getFullYear(), 0, 4);
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
+  const week = Math.ceil((dayOfYear + jan4.getDay()) / 7);
+  return `${now.getFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
 async function buildContext(): Promise<string> {
   const today = new Date().toISOString().split('T')[0];
 
@@ -31,97 +38,120 @@ async function buildContext(): Promise<string> {
   const supabase = tryGetSupabase();
 
   if (supabase) {
-    // Use live Supabase data
-    const [projectsRes, tasksRes, teamRes] = await Promise.all([
-      supabase.from('projects').select('id, name, type, status, event_date, venue_name, venue_location, concept, service_tier, guest_count, estimated_budget').order('event_date'),
-      supabase.from('tasks').select('id, project_id, text, completed, status, due_date, category, priority, assigned_to').eq('completed', false).order('due_date'),
+    const [projectsRes, tasksRes, teamRes, sprintRes] = await Promise.all([
+      supabase.from('projects').select('id, name, type, status, event_date, venue_name, concept').order('event_date'),
+      supabase.from('tasks').select('id, project_id, text, completed, due_date, category').eq('completed', false).order('due_date'),
       supabase.from('team_members').select('*'),
+      supabase.from('sprint_tasks').select('id, title, bucket, tag, done').eq('done', false).order('sort_order'),
     ]);
 
     const projects: any[] = projectsRes.data || [];
     const tasks: any[] = tasksRes.data || [];
     const team: any[] = teamRes.data || [];
+    const sprintTasks: any[] = sprintRes.data || [];
 
     const overdue = tasks.filter((t: any) => t.due_date && t.due_date < today);
 
     context += `TEAM:\n`;
     team.forEach((t: any) => { context += `- ${t.name} (${t.role}) [ID: ${t.id}]\n`; });
 
-    context += `\nACTIVE PROJECTS:\n`;
+    context += `\nACTIVE PROJECTS & PLANNER TASKS:\n`;
     projects.forEach((p: any) => {
       const projectTasks = tasks.filter((t: any) => t.project_id === p.id);
-      context += `- ${p.name} (${p.type}, ${p.status}) — ${p.event_date || 'no date'}, ${p.venue_name || p.concept || ''} [ID: ${p.id}]\n`;
-      context += `  Open tasks: ${projectTasks.length}\n`;
-    });
-
-    if (overdue.length > 0) {
-      context += `\nOVERDUE TASKS (${overdue.length}):\n`;
-      overdue.forEach((t: any) => {
-        const proj = projects.find((p: any) => p.id === t.project_id);
-        context += `- "${t.text}" — due ${t.due_date} (${proj?.name || 'unknown project'})\n`;
-      });
-    }
-  } else {
-    // Fall back to seed data
-    context += `TEAM:\n`;
-    seedTeam.forEach(t => { context += `- ${t.name} (${t.role})\n`; });
-
-    context += `\nACTIVE PROJECTS:\n`;
-    seedProjects.forEach(p => {
-      const openTasks = (p.tasks || []).filter(t => !t.completed);
-      const overdueTasks = openTasks.filter(t => t.due_date && t.due_date < today);
-      context += `- ${p.name} (${p.type}, ${p.status}) — ${p.event_date || 'no date'}, ${p.venue_name || p.concept || ''}\n`;
-      context += `  Open tasks: ${openTasks.length}${overdueTasks.length > 0 ? ` (${overdueTasks.length} overdue)` : ''}\n`;
-
-      if (p.vendors && p.vendors.length > 0) {
-        context += `  Vendors: ${p.vendors.map(v => `${v.vendor_name} (${v.category})`).join(', ')}\n`;
+      context += `\n## ${p.name} [PROJECT_ID: ${p.id}]\n`;
+      context += `   ${p.type}, ${p.status}, ${p.event_date || 'no date'}, ${p.venue_name || p.concept || ''}\n`;
+      if (projectTasks.length === 0) {
+        context += `   No open tasks.\n`;
+      } else {
+        projectTasks.forEach((t: any) => {
+          context += `   - [TASK_ID: ${t.id}] ${t.text}${t.due_date ? ` (due ${t.due_date})` : ''}${t.category ? ` [${t.category}]` : ''}\n`;
+        });
       }
     });
 
-    // Aggregate overdue tasks across all projects
+    if (overdue.length > 0) {
+      context += `\nOVERDUE:\n`;
+      overdue.forEach((t: any) => {
+        const proj = projects.find((p: any) => p.id === t.project_id);
+        context += `- [TASK_ID: ${t.id}] "${t.text}" — due ${t.due_date} (${proj?.name || 'unknown'})\n`;
+      });
+    }
+
+    if (sprintTasks.length > 0) {
+      context += `\nCURRENT SPRINT (open tasks):\n`;
+      sprintTasks.forEach((t: any) => {
+        context += `- [SPRINT_ID: ${t.id}] ${t.title} — ${t.bucket} [${t.tag}]\n`;
+      });
+    }
+  } else {
+    // Seed data fallback
+    context += `TEAM:\n`;
+    seedTeam.forEach(t => { context += `- ${t.name} (${t.role})\n`; });
+
+    context += `\nACTIVE PROJECTS & PLANNER TASKS:\n`;
+    seedProjects.forEach(p => {
+      const openTasks = (p.tasks || []).filter((t: any) => !t.completed);
+      context += `\n## ${p.name} [PROJECT_ID: ${p.id}]\n`;
+      context += `   ${p.type}, ${p.status}, ${p.event_date || 'no date'}, ${p.venue_name || p.concept || ''}\n`;
+      if (openTasks.length === 0) {
+        context += `   No open tasks.\n`;
+      } else {
+        openTasks.forEach((t: any) => {
+          context += `   - [TASK_ID: ${t.id}] ${t.text}${t.due_date ? ` (due ${t.due_date})` : ''}\n`;
+        });
+      }
+      if (p.vendors?.length) {
+        context += `   Vendors: ${p.vendors.map((v: any) => `${v.vendor_name} (${v.category})`).join(', ')}\n`;
+      }
+    });
+
     const allOverdue: { text: string; due_date: string; project: string }[] = [];
     seedProjects.forEach(p => {
-      (p.tasks || []).forEach(t => {
+      (p.tasks || []).forEach((t: any) => {
         if (!t.completed && t.due_date && t.due_date < today) {
           allOverdue.push({ text: t.text, due_date: t.due_date, project: p.name });
         }
       });
     });
-
     if (allOverdue.length > 0) {
-      context += `\nOVERDUE TASKS (${allOverdue.length}):\n`;
-      allOverdue.forEach(t => {
-        context += `- "${t.text}" — due ${t.due_date} (${t.project})\n`;
-      });
+      context += `\nOVERDUE:\n`;
+      allOverdue.forEach(t => { context += `- "${t.text}" — due ${t.due_date} (${t.project})\n`; });
     }
 
-    // Include call notes summaries
     seedProjects.forEach(p => {
-      if (p.call_notes && p.call_notes.length > 0) {
-        context += `\nRECENT CALL NOTES — ${p.name}:\n`;
+      if (p.call_notes?.length) {
+        context += `\nCALL NOTES — ${p.name}:\n`;
         p.call_notes.forEach(cn => {
           context += `- ${cn.date}${cn.title ? ` — ${cn.title}` : ''}: ${cn.summary || cn.raw_text.slice(0, 200)}\n`;
           const openActions = cn.extracted_actions.filter(a => a.accepted && !a.dismissed);
-          if (openActions.length > 0) {
-            context += `  Action items: ${openActions.map(a => a.text).join('; ')}\n`;
+          if (openActions.length) {
+            context += `  Actions: ${openActions.map(a => a.text).join('; ')}\n`;
           }
         });
       }
     });
   }
 
-  context += `\nSPRINT TASKS: You can help Mikaela manage her weekly sprint. `;
-  context += `Sprint tasks are completely separate from the master planner task list. `;
-  context += `When she asks to add something to her week or sprint, confirm what you'd add `;
-  context += `and tell her to use the My Week page to add it, or she can ask you to add it `;
-  context += `directly. Valid buckets: Sun-Steeped Hamptons, Menorca Editorial, `;
-  context += `Elisabeth & JJ — LionRock Farm, Julia & Frank — Wave Resort, `;
-  context += `Tippi & Justin — Vanderbilt Museum, Fox & Quinn — Operations, `;
-  context += `Fox & Quinn — Marketing, FQ Command Center. `;
-  context += `Valid tags: action, decision, creative, ops, marketing, build, client, check.\n`;
+  const BUCKETS = [
+    'Sun-Steeped Hamptons', 'Menorca Editorial', 'Elisabeth & JJ — LionRock Farm',
+    'Julia & Frank — Wave Resort', 'Tippi & Justin — Vanderbilt Museum',
+    'Fox & Quinn — Operations', 'Fox & Quinn — Marketing', 'FQ Command Center',
+  ];
 
-  context += `\nIMPORTANT: When the user asks to update tasks, mark things complete, add vendors, etc., describe what you would do. The actual database operations happen through the app's UI. Focus on being a helpful planning assistant — summarize, prioritize, flag issues, and advise.`;
-  context += `\n\nRESEARCH LINKS: Whenever you provide research, ideas, vendor recommendations, venue suggestions, inspiration, trends, backup plans, or any information that has a relevant online source, include markdown links formatted as [descriptive text](https://url). Only include links to real, well-known websites you are confident exist (e.g. wedding directories, vendor websites, inspiration sites like stylemepretty.com, greenweddingshoes.com, theknot.com, weddingwire.com, etc.). Always open external links — format them as standard markdown links.`;
+  context += `\n\nACTIONS — Always respond with valid JSON only. Use the "actions" array for any database writes. Multiple actions allowed.\n`;
+  context += `Response format: {"response":"Your reply","actions":[...]} — or just {"response":"..."} when no DB action needed.\n\n`;
+  context += `PLANNER TASK ACTIONS (use PROJECT_ID / TASK_ID values listed above):\n`;
+  context += `  Create:   {"type":"create_planner_task","project_id":"...","text":"...","subtasks":[{"text":"..."}]}\n`;
+  context += `  Update:   {"type":"update_planner_task","task_id":"...","updates":{"text":"...","due_date":"YYYY-MM-DD","category":"..."}}\n`;
+  context += `  Complete: {"type":"update_planner_task","task_id":"...","updates":{"completed":true}}\n`;
+  context += `  Reopen:   {"type":"update_planner_task","task_id":"...","updates":{"completed":false}}\n\n`;
+  context += `SPRINT TASK ACTIONS (use SPRINT_ID values listed above):\n`;
+  context += `  Create:   {"type":"create_sprint_task","title":"...","bucket":"one of: ${BUCKETS.join(' | ')}","tag":"action|decision|creative|ops|marketing|build|client|check"}\n`;
+  context += `  Update:   {"type":"update_sprint_task","task_id":"...","updates":{"title":"...","bucket":"...","tag":"..."}}\n`;
+  context += `  Complete: {"type":"update_sprint_task","task_id":"...","updates":{"done":true}}\n`;
+  context += `  Reopen:   {"type":"update_sprint_task","task_id":"...","updates":{"done":false}}\n`;
+
+  context += `\nRESEARCH LINKS: When listing vendors or companies, format as: - [Company Name](https://url) - Brief description. Only link to real, well-known sites. Always use markdown links [text](url).`;
 
   return context;
 }
@@ -145,24 +175,98 @@ export async function POST(req: NextRequest) {
 
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: context,
-      messages: messages.map((m: any) => ({
-        role: m.role,
-        content: m.content,
-      })),
+      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
     });
 
-    const textContent = response.content.find((c: any) => c.type === 'text');
-    return NextResponse.json({
-      role: 'assistant',
-      content: (textContent as any)?.text || '',
-    });
+    const rawText = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
+
+    let content = rawText;
+    let tasks_changed = false;
+    let tasks_count = 0;
+    let change_type: 'created' | 'updated' | 'completed' | 'mixed' | null = null;
+
+    try {
+      const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const parsed = JSON.parse(cleaned);
+      content = parsed.response || rawText;
+
+      if (parsed.actions && Array.isArray(parsed.actions)) {
+        const supabase = tryGetSupabase();
+        const changeTypes = new Set<string>();
+
+        for (const action of parsed.actions) {
+          // --- Planner: create ---
+          if (action.type === 'create_planner_task' && action.project_id && action.text) {
+            if (supabase) {
+              const { data: task, error } = await supabase
+                .from('tasks')
+                .insert({ project_id: action.project_id, text: action.text, completed: false, sort_order: 99 })
+                .select().single();
+              if (!error && task) {
+                tasks_changed = true; tasks_count++; changeTypes.add('created');
+                if (action.subtasks?.length) {
+                  await supabase.from('subtasks').insert(
+                    action.subtasks.map((st: any, i: number) => ({ task_id: task.id, text: st.text, completed: false, sort_order: i }))
+                  );
+                }
+              }
+            } else {
+              tasks_changed = true; tasks_count++; changeTypes.add('created');
+            }
+          }
+
+          // --- Planner: update / complete ---
+          if (action.type === 'update_planner_task' && action.task_id && action.updates) {
+            if (supabase) {
+              const { error } = await supabase.from('tasks').update(action.updates).eq('id', action.task_id);
+              if (!error) {
+                tasks_changed = true; tasks_count++;
+                changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
+              }
+            } else {
+              tasks_changed = true; tasks_count++;
+              changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
+            }
+          }
+
+          // --- Sprint: create ---
+          if (action.type === 'create_sprint_task' && action.title && action.bucket) {
+            if (supabase) {
+              await supabase.from('sprint_tasks').insert({
+                title: action.title, bucket: action.bucket, tag: action.tag || 'action',
+                done: false, sprint_week: currentWeekStr(), sort_order: 99,
+              });
+              tasks_changed = true; tasks_count++; changeTypes.add('created');
+            }
+          }
+
+          // --- Sprint: update / complete ---
+          if (action.type === 'update_sprint_task' && action.task_id && action.updates) {
+            if (supabase) {
+              const { error } = await supabase.from('sprint_tasks').update(action.updates).eq('id', action.task_id);
+              if (!error) {
+                tasks_changed = true; tasks_count++;
+                changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
+              }
+            } else {
+              tasks_changed = true; tasks_count++;
+              changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
+            }
+          }
+        }
+
+        if (changeTypes.size > 1) change_type = 'mixed';
+        else if (changeTypes.size === 1) change_type = [...changeTypes][0] as 'created' | 'updated' | 'completed' | 'mixed';
+      }
+    } catch {
+      content = rawText;
+    }
+
+    return NextResponse.json({ role: 'assistant', content, tasks_changed, tasks_count, change_type });
   } catch (err: any) {
     console.error('Assistant API error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Failed to get response from Claude' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || 'Failed to get response from Claude' }, { status: 500 });
   }
 }

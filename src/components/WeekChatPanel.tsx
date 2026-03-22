@@ -5,6 +5,9 @@ import { useState, useRef, useEffect } from 'react';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  tasks_changed?: boolean;
+  tasks_count?: number;
+  change_type?: 'created' | 'updated' | 'completed' | 'mixed' | null;
 }
 
 interface Props {
@@ -14,8 +17,61 @@ interface Props {
 
 const INITIAL_MESSAGE: Message = {
   role: 'assistant',
-  content: "Add tasks to your sprint by telling me what you need to do and which project it's for.\n\nFor example: 'Add email Art about florals to Menorca' or 'Add check RSVP to Julia & Frank.'",
+  content: "I can create, update, and complete tasks — both sprint tasks and project planner tasks.\n\nExamples:\n- 'Add email Art about florals to Menorca'\n- 'Mark the florist task on Julia & Frank as done'\n- 'Update the venue contract task to be due next Friday'",
 };
+
+function changeBadge(msg: Message) {
+  if (!msg.tasks_changed) return null;
+  const n = msg.tasks_count ?? 1;
+  const label =
+    msg.change_type === 'completed' ? (n === 1 ? 'Task completed' : `${n} tasks completed`) :
+    msg.change_type === 'updated'   ? (n === 1 ? 'Task updated'   : `${n} tasks updated`)   :
+    msg.change_type === 'mixed'     ? `${n} tasks updated` :
+    /* created */                     (n === 1 ? 'Task added'     : `${n} tasks added`);
+  return (
+    <div className="flex items-center gap-1.5 mt-1 px-2.5 py-1 rounded-full bg-fq-sage-light border border-fq-sage/20 font-body text-[11px] text-fq-sage font-medium">
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M2 6l3 3 5-5" />
+      </svg>
+      {label}
+    </div>
+  );
+}
+
+function formatMessage(text: string) {
+  return text.split('\n').map((line, i) => {
+    const applyInline = (raw: string) =>
+      raw
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 text-fq-accent hover:opacity-75 transition-opacity">$1</a>');
+
+    if (line.trim().startsWith('- ') || line.trim().startsWith('• ')) {
+      const content = line.trim().replace(/^[-•]\s*/, '');
+      return (
+        <div key={i} className="flex gap-1.5">
+          <span className="text-fq-accent shrink-0 mt-px">•</span>
+          <span dangerouslySetInnerHTML={{ __html: applyInline(content) }} />
+        </div>
+      );
+    }
+
+    const numMatch = line.trim().match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      return (
+        <div key={i} className="flex gap-1.5">
+          <span className="text-fq-accent shrink-0 font-medium">{numMatch[1]}.</span>
+          <span dangerouslySetInnerHTML={{ __html: applyInline(numMatch[2]) }} />
+        </div>
+      );
+    }
+
+    return line.trim() ? (
+      <span key={i} dangerouslySetInnerHTML={{ __html: applyInline(line) }} />
+    ) : (
+      <span key={i} className="h-1 block" />
+    );
+  });
+}
 
 export default function WeekChatPanel({ week, onTaskAdded }: Props) {
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
@@ -48,8 +104,17 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
         }),
       });
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
-      if (data.task_added) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.content,
+          tasks_changed: data.tasks_changed,
+          tasks_count: data.tasks_count,
+          change_type: data.change_type,
+        },
+      ]);
+      if (data.task_added || data.tasks_changed) {
         onTaskAdded();
       }
     } catch {
@@ -76,16 +141,21 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
         {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div
-              className={`max-w-[85%] px-3 py-2 rounded-xl font-body text-[13px] leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[85%] px-3 py-2 rounded-xl font-body text-[13px] leading-relaxed ${
                 msg.role === 'user'
                   ? 'bg-fq-dark text-white rounded-br-sm'
                   : 'bg-fq-bg text-fq-dark rounded-bl-sm'
               }`}
             >
-              {msg.content}
+              {msg.role === 'user' ? (
+                <span className="whitespace-pre-wrap">{msg.content}</span>
+              ) : (
+                <div className="flex flex-col gap-0.5">{formatMessage(msg.content)}</div>
+              )}
             </div>
+            {changeBadge(msg)}
           </div>
         ))}
         {loading && (
