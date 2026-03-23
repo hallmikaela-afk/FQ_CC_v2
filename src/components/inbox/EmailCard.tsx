@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Reply, PenLine, Clock, Check, X } from 'lucide-react';
 
 /* ── Shared types (also used by page + EmailDetail) ── */
@@ -48,7 +48,10 @@ interface Props {
   email: Email;
   isSelected: boolean;
   showStatusPill?: boolean;
+  showTriage?: boolean;           // Untagged tab: show always-visible triage controls
+  projects: Project[];
   onSelect: () => void;
+  onReply: (email: Email) => void;
   onConfirmSuggested: (email: Email) => void;
   onDismissSuggested: (email: Email) => void;
   onToggleFollowup: (email: Email) => void;
@@ -56,6 +59,7 @@ interface Props {
   onNeedsResponse: (email: Email) => void;
   onDraftResponse: (email: Email) => Promise<void>;
   onDismiss: (email: Email) => void;
+  onReassign: (email: Email, projectId: string | null) => void;
 }
 
 /* ── Design tokens ── */
@@ -79,7 +83,7 @@ function projectColors(color: string | null) {
   return COLOR_MAP[(color ?? '').toLowerCase()] ?? { bg: 'bg-fq-light-accent', text: 'text-fq-muted' };
 }
 
-/* ── Project type icon: wedding ring vs camera ── */
+/* ── Project type icon ── */
 function ProjectTypeIcon({ type }: { type: string }) {
   if (type === 'wedding') {
     return (
@@ -130,11 +134,79 @@ function fmtTime(iso: string | null): string {
   return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
 }
 
+/* ── Tooltip wrapper ── */
+function Tip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="relative group/tip">
+      {children}
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 rounded-md bg-fq-dark text-white text-[10px] font-medium whitespace-nowrap opacity-0 group-hover/tip:opacity-100 transition-opacity z-30">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/* ── Project reassign dropdown ── */
+function ReassignDropdown({
+  email,
+  projects,
+  onSelect,
+  onClose,
+}: {
+  email: Email;
+  projects: Project[];
+  onSelect: (projectId: string | null) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="absolute top-full left-0 mt-1 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {projects.map((p) => {
+        const { bg } = projectColors(p.color);
+        const isCurrent = p.id === email.project_id;
+        return (
+          <button
+            key={p.id}
+            onClick={() => { onSelect(p.id); onClose(); }}
+            className={`w-full text-left px-3 py-1.5 font-body text-[12px] hover:bg-fq-light-accent transition-colors flex items-center gap-2 ${tk.body} ${isCurrent ? 'font-semibold' : ''}`}
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${bg}`} />
+            {p.name}
+            {isCurrent && (
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="ml-auto text-fq-sage">
+                <path d="M2 6l3 3 5-5" />
+              </svg>
+            )}
+          </button>
+        );
+      })}
+      <div className="border-t border-fq-border my-1" />
+      <button
+        onClick={() => { onSelect(null); onClose(); }}
+        className={`w-full text-left px-3 py-1.5 font-body text-[12px] hover:bg-fq-light-accent transition-colors flex items-center gap-2 ${tk.light}`}
+      >
+        <span className="w-2 h-2 rounded-full shrink-0 bg-fq-amber/60" />
+        Untagged
+        {!email.project_id && (
+          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="ml-auto text-fq-sage">
+            <path d="M2 6l3 3 5-5" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function EmailCard({
   email,
   isSelected,
   showStatusPill = false,
+  showTriage = false,
+  projects,
   onSelect,
+  onReply,
   onConfirmSuggested,
   onDismissSuggested,
   onToggleFollowup,
@@ -142,12 +214,35 @@ export default function EmailCard({
   onNeedsResponse,
   onDraftResponse,
   onDismiss,
+  onReassign,
 }: Props) {
   const proj        = email.projects;
   const isUntagged  = !email.project_id;
   const isSuggested = email.match_confidence === 'suggested';
   const { bg, text } = proj ? projectColors(proj.color) : { bg: '', text: '' };
-  const [draftLoading, setDraftLoading] = useState(false);
+
+  const [draftLoading,  setDraftLoading]  = useState(false);
+  const [reassignOpen,  setReassignOpen]  = useState(false);
+  const reassignContainerRef = useRef<HTMLDivElement>(null);
+
+  /* ── Close dropdown on outside click ── */
+  useEffect(() => {
+    if (!reassignOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (
+        reassignContainerRef.current &&
+        !reassignContainerRef.current.contains(e.target as Node)
+      ) {
+        setReassignOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [reassignOpen]);
+
+  const handleReassignSelect = (projectId: string | null) => {
+    onReassign(email, projectId);
+  };
 
   return (
     <div
@@ -155,13 +250,13 @@ export default function EmailCard({
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}
-      className={`group relative rounded-xl mb-2 transition-all duration-150 border cursor-pointer overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-fq-accent/40 ${
+      className={`group relative rounded-xl mb-2 transition-all duration-150 border cursor-pointer overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-fq-accent/40 ${
         isSelected
           ? 'bg-fq-light-accent border-fq-accent/35 shadow-sm'
           : 'bg-fq-card border-fq-border hover:border-fq-accent/20 hover:shadow-sm'
       }`}
     >
-      <div className="flex">
+      <div className="flex overflow-visible">
         {/* Amber left-edge stripe for untagged emails */}
         {isUntagged && (
           <div className="w-[3px] shrink-0 bg-fq-amber/55 rounded-l-xl" />
@@ -199,21 +294,57 @@ export default function EmailCard({
 
               {/* Row 4: badges */}
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                {/* Project badge (confirmed match) */}
+
+                {/* ── Project badge (confirmed match) — clickable to reassign ── */}
                 {proj && !isSuggested && (
-                  <span
-                    className={`inline-flex items-center gap-1 font-body text-[11px] font-medium px-2 py-0.5 rounded-full ${bg} ${text}`}
+                  <div
+                    ref={reassignContainerRef}
+                    className="relative"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <ProjectTypeIcon type={proj.type} />
-                    {proj.name}
-                  </span>
+                    <button
+                      onClick={() => setReassignOpen((v) => !v)}
+                      className={`inline-flex items-center gap-1 font-body text-[11px] font-medium px-2 py-0.5 rounded-full ${bg} ${text} hover:opacity-75 transition-opacity`}
+                    >
+                      <ProjectTypeIcon type={proj.type} />
+                      {proj.name}
+                      <svg width="7" height="7" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="ml-0.5">
+                        <path d="M1 2.5l3 3 3-3" />
+                      </svg>
+                    </button>
+                    {reassignOpen && (
+                      <ReassignDropdown
+                        email={email}
+                        projects={projects}
+                        onSelect={handleReassignSelect}
+                        onClose={() => setReassignOpen(false)}
+                      />
+                    )}
+                  </div>
                 )}
 
-                {/* Untagged badge */}
-                {isUntagged && (
-                  <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-amber-light text-fq-amber">
-                    Untagged
-                  </span>
+                {/* ── Untagged badge — clickable to assign a project ── */}
+                {isUntagged && !showTriage && (
+                  <div
+                    ref={reassignContainerRef}
+                    className="relative"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => setReassignOpen((v) => !v)}
+                      className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-amber-light text-fq-amber hover:opacity-75 transition-opacity"
+                    >
+                      Untagged
+                    </button>
+                    {reassignOpen && (
+                      <ReassignDropdown
+                        email={email}
+                        projects={projects}
+                        onSelect={handleReassignSelect}
+                        onClose={() => setReassignOpen(false)}
+                      />
+                    )}
+                  </div>
                 )}
 
                 {/* Suggested match chip */}
@@ -254,7 +385,7 @@ export default function EmailCard({
                   </button>
                 )}
 
-                {/* Status pill — shown in All tab when not already shown via specific badge */}
+                {/* Status pill — shown in All tab */}
                 {showStatusPill && !email.needs_followup && (
                   email.resolved ? (
                     <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-light-accent text-fq-muted/70">
@@ -278,6 +409,43 @@ export default function EmailCard({
                   </span>
                 )}
               </div>
+
+              {/* ── Inline triage panel (Untagged tab only) ── */}
+              {showTriage && (
+                <div
+                  className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-fq-border/60"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    ref={reassignContainerRef}
+                    className="relative flex-1"
+                  >
+                    <button
+                      onClick={() => setReassignOpen((v) => !v)}
+                      className={`w-full text-left px-2.5 py-1.5 font-body text-[11.5px] bg-fq-bg border border-fq-border rounded-lg ${tk.light} hover:border-fq-accent/30 transition-colors flex items-center justify-between`}
+                    >
+                      <span>Tag to project…</span>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M2 3.5l3 3 3-3" />
+                      </svg>
+                    </button>
+                    {reassignOpen && (
+                      <ReassignDropdown
+                        email={email}
+                        projects={projects}
+                        onSelect={handleReassignSelect}
+                        onClose={() => setReassignOpen(false)}
+                      />
+                    )}
+                  </div>
+                  <button
+                    onClick={() => onDismiss(email)}
+                    className={`px-2.5 py-1.5 font-body text-[11.5px] ${tk.light} hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-fq-border hover:border-red-200 shrink-0`}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Chevron — hidden on hover when quick actions appear */}
@@ -292,82 +460,83 @@ export default function EmailCard({
         </div>
       </div>
 
-      {/* ── Quick action bar — absolute overlay, visible on hover ── */}
+      {/* ── Quick action toolbar — absolute overlay, visible on hover ── */}
       <div
         className="absolute top-2.5 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none group-hover:pointer-events-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-0.5 bg-fq-card/95 border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
 
-          {/* 1. Needs Response */}
-          <button
-            onClick={() => onNeedsResponse(email)}
-            title="Needs Response"
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
-              email.needs_response
-                ? 'bg-fq-blue-light text-fq-blue'
-                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-blue'
-            }`}
-          >
-            <Reply size={12} />
-          </button>
+          {/* 1. Reply — opens the email to compose a reply */}
+          <Tip label="Reply">
+            <button
+              onClick={() => onReply(email)}
+              className="w-6 h-6 flex items-center justify-center rounded-md text-fq-muted/55 hover:bg-fq-blue-light hover:text-fq-blue transition-colors"
+            >
+              <Reply size={12} />
+            </button>
+          </Tip>
 
-          {/* 2. Draft Response */}
-          <button
-            onClick={async () => {
-              if (draftLoading || email.draft_message_id) return;
-              setDraftLoading(true);
-              try { await onDraftResponse(email); } finally { setDraftLoading(false); }
-            }}
-            title={email.draft_message_id ? 'Draft Ready' : 'Draft Response'}
-            disabled={draftLoading}
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
-              email.draft_message_id
-                ? 'bg-fq-sage-light text-fq-sage'
-                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-sage'
-            } disabled:opacity-40`}
-          >
-            {draftLoading ? (
-              <span className="w-3 h-3 border border-fq-sage/40 border-t-fq-sage rounded-full animate-spin" />
-            ) : (
-              <PenLine size={12} />
-            )}
-          </button>
+          {/* 2. Draft Response — generates AI draft */}
+          <Tip label={email.draft_message_id ? 'Draft Ready' : 'Draft Response'}>
+            <button
+              onClick={async () => {
+                if (draftLoading || email.draft_message_id) return;
+                setDraftLoading(true);
+                try { await onDraftResponse(email); } finally { setDraftLoading(false); }
+              }}
+              disabled={draftLoading}
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+                email.draft_message_id
+                  ? 'bg-fq-sage-light text-fq-sage'
+                  : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-sage'
+              } disabled:opacity-40`}
+            >
+              {draftLoading ? (
+                <span className="w-3 h-3 border border-fq-sage/40 border-t-fq-sage rounded-full animate-spin" />
+              ) : (
+                <PenLine size={12} />
+              )}
+            </button>
+          </Tip>
 
-          {/* 3. Needs Follow-up */}
-          <button
-            onClick={() => onToggleFollowup(email)}
-            title={email.needs_followup ? 'Remove Follow-up' : 'Needs Follow-up'}
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
-              email.needs_followup
-                ? 'bg-fq-amber-light text-fq-amber'
-                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-amber'
-            }`}
-          >
-            <Clock size={12} />
-          </button>
+          {/* 3. Needs Follow-up — toggles needs_followup */}
+          <Tip label={email.needs_followup ? 'Remove Follow-up' : 'Needs Follow-up'}>
+            <button
+              onClick={() => onToggleFollowup(email)}
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+                email.needs_followup
+                  ? 'bg-fq-amber-light text-fq-amber'
+                  : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-amber'
+              }`}
+            >
+              <Clock size={12} />
+            </button>
+          </Tip>
 
-          {/* 4. Resolved */}
-          <button
-            onClick={() => onResolve(email)}
-            title="Mark Resolved"
-            className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
-              email.resolved
-                ? 'bg-fq-sage-light text-fq-sage'
-                : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-sage'
-            }`}
-          >
-            <Check size={12} />
-          </button>
+          {/* 4. Resolved — sets resolved = true */}
+          <Tip label={email.resolved ? 'Resolved' : 'Mark Resolved'}>
+            <button
+              onClick={() => onResolve(email)}
+              className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${
+                email.resolved
+                  ? 'bg-fq-sage-light text-fq-sage'
+                  : 'text-fq-muted/55 hover:bg-fq-light-accent hover:text-fq-sage'
+              }`}
+            >
+              <Check size={12} />
+            </button>
+          </Tip>
 
-          {/* 5. Dismiss */}
-          <button
-            onClick={() => onDismiss(email)}
-            title="Dismiss"
-            className="w-6 h-6 flex items-center justify-center rounded-md text-fq-muted/55 hover:bg-red-50 hover:text-red-500 transition-colors"
-          >
-            <X size={12} />
-          </button>
+          {/* 5. Dismiss — sets dismissed = true */}
+          <Tip label="Dismiss">
+            <button
+              onClick={() => onDismiss(email)}
+              className="w-6 h-6 flex items-center justify-center rounded-md text-fq-muted/55 hover:bg-red-50 hover:text-red-500 transition-colors"
+            >
+              <X size={12} />
+            </button>
+          </Tip>
 
         </div>
       </div>

@@ -8,7 +8,7 @@ import EmailDetail from '@/components/inbox/EmailDetail';
 import ComposePanel from '@/components/inbox/ComposePanel';
 
 /* ── Filter types ── */
-type TabFilter = 'all' | 'active' | 'needs_response' | 'draft_ready' | 'followup' | 'resolved';
+type TabFilter = 'all' | 'active' | 'needs_response' | 'draft_ready' | 'followup' | 'resolved' | 'untagged';
 
 const TAB_FILTERS: { key: TabFilter; label: string }[] = [
   { key: 'all',            label: 'All' },
@@ -17,6 +17,7 @@ const TAB_FILTERS: { key: TabFilter; label: string }[] = [
   { key: 'draft_ready',    label: 'Draft Ready' },
   { key: 'followup',       label: 'Needs Follow-up' },
   { key: 'resolved',       label: 'Resolved' },
+  // 'untagged' is appended dynamically only when its count > 0
 ];
 
 /* ── Inbox rules ── */
@@ -283,19 +284,21 @@ export default function InboxPage() {
         case 'active':
           return !!e.project_id && !e.resolved;
         case 'needs_response':
-          return !!e.needs_response && !e.resolved;
+          return !!e.project_id && !!e.needs_response && !e.resolved;
         case 'draft_ready':
-          return !!e.draft_message_id && !e.resolved;
+          return !!e.project_id && !!e.draft_message_id && !e.resolved;
         case 'followup':
-          return e.needs_followup && !e.resolved;
+          return !!e.project_id && e.needs_followup && !e.resolved;
         case 'resolved':
           return !!e.project_id && e.resolved;
+        case 'untagged':
+          return !e.project_id && !e.dismissed;
         default:
           return false;
       }
-    }).filter((e) => !projectFilter || e.project_id === projectFilter);
+    }).filter((e) => tabFilter === 'untagged' || !projectFilter || e.project_id === projectFilter);
 
-    if (tabFilter === 'all') {
+    if (tabFilter === 'all' || tabFilter === 'untagged') {
       return [...byTab].sort((a, b) =>
         (b.received_at ?? '').localeCompare(a.received_at ?? ''),
       );
@@ -311,17 +314,24 @@ export default function InboxPage() {
         case 'active':
           return visibleEmails.filter((e) => !!e.project_id && !e.resolved).length;
         case 'needs_response':
-          return visibleEmails.filter((e) => !!e.needs_response && !e.resolved).length;
+          return visibleEmails.filter((e) => !!e.project_id && !!e.needs_response && !e.resolved).length;
         case 'draft_ready':
-          return visibleEmails.filter((e) => !!e.draft_message_id && !e.resolved).length;
+          return visibleEmails.filter((e) => !!e.project_id && !!e.draft_message_id && !e.resolved).length;
         case 'followup':
-          return visibleEmails.filter((e) => e.needs_followup && !e.resolved).length;
+          return visibleEmails.filter((e) => !!e.project_id && e.needs_followup && !e.resolved).length;
         case 'resolved':
           return visibleEmails.filter((e) => !!e.project_id && e.resolved).length;
+        case 'untagged':
+          return visibleEmails.filter((e) => !e.project_id && !e.dismissed).length;
         default:
           return 0;
       }
     },
+    [visibleEmails],
+  );
+
+  const untaggedCount = useMemo(
+    () => visibleEmails.filter((e) => !e.project_id && !e.dismissed).length,
     [visibleEmails],
   );
 
@@ -405,6 +415,40 @@ export default function InboxPage() {
       showToast('Email dismissed', () => patch(email.id, { dismissed: false }));
     },
     [patch, showToast],
+  );
+
+  const handleReply = useCallback(
+    (email: Email) => {
+      handleSelectEmail(email);
+    },
+    [handleSelectEmail],
+  );
+
+  const handleReassign = useCallback(
+    async (email: Email, projectId: string | null) => {
+      // Optimistic update
+      const targetProject = projectId ? projects.find((p) => p.id === projectId) ?? null : null;
+      setEmails((prev) =>
+        prev.map((e) => {
+          if (e.id !== email.id) return e;
+          return {
+            ...e,
+            project_id:       projectId,
+            match_confidence: projectId ? 'exact' : null,
+            dismissed:        false,
+            projects: targetProject
+              ? { id: targetProject.id, name: targetProject.name, type: targetProject.type, color: targetProject.color, event_date: null }
+              : null,
+          };
+        }),
+      );
+      await fetch('/api/emails/reassign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_id: email.id, project_id: projectId }),
+      });
+    },
+    [projects],
   );
 
   const handleTriageSave = async (opts: {
@@ -591,7 +635,10 @@ export default function InboxPage() {
         {/* Tab filter bar — hidden when searching */}
         {!searchQuery && (
           <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
-            {TAB_FILTERS.map((f) => {
+            {[
+              ...TAB_FILTERS,
+              ...(untaggedCount > 0 ? [{ key: 'untagged' as TabFilter, label: 'Untagged' }] : []),
+            ].map((f) => {
               const count  = countFor(f.key);
               const active = tabFilter === f.key;
               return (
@@ -600,7 +647,9 @@ export default function InboxPage() {
                   onClick={() => setTabFilter(f.key)}
                   className={`font-body text-[12px] px-3 py-1.5 rounded-full transition-all ${
                     active
-                      ? 'bg-fq-dark text-white font-medium'
+                      ? f.key === 'untagged'
+                        ? 'bg-fq-amber text-white font-medium'
+                        : 'bg-fq-dark text-white font-medium'
                       : `${tk.light} hover:text-fq-dark hover:bg-fq-light-accent`
                   }`}
                 >
@@ -654,7 +703,9 @@ export default function InboxPage() {
                   key={email.id}
                   email={email}
                   isSelected={selectedId === email.id}
+                  projects={projects}
                   onSelect={() => handleSelectEmail(email)}
+                  onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
                   onToggleFollowup={handleToggleFollowup}
@@ -662,6 +713,7 @@ export default function InboxPage() {
                   onNeedsResponse={handleNeedsResponse}
                   onDraftResponse={handleDraftResponse}
                   onDismiss={handleDismiss}
+                  onReassign={handleReassign}
                 />
               ))}
             </>
@@ -692,6 +744,8 @@ export default function InboxPage() {
                       ? 'No emails need follow-up right now.'
                       : tabFilter === 'resolved'
                       ? 'No resolved emails yet.'
+                      : tabFilter === 'untagged'
+                      ? 'All emails are tagged — great work!'
                       : 'No emails in this view.'}
                   </p>
                 </div>
@@ -703,7 +757,10 @@ export default function InboxPage() {
                   email={email}
                   isSelected={selectedId === email.id}
                   showStatusPill={tabFilter === 'all'}
+                  showTriage={tabFilter === 'untagged'}
+                  projects={projects}
                   onSelect={() => handleSelectEmail(email)}
+                  onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
                   onToggleFollowup={handleToggleFollowup}
@@ -711,6 +768,7 @@ export default function InboxPage() {
                   onNeedsResponse={handleNeedsResponse}
                   onDraftResponse={handleDraftResponse}
                   onDismiss={handleDismiss}
+                  onReassign={handleReassign}
                 />
               ))}
             </>

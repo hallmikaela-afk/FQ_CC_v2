@@ -45,7 +45,27 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── Purge any Outlook draft emails that slipped into the DB ─────────────
+  // Find the Drafts folder id and delete matching rows (fire-and-forget).
+  supabase
+    .from('mail_folders')
+    .select('folder_id')
+    .ilike('display_name', 'drafts')
+    .then(({ data: draftFolders }) => {
+      const draftFolderIds = (draftFolders ?? []).map((f: { folder_id: string }) => f.folder_id);
+      if (draftFolderIds.length > 0) {
+        supabase.from('emails').delete().in('folder_id', draftFolderIds).then(() => {});
+      }
+    });
+
   // ── Query Supabase cache ─────────────────────────────────────────────────
+  // Also look up draft folder IDs to exclude them from results
+  const { data: draftFolderRows } = await supabase
+    .from('mail_folders')
+    .select('folder_id')
+    .ilike('display_name', 'drafts');
+  const draftFolderIds = (draftFolderRows ?? []).map((f: { folder_id: string }) => f.folder_id);
+
   let query = supabase
     .from('emails')
     .select(
@@ -66,6 +86,11 @@ export async function GET(request: Request) {
   // Never surface receipts or dismissed emails in the main inbox view
   query = query.or('category.is.null,category.neq.receipt');
   query = query.or('dismissed.is.null,dismissed.eq.false');
+
+  // Exclude Outlook draft emails that may have been synced before the skip-folder fix
+  if (draftFolderIds.length > 0 && !folderId) {
+    query = query.not('folder_id', 'in', `(${draftFolderIds.join(',')})`);
+  }
 
   if (filter === 'tagged') query = query.not('project_id', 'is', null);
   if (filter === 'untagged') query = query.is('project_id', null);
