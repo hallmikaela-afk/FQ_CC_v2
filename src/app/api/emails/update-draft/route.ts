@@ -16,7 +16,7 @@ import { buildOutgoingHtml } from '@/lib/emailSignature';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  const { action, draft_message_id, body, email_id } = await request.json();
+  const { action, draft_message_id, body, body_is_html, email_id } = await request.json();
 
   if (!draft_message_id) {
     return NextResponse.json({ error: 'Missing draft_message_id' }, { status: 400 });
@@ -25,7 +25,11 @@ export async function POST(request: Request) {
   try {
     // Always update the draft body when provided, wrapped in HTML template
     if (body !== undefined) {
-      const htmlContent = buildOutgoingHtml(body.replace(/\n/g, '<br>'));
+      // body_is_html=true means the body is already HTML (from contentEditable);
+      // otherwise it's plain text and needs \n→<br> conversion first.
+      const htmlContent = buildOutgoingHtml(
+        body_is_html ? body : body.replace(/\n/g, '<br>'),
+      );
       await graphFetch(`/me/messages/${encodeURIComponent(draft_message_id)}`, {
         method: 'PATCH',
         body: JSON.stringify({

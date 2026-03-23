@@ -29,8 +29,16 @@ export async function GET(request: Request) {
 
     let text = rawContent;
     if (contentType === 'html') {
-      // Strip HTML tags for plain-text display in textarea
-      text = rawContent
+      // Remove the FQ signature block before stripping so it isn't shown
+      // in the editor (the DraftCard renders the signature separately below).
+      // The signature div is identified by its distinctive border-top style.
+      text = rawContent.replace(
+        /<div[^>]*border-top:\s*1px solid #E8E4DF[^>]*>[\s\S]*?<\/div>/gi,
+        '',
+      );
+
+      // Strip remaining HTML tags for plain-text display in textarea
+      text = text
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<\/p>/gi, '\n')
         .replace(/<[^>]+>/g, '')

@@ -367,7 +367,6 @@ function DraftCard({
   onPatch: (id: string, updates: Record<string, unknown>) => void;
   showToast: (msg: string) => void;
 }) {
-  const [draftBody, setDraftBody]           = useState('');
   const [loading, setLoading]               = useState(true);
   const [saveStatus, setSaveStatus]         = useState<'idle' | 'saving' | 'saved'>('idle');
   const [sending, setSending]               = useState(false);
@@ -376,21 +375,67 @@ function DraftCard({
   const [aiInstruction, setAiInstruction]   = useState('');
   const [aiRegenerating, setAiRegenerating] = useState(false);
   const [deleting, setDeleting]             = useState(false);
+  const [colorOpen, setColorOpen]           = useState(false);
+  const [activeColor, setActiveColor]       = useState('#2C2C2C');
+  const bodyRef     = useRef<HTMLDivElement>(null);
+  const colorBtnRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const COLORS = [
+    { label: 'Black',      value: '#2C2C2C' },
+    { label: 'Dark Red',   value: '#6B2737' },
+    { label: 'Warm Brown', value: '#8B6F4E' },
+    { label: 'Gray',       value: '#9B8E82' },
+    { label: 'White',      value: '#FFFFFF' },
+  ];
 
   // Fetch draft body from Graph on mount
   useEffect(() => {
     if (!email.draft_message_id) { setLoading(false); return; }
     fetch(`/api/emails/draft-content?draft_message_id=${encodeURIComponent(email.draft_message_id)}`)
       .then((r) => r.json())
-      .then((data) => { if (data.body) setDraftBody(data.body); })
+      .then((data) => {
+        if (data.body && bodyRef.current) {
+          bodyRef.current.innerHTML = data.body.replace(/\n/g, '<br>');
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [email.draft_message_id]);
 
-  // Auto-save with 300ms debounce
-  const handleChange = (val: string) => {
-    setDraftBody(val);
+  // Close color picker on outside click
+  useEffect(() => {
+    if (!colorOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (colorBtnRef.current && !colorBtnRef.current.contains(e.target as Node)) setColorOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [colorOpen]);
+
+  const execCmd   = (cmd: string) => { bodyRef.current?.focus(); document.execCommand(cmd, false, undefined); };
+  const applyColor = (color: string) => {
+    bodyRef.current?.focus();
+    document.execCommand('foreColor', false, color);
+    setActiveColor(color);
+    setColorOpen(false);
+  };
+
+  const toolBtn = (title: string, cmd: string, icon: ReactNode) => (
+    <button
+      key={cmd}
+      type="button"
+      title={title}
+      onMouseDown={(e) => { e.preventDefault(); execCmd(cmd); }}
+      className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+    >
+      {icon}
+    </button>
+  );
+
+  // Debounced auto-save (sends innerHTML to Outlook)
+  const triggerSave = () => {
+    const html = bodyRef.current?.innerHTML ?? '';
     setSaveStatus('saving');
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -401,7 +446,8 @@ function DraftCard({
           body: JSON.stringify({
             action: 'update',
             draft_message_id: email.draft_message_id,
-            body: val,
+            body: html,
+            body_is_html: true,
           }),
         });
         setSaveStatus('saved');
@@ -413,7 +459,9 @@ function DraftCard({
   };
 
   const handleSend = async () => {
-    if (!draftBody.trim() || !email.draft_message_id) return;
+    if (!email.draft_message_id) return;
+    const html = bodyRef.current?.innerHTML ?? '';
+    if (!bodyRef.current?.innerText?.trim()) return;
     setSending(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     try {
@@ -423,7 +471,8 @@ function DraftCard({
         body: JSON.stringify({
           action: 'send',
           draft_message_id: email.draft_message_id,
-          body: draftBody,
+          body: html,
+          body_is_html: true,
           email_id: email.id,
         }),
       });
@@ -441,7 +490,7 @@ function DraftCard({
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(draftBody).catch(() => {});
+    navigator.clipboard.writeText(bodyRef.current?.innerText ?? '').catch(() => {});
     showToast('Copied to clipboard');
   };
 
@@ -460,12 +509,13 @@ function DraftCard({
         body: JSON.stringify({
           email_id: email.id,
           instruction: aiInstruction.trim(),
-          current_draft: draftBody,
+          current_draft: bodyRef.current?.innerText ?? '',
         }),
       });
       const data = await res.json();
-      if (data.draft) {
-        handleChange(data.draft);
+      if (data.draft && bodyRef.current) {
+        bodyRef.current.innerHTML = data.draft.replace(/\n/g, '<br>');
+        triggerSave();
         setAiAssistOpen(false);
         setAiInstruction('');
         showToast('Draft updated ✓');
@@ -503,7 +553,7 @@ function DraftCard({
       className="rounded-xl border border-fq-border bg-fq-card"
       style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="px-4 py-2.5 border-b border-fq-border bg-fq-amber-light/25 flex items-center justify-between">
         <span className={`font-heading text-[13.5px] font-semibold ${tk.heading}`}>
           ✉ AI Draft Response
@@ -540,7 +590,7 @@ function DraftCard({
         </div>
       </div>
 
-      {/* AI Assist inline instruction panel */}
+      {/* ── AI Assist inline instruction panel ── */}
       {aiAssistOpen && (
         <div className="px-4 py-3 border-b border-fq-border bg-fq-blue-light/15">
           <textarea
@@ -549,7 +599,7 @@ function DraftCard({
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRegenerate(); }}
             placeholder="e.g. make this shorter, more formal, add that we'll follow up by Friday..."
             rows={2}
-            className={`w-full px-3 py-2 rounded-lg border border-fq-border font-body text-[12.5px] ${tk.body} placeholder:text-fq-muted/45 focus:outline-none focus:ring-1 focus:ring-fq-blue/30 bg-fq-card resize-none`}
+            className={`w-full px-3 py-2 rounded-lg border border-fq-border font-body text-[12.5px] text-fq-dark/85 placeholder:text-fq-muted/45 focus:outline-none focus:ring-1 focus:ring-fq-blue/30 bg-fq-card resize-none`}
             autoFocus
           />
           <div className="flex items-center gap-2 mt-2">
@@ -575,31 +625,78 @@ function DraftCard({
         </div>
       )}
 
-      {/* Editable draft body */}
+      {/* ── Rich text toolbar ── */}
+      {!loading && (
+        <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
+          {toolBtn('Bold',          'bold',                <Bold size={13} />)}
+          {toolBtn('Italic',        'italic',              <Italic size={13} />)}
+          {toolBtn('Underline',     'underline',           <Underline size={13} />)}
+          <div className="w-px h-4 bg-fq-border mx-1" />
+          {toolBtn('Bullet list',   'insertUnorderedList', <List size={13} />)}
+          {toolBtn('Numbered list', 'insertOrderedList',   <ListOrdered size={13} />)}
+          <div className="w-px h-4 bg-fq-border mx-1" />
+          <div ref={colorBtnRef} className="relative">
+            <button
+              type="button"
+              title="Font color"
+              onMouseDown={(e) => { e.preventDefault(); setColorOpen((v) => !v); }}
+              className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+            >
+              <span className="flex flex-col items-center gap-[1.5px]">
+                <span className="font-bold text-[12px] leading-none">A</span>
+                <span className="w-[11px] h-[2.5px] rounded-full" style={{ backgroundColor: activeColor }} />
+              </span>
+            </button>
+            {colorOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 bg-fq-card border border-fq-border rounded-lg shadow-md p-2 flex gap-1.5">
+                {COLORS.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    title={c.label}
+                    onMouseDown={(e) => { e.preventDefault(); applyColor(c.value); }}
+                    className="w-5 h-5 rounded-full border border-fq-border/60 hover:scale-110 transition-transform flex-shrink-0"
+                    style={{
+                      backgroundColor: c.value,
+                      outline: activeColor === c.value ? '2px solid #8B6F4E' : undefined,
+                      outlineOffset: '2px',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Editable body ── */}
       {loading ? (
         <div className={`px-4 py-4 font-body text-[12.5px] ${tk.light}`}>Loading draft…</div>
       ) : (
-        <textarea
-          value={draftBody}
-          onChange={(e) => handleChange(e.target.value)}
-          rows={8}
-          placeholder="Draft content…"
-          className={`w-full px-4 py-3 font-body text-[13px] ${tk.body} focus:outline-none resize-none leading-relaxed bg-transparent focus:ring-1 focus:ring-inset focus:ring-fq-accent/20`}
+        <div
+          ref={bodyRef}
+          contentEditable
+          suppressContentEditableWarning
+          data-placeholder="Draft content…"
+          onInput={triggerSave}
+          style={{ color: '#2C2C2C' }}
+          className={`min-h-[140px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
+            empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
         />
       )}
 
-      {/* Signature preview — mirrors the reply composer */}
+      {/* ── Signature preview ── */}
       {!loading && (
         <div className="px-4 pb-3">
           <div dangerouslySetInnerHTML={{ __html: emailSignatureHtml }} />
         </div>
       )}
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       <div className="px-4 py-2.5 border-t border-fq-border flex items-center gap-2">
         <button
           onClick={handleSend}
-          disabled={sending || !draftBody.trim()}
+          disabled={sending}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fq-dark text-white font-body text-[12.5px] font-medium hover:bg-fq-dark/85 transition-colors disabled:opacity-40"
         >
           {sending ? 'Sending…' : 'Send'}
