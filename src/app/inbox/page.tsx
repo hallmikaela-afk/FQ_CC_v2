@@ -421,21 +421,36 @@ export default function InboxPage() {
       // Show "Generating draft…" in the composer zone
       setGeneratingDraftFor(email.id);
       try {
-        const res  = await fetch('/api/emails/quick-draft', {
+        // Step 1: Generate draft text with Claude (~5-8s, stays under Vercel 10s limit)
+        const res1 = await fetch('/api/emails/quick-draft', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email_id: email.id }),
         });
-        const data = await res.json();
+        const data1 = await res1.json();
 
-        if (data.draft_message_id) {
-          // Full success — Outlook draft created and saved
-          patch(email.id, { draft_message_id: data.draft_message_id });
-        } else if (data.draft_text) {
-          // Claude generated text but Outlook save failed — show in reply panel
-          setDraftFallbackText(data.draft_text);
+        if (!data1.draft_text) return;
+
+        // Step 2: Save draft to Outlook (~2-3s, separate request under 10s limit)
+        try {
+          const res2 = await fetch('/api/emails/save-draft', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email_id: email.id, draft_text: data1.draft_text }),
+          });
+          const data2 = await res2.json();
+
+          if (data2.draft_message_id) {
+            // Full success — Outlook draft created and saved
+            patch(email.id, { draft_message_id: data2.draft_message_id });
+          } else {
+            // Outlook save failed — show text in reply panel as fallback
+            setDraftFallbackText(data1.draft_text);
+          }
+        } catch {
+          // Outlook save failed — show text in reply panel as fallback
+          setDraftFallbackText(data1.draft_text);
         }
-        // If neither, the error will be surfaced via the draftError prop
       } finally {
         setGeneratingDraftFor(null);
       }

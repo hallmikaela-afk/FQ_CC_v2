@@ -1,18 +1,16 @@
 /**
  * /api/emails/quick-draft
  *
- * POST — One-click draft: generate AI reply with Claude, save as draft in
- *        Outlook via Graph, then record the draft_message_id on the email row.
+ * POST — Step 1 of 2: Generate AI reply text with Claude.
+ *        Does NOT save to Outlook (kept separate to stay under Vercel Hobby 10s limit).
+ *        Returns { draft_text } — caller should then POST /api/emails/save-draft.
  */
 
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { graphFetch } from '@/lib/microsoft-graph';
 import { getServiceSupabase } from '@/lib/supabase';
-import { buildOutgoingHtml } from '@/lib/emailSignature';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
 
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -87,7 +85,6 @@ ${email.body || email.body_preview || '(no content)'}
 ---
 ${projectContext}`;
 
-  let draftText = '';
   try {
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -96,46 +93,12 @@ ${projectContext}`;
       messages: [{ role: 'user', content: userMessage }],
     });
     const textContent = response.content.find((c) => c.type === 'text');
-    draftText = (textContent as { type: 'text'; text: string } | undefined)?.text ?? '';
+    const draftText = (textContent as { type: 'text'; text: string } | undefined)?.text ?? '';
+    return NextResponse.json({ draft_text: draftText });
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Claude error' },
       { status: 500 },
     );
   }
-
-  // ── Save as draft reply in Outlook ────────────────────────────────────────
-  let draftMessageId: string | null = null;
-  try {
-    // Create a blank draft reply (POST createReply returns the new draft)
-    const draft = await graphFetch(
-      `/me/messages/${encodeURIComponent(email.message_id)}/createReply`,
-      { method: 'POST', body: JSON.stringify({}) },
-    ) as { id: string } | null;
-
-    if (draft?.id) {
-      draftMessageId = draft.id;
-
-      // Set the body of the draft as HTML with signature
-      const draftHtml = buildOutgoingHtml(draftText.replace(/\n/g, '<br>'));
-      await graphFetch(`/me/messages/${encodeURIComponent(draftMessageId)}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          body: { contentType: 'HTML', content: draftHtml },
-        }),
-      });
-
-      // Record draft_message_id in Supabase
-      await supabase
-        .from('emails')
-        .update({ draft_message_id: draftMessageId })
-        .eq('id', email_id);
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[quick-draft] Graph error:', msg);
-    return NextResponse.json({ draft_text: draftText, draft_message_id: null, graph_error: msg });
-  }
-
-  return NextResponse.json({ draft_message_id: draftMessageId, draft_text: draftText });
 }
