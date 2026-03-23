@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
-import { buildReplyHtml, emailSignatureHtml } from '@/lib/emailSignature';
+import { buildReplyHtml, emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
 import { AddressField, useContacts, chipsToRecipients, type ContactChip } from './AddressField';
 
 interface Props {
@@ -1095,11 +1095,295 @@ function AddToTaskPanel({
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   ForwardPanel — inline forward composer (lives inside the detail panel)
+───────────────────────────────────────────────────────────────────────────── */
+function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void }) {
+  const [toChips,   setToChips]   = useState<ContactChip[]>([]);
+  const [ccChips,   setCcChips]   = useState<ContactChip[]>([]);
+  const [bccChips,  setBccChips]  = useState<ContactChip[]>([]);
+  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [sending,   setSending]   = useState(false);
+  const [sent,      setSent]      = useState(false);
+  const [colorOpen,   setColorOpen]   = useState(false);
+  const [activeColor, setActiveColor] = useState('#2C2C2C');
+  const contacts    = useContacts();
+  const bodyRef     = useRef<HTMLDivElement>(null);
+  const sigRef      = useRef<HTMLDivElement>(null);
+  const colorBtnRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { bodyRef.current?.focus(); }, []);
+
+  useEffect(() => {
+    if (!colorOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (colorBtnRef.current && !colorBtnRef.current.contains(e.target as Node)) setColorOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [colorOpen]);
+
+  const execCmd   = (cmd: string) => { bodyRef.current?.focus(); document.execCommand(cmd, false, undefined); };
+  const applyColor = (color: string) => {
+    bodyRef.current?.focus();
+    document.execCommand('foreColor', false, color);
+    setActiveColor(color);
+    setColorOpen(false);
+  };
+
+  const COLORS = [
+    { label: 'Black',      value: '#2C2C2C' },
+    { label: 'Dark Red',   value: '#6B2737' },
+    { label: 'Warm Brown', value: '#8B6F4E' },
+    { label: 'Gray',       value: '#9B8E82' },
+    { label: 'White',      value: '#FFFFFF' },
+  ];
+
+  const toolBtn = (title: string, cmd: string, icon: ReactNode) => (
+    <button
+      type="button"
+      key={cmd}
+      title={title}
+      onMouseDown={(e) => { e.preventDefault(); execCmd(cmd); }}
+      className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+    >
+      {icon}
+    </button>
+  );
+
+  const buildForwardHtml = (): string => {
+    const userHtml = bodyRef.current?.innerHTML ?? '';
+    const sigHtml  = sigRef.current?.innerHTML ?? emailSignatureHtml;
+    const originalDate = fmtFull(email.received_at);
+    const from = [email.from_name, email.from_email ? `&lt;${email.from_email}&gt;` : ''].filter(Boolean).join(' ');
+    const originalBody = email.body || (email.body_preview ?? '').replace(/\n/g, '<br>');
+    const fwdBlock = [
+      `<div style="border-top:1px solid #E8E4DF;margin-top:16px;padding-top:12px;`,
+      `font-family:Optima,'Palatino Linotype',Georgia,serif;font-size:13px;color:#6B6B6B;line-height:1.7;">`,
+      `<p style="margin:0 0 8px 0;color:#9B8E82;font-size:10.5px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;">`,
+      `Forwarded Message</p>`,
+      `<p style="margin:0 0 3px 0"><strong style="color:#5a5a5a">From:</strong> ${from}</p>`,
+      `<p style="margin:0 0 3px 0"><strong style="color:#5a5a5a">Date:</strong> ${originalDate}</p>`,
+      `<p style="margin:0 0 3px 0"><strong style="color:#5a5a5a">Subject:</strong> ${email.subject ?? '(no subject)'}</p>`,
+      `<p style="margin:0 0 12px 0"><strong style="color:#5a5a5a">To:</strong> Mikaela Hall &lt;Mikaela@foxandquinn.co&gt;</p>`,
+      `<div>${originalBody}</div></div>`,
+    ].join('');
+    return wrapHtmlEmail(`${userHtml}<br><br>${sigHtml}${fwdBlock}`);
+  };
+
+  const handleSend = async () => {
+    if (toChips.length === 0) return;
+    setSending(true);
+    try {
+      const res = await fetch('/api/emails/compose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action:     'send',
+          to:         chipsToRecipients(toChips),
+          cc:         chipsToRecipients(ccChips),
+          bcc:        chipsToRecipients(bccChips),
+          subject:    `FW: ${email.subject ?? '(no subject)'}`,
+          body:       buildForwardHtml(),
+          project_id: email.project_id ?? null,
+        }),
+      });
+      if (res.ok) setSent(true);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <div className="px-4 py-3 rounded-xl bg-fq-sage-light border border-fq-sage/20">
+        <p className="font-body text-[12.5px] text-fq-sage">✓ Forwarded.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
+
+      {/* ── Header rows: label + To/CC/BCC/Subject ── */}
+      <div className="divide-y divide-fq-border border-b border-fq-border">
+        {/* Header */}
+        <div className="px-4 py-2 bg-fq-light-accent/40 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CornerUpRight size={12} className="text-fq-accent" />
+            <span className={`font-body text-[11.5px] font-medium ${tk.light}`}>Forward</span>
+          </div>
+          {!showCcBcc && (
+            <button
+              type="button"
+              onClick={() => setShowCcBcc(true)}
+              className={`font-body text-[11px] font-medium ${tk.light} hover:text-fq-dark transition-colors`}
+            >
+              + CC / BCC
+            </button>
+          )}
+        </div>
+
+        {/* To */}
+        <div className="px-4 py-2">
+          <AddressField label="To" chips={toChips} onChipsChange={setToChips} contacts={contacts} />
+        </div>
+
+        {/* CC + BCC (expanded) */}
+        {showCcBcc && (
+          <>
+            <div className="px-4 py-2">
+              <AddressField label="CC" chips={ccChips} onChipsChange={setCcChips} contacts={contacts} />
+            </div>
+            <div className="px-4 py-2">
+              <AddressField label="BCC" chips={bccChips} onChipsChange={setBccChips} contacts={contacts} />
+            </div>
+          </>
+        )}
+
+        {/* Subject (display-only) */}
+        <div className="px-4 py-2 flex items-center gap-2">
+          <span className={`font-body text-[11.5px] font-medium ${tk.light} w-14 shrink-0`}>Subject</span>
+          <span className="font-body text-[13px] text-fq-dark/85 truncate">
+            FW: {email.subject ?? '(no subject)'}
+          </span>
+        </div>
+      </div>
+
+      {/* ── Rich text toolbar ── */}
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
+        {toolBtn('Bold',           'bold',                <Bold size={13} />)}
+        {toolBtn('Italic',         'italic',              <Italic size={13} />)}
+        {toolBtn('Underline',      'underline',           <Underline size={13} />)}
+        <div className="w-px h-4 bg-fq-border mx-1" />
+        {toolBtn('Bullet list',    'insertUnorderedList', <List size={13} />)}
+        {toolBtn('Numbered list',  'insertOrderedList',   <ListOrdered size={13} />)}
+        <div className="w-px h-4 bg-fq-border mx-1" />
+        <div ref={colorBtnRef} className="relative">
+          <button
+            type="button"
+            title="Font color"
+            onMouseDown={(e) => { e.preventDefault(); setColorOpen((v) => !v); }}
+            className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+          >
+            <span className="flex flex-col items-center gap-[1.5px]">
+              <span className="font-bold text-[12px] leading-none">A</span>
+              <span className="w-[11px] h-[2.5px] rounded-full" style={{ backgroundColor: activeColor }} />
+            </span>
+          </button>
+          {colorOpen && (
+            <div className="absolute left-0 top-full mt-1 z-50 bg-fq-card border border-fq-border rounded-lg shadow-md p-2 flex gap-1.5">
+              {COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  title={c.label}
+                  onMouseDown={(e) => { e.preventDefault(); applyColor(c.value); }}
+                  className="w-5 h-5 rounded-full border border-fq-border/60 hover:scale-110 transition-transform flex-shrink-0"
+                  style={{
+                    backgroundColor: c.value,
+                    outline: activeColor === c.value ? '2px solid #8B6F4E' : undefined,
+                    outlineOffset: '2px',
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Compose body ── */}
+      <div
+        ref={bodyRef}
+        contentEditable
+        suppressContentEditableWarning
+        data-placeholder="Add a message…"
+        style={{ color: '#2C2C2C' }}
+        className={`min-h-[100px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
+          empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
+      />
+
+      {/* ── Editable signature ── */}
+      <div className="px-4 pb-2">
+        <div
+          ref={sigRef}
+          contentEditable
+          suppressContentEditableWarning
+          className="focus:outline-none"
+          dangerouslySetInnerHTML={{ __html: emailSignatureHtml }}
+        />
+      </div>
+
+      {/* ── Forwarded message preview (decorative; actual HTML built on send) ── */}
+      <div className="px-4 pb-4">
+        <div style={{
+          borderTop: '1px solid #E8E4DF',
+          paddingTop: '12px',
+          marginTop: '4px',
+          fontFamily: "Optima, 'Palatino Linotype', Georgia, serif",
+          fontSize: '12.5px',
+          color: '#9B8E82',
+          lineHeight: '1.7',
+        }}>
+          <p style={{ margin: '0 0 6px 0', fontSize: '10.5px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#B0A89E' }}>
+            Forwarded Message
+          </p>
+          <p style={{ margin: '0 0 2px 0' }}>
+            <strong style={{ color: '#6B6B6B' }}>From:</strong>{' '}
+            {email.from_name ? `${email.from_name} <${email.from_email}>` : email.from_email}
+          </p>
+          <p style={{ margin: '0 0 2px 0' }}>
+            <strong style={{ color: '#6B6B6B' }}>Date:</strong> {fmtFull(email.received_at)}
+          </p>
+          <p style={{ margin: '0 0 2px 0' }}>
+            <strong style={{ color: '#6B6B6B' }}>Subject:</strong> {email.subject ?? '(no subject)'}
+          </p>
+          <p style={{ margin: '0 0 10px 0' }}>
+            <strong style={{ color: '#6B6B6B' }}>To:</strong> Mikaela Hall &lt;Mikaela@foxandquinn.co&gt;
+          </p>
+          <div className="font-body text-[12px] line-clamp-4" style={{ color: '#9B8E82' }}>
+            {email.body_preview ?? ''}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Footer: send / attach / cancel ── */}
+      <div className="px-4 py-2.5 border-t border-fq-border flex items-center gap-2 bg-fq-bg/40">
+        <button
+          onClick={handleSend}
+          disabled={sending || toChips.length === 0}
+          className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fq-accent text-white font-body text-[12.5px] font-medium hover:bg-fq-accent/90 transition-colors disabled:opacity-50"
+        >
+          <CornerUpRight size={12} />
+          {sending ? 'Sending…' : 'Forward'}
+        </button>
+
+        <button
+          type="button"
+          title="Google Drive attachments coming soon"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
+        >
+          <Paperclip size={12} />
+          Attach
+        </button>
+
+        <button
+          onClick={onClose}
+          className={`ml-auto font-body text-[12px] ${tk.light} hover:text-fq-dark transition-colors`}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
 export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false }: Props) {
-  const [replyOpen, setReplyOpen]         = useState(false);
-  const [taskOpen, setTaskOpen]           = useState(false);
+  const [replyOpen,    setReplyOpen]    = useState(false);
+  const [forwardOpen,  setForwardOpen]  = useState(false);
+  const [taskOpen,     setTaskOpen]     = useState(false);
   const [addToTaskOpen, setAddToTaskOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting]           = useState(false);
@@ -1117,12 +1401,13 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   };
 
-  const openPanel = (panel: 'task' | 'addToTask' | 'reply' | 'none') => {
+  const openPanel = (panel: 'task' | 'addToTask' | 'reply' | 'forward' | 'none') => {
     setTaskOpen(panel === 'task');
     setAddToTaskOpen(panel === 'addToTask');
     setReplyOpen(panel === 'reply');
-    // When opening reply (or focusing draft), scroll composer into view at top
-    if (panel === 'reply') {
+    setForwardOpen(panel === 'forward');
+    // Scroll composer into view at top when opening reply or forward
+    if (panel === 'reply' || panel === 'forward') {
       setTimeout(() => scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
     }
   };
@@ -1159,6 +1444,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   // Reset panels when email changes
   useEffect(() => {
     setReplyOpen(false);
+    setForwardOpen(false);
     setTaskOpen(false);
     setAddToTaskOpen(false);
     setDeleteConfirm(false);
@@ -1375,6 +1661,8 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           </div>
         ) : replyOpen ? (
           <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} />
+        ) : forwardOpen ? (
+          <ForwardPanel email={email} onClose={() => setForwardOpen(false)} />
         ) : null}
 
         {/* Email body */}
@@ -1462,6 +1750,17 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           >
             <Reply size={12} />
             Reply
+          </button>
+        )}
+
+        {/* Forward */}
+        {!forwardOpen && (
+          <button
+            onClick={() => openPanel(forwardOpen ? 'none' : 'forward')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
+          >
+            <CornerUpRight size={12} />
+            Forward
           </button>
         )}
 
