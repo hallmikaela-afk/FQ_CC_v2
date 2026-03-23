@@ -127,7 +127,8 @@ export default function InboxPage() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [tabFilter,      setTabFilter]      = useState<TabFilter>('all');
   const [projectFilter,  setProjectFilter]  = useState('');
-  const [selectedId,     setSelectedId]     = useState<string | null>(null);
+  const [selectedId,         setSelectedId]         = useState<string | null>(null);
+  const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
@@ -412,17 +413,25 @@ export default function InboxPage() {
 
   const handleDraftResponse = useCallback(
     async (email: Email) => {
-      const res  = await fetch('/api/emails/quick-draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email_id: email.id }),
-      });
-      const data = await res.json();
-      if (data.draft_message_id) {
-        patch(email.id, { draft_message_id: data.draft_message_id });
+      // Open the detail panel immediately
+      handleSelectEmail(email);
+      // Show "Generating draft…" in the composer zone
+      setGeneratingDraftFor(email.id);
+      try {
+        const res  = await fetch('/api/emails/quick-draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email_id: email.id }),
+        });
+        const data = await res.json();
+        if (data.draft_message_id) {
+          patch(email.id, { draft_message_id: data.draft_message_id });
+        }
+      } finally {
+        setGeneratingDraftFor(null);
       }
     },
-    [patch],
+    [patch, handleSelectEmail],
   );
 
   const handleDismiss = useCallback(
@@ -818,6 +827,7 @@ export default function InboxPage() {
           onPatch={patch}
           onReassign={handleReassign}
           onTriageSave={handleTriageSave}
+          generatingDraft={generatingDraftFor === selected.id}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-fq-bg">

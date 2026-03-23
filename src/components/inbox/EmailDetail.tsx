@@ -22,6 +22,8 @@ interface Props {
     vendorName: string;
     vendorEmail: string;
   }) => Promise<void>;
+  /** True while a draft is being generated for this email */
+  generatingDraft?: boolean;
 }
 
 /* ── Design tokens ── */
@@ -368,6 +370,7 @@ function DraftCard({
   const [sending, setSending]           = useState(false);
   const [sent, setSent]                 = useState(false);
   const [aiLoading, setAiLoading]       = useState(false);
+  const [deleting, setDeleting]         = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch draft body from Graph on mount
@@ -452,6 +455,27 @@ function DraftCard({
     }
   };
 
+  const handleDeleteDraft = async () => {
+    if (!email.draft_message_id || deleting) return;
+    setDeleting(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    try {
+      await fetch('/api/emails/update-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'delete',
+          draft_message_id: email.draft_message_id,
+          email_id: email.id,
+        }),
+      });
+      onPatch(email.id, { draft_message_id: null });
+      showToast('Draft deleted');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (sent) return null;
 
   return (
@@ -484,6 +508,14 @@ function DraftCard({
               </svg>
             )}
             {aiLoading ? 'Thinking…' : 'AI Assist'}
+          </button>
+          <button
+            onClick={handleDeleteDraft}
+            disabled={deleting}
+            title="Delete draft"
+            className={`flex items-center justify-center w-6 h-6 rounded-md border border-fq-border ${tk.light} hover:border-red-200 hover:bg-red-50 hover:text-red-500 transition-colors disabled:opacity-40`}
+          >
+            <Trash2 size={11} />
           </button>
         </div>
       </div>
@@ -962,7 +994,7 @@ function AddToTaskPanel({
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false }: Props) {
   const [replyOpen, setReplyOpen]         = useState(false);
   const [taskOpen, setTaskOpen]           = useState(false);
   const [addToTaskOpen, setAddToTaskOpen] = useState(false);
@@ -974,6 +1006,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   const [toast, setToast]                 = useState<string | null>(null);
   const badgeRef    = useRef<HTMLDivElement>(null);
   const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollBodyRef = useRef<HTMLDivElement>(null);
 
   const showToast = (msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -985,6 +1018,10 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
     setTaskOpen(panel === 'task');
     setAddToTaskOpen(panel === 'addToTask');
     setReplyOpen(panel === 'reply');
+    // When opening reply (or focusing draft), scroll composer into view at top
+    if (panel === 'reply') {
+      setTimeout(() => scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+    }
   };
 
   const handleAddToSprint = async () => {
@@ -1191,7 +1228,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
       </div>
 
       {/* ── Scrollable body ── */}
-      <div className="flex-1 overflow-y-auto px-7 py-5 space-y-5">
+      <div ref={scrollBodyRef} className="flex-1 overflow-y-auto px-7 py-5 space-y-5">
 
         {/* Suggested match banner */}
         {email.match_confidence === 'suggested' && proj && (
@@ -1222,18 +1259,23 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           <TriagePanel email={email} projects={projects} onTriageSave={onTriageSave} />
         )}
 
-        {/* AI Draft card — shown above email body when a draft exists */}
-        {email.draft_message_id && (
+        {/* Composer zone — Draft card OR Reply panel (shared space, never both) */}
+        {email.draft_message_id ? (
           <DraftCard email={email} onPatch={onPatch} showToast={showToast} />
-        )}
+        ) : generatingDraft ? (
+          <div className="rounded-xl border border-fq-border bg-fq-card" style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}>
+            <div className="px-4 py-2.5 border-b border-fq-border bg-fq-amber-light/25 flex items-center gap-2">
+              <span className="w-3.5 h-3.5 border border-fq-amber/40 border-t-fq-amber rounded-full animate-spin" />
+              <span className={`font-heading text-[13.5px] font-semibold ${tk.heading}`}>Generating draft…</span>
+            </div>
+            <div className={`px-4 py-4 font-body text-[12.5px] ${tk.light}`}>Preparing your AI draft response…</div>
+          </div>
+        ) : replyOpen ? (
+          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} />
+        ) : null}
 
         {/* Email body */}
         <EmailBody html={email.body} plaintext={email.body_preview} />
-
-        {/* Reply compose */}
-        {replyOpen && (
-          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} />
-        )}
 
         {/* Create task form */}
         {taskOpen && (
@@ -1300,9 +1342,19 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
       {/* ── Action bar ── */}
       <div className="px-7 py-3 border-t border-fq-border bg-fq-card flex items-center gap-1.5 flex-wrap shrink-0">
         {/* Reply */}
-        {!replyOpen && (
+        {/* Reply — if draft exists, scroll to draft card; else open composer at top */}
+        {!replyOpen && !email.draft_message_id && (
           <button
             onClick={() => openPanel('reply')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
+          >
+            <Reply size={12} />
+            Reply
+          </button>
+        )}
+        {email.draft_message_id && (
+          <button
+            onClick={() => scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
           >
             <Reply size={12} />

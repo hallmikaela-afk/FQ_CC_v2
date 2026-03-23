@@ -477,13 +477,19 @@ export default function EmailCard({
             </button>
           </Tip>
 
-          {/* 2. Draft Response — generates AI draft */}
-          <Tip label={email.draft_message_id ? 'Draft Ready' : 'Draft Response'}>
+          {/* 2. Draft Response — opens detail + generates or shows existing draft */}
+          <Tip label={email.draft_message_id ? 'View Draft' : 'Draft Response'}>
             <button
               onClick={async () => {
-                if (draftLoading || email.draft_message_id) return;
-                setDraftLoading(true);
-                try { await onDraftResponse(email); } finally { setDraftLoading(false); }
+                if (draftLoading) return;
+                if (email.draft_message_id) {
+                  // Draft already exists — just open the detail panel
+                  onSelect();
+                } else {
+                  // No draft — open panel then generate (handleDraftResponse selects + generates)
+                  setDraftLoading(true);
+                  try { await onDraftResponse(email); } finally { setDraftLoading(false); }
+                }
               }}
               disabled={draftLoading}
               className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors ${

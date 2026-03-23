@@ -1,10 +1,11 @@
 /**
  * /api/emails/update-draft
  *
- * POST { action: 'update' | 'send', draft_message_id, body, email_id? }
+ * POST { action: 'update' | 'send' | 'delete', draft_message_id, body?, email_id? }
  *
  *  action='update'  — PATCH the draft body in Outlook (auto-save debounce)
  *  action='send'    — PATCH body then POST .../send, mark email resolved in Supabase
+ *  action='delete'  — DELETE the draft from Outlook, clear draft_message_id in Supabase
  */
 
 import { NextResponse } from 'next/server';
@@ -45,6 +46,22 @@ export async function POST(request: Request) {
         await supabase
           .from('emails')
           .update({ resolved: true, draft_message_id: null })
+          .eq('id', email_id);
+      }
+    }
+
+    if (action === 'delete') {
+      // Delete the draft from Outlook
+      await graphFetch(`/me/messages/${encodeURIComponent(draft_message_id)}`, {
+        method: 'DELETE',
+      });
+
+      // Clear draft_message_id in Supabase
+      if (email_id) {
+        const supabase = getServiceSupabase();
+        await supabase
+          .from('emails')
+          .update({ draft_message_id: null })
           .eq('id', email_id);
       }
     }
