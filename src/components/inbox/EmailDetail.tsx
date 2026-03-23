@@ -1054,7 +1054,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-fq-bg min-w-0">
+    <div className="flex-1 flex flex-col overflow-hidden bg-fq-bg min-w-0 relative">
       {/* ── Header ── */}
       <div className="px-7 pt-6 pb-4 border-b border-fq-border bg-fq-card shrink-0">
         <div className="flex items-start justify-between gap-4 mb-3">
@@ -1245,39 +1245,50 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           <AddToTaskPanel email={email} onClose={() => setAddToTaskOpen(false)} />
         )}
 
-        {/* Delete confirmation */}
-        {deleteConfirm && (
-          <div className="border border-red-200 bg-red-50 rounded-xl px-5 py-4">
-            <p className="font-body text-[12.5px] text-red-700 mb-3">
-              How would you like to delete this email?
+        <div className="h-2" /> {/* Bottom padding */}
+      </div>
+
+      {/* Delete confirmation — floating overlay centered in the panel */}
+      {deleteConfirm && (
+        <div
+          className="absolute inset-0 z-30 flex items-center justify-center bg-fq-dark/20"
+          onClick={() => setDeleteConfirm(false)}
+        >
+          <div
+            className="bg-fq-card border border-fq-border rounded-2xl shadow-xl px-6 py-5 w-[340px] max-w-[90%]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="font-body text-[13px] font-semibold text-fq-dark mb-1">
+              Delete this email?
             </p>
-            <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-body text-[12px] text-fq-dark/50 mb-4">
+              How would you like to remove it?
+            </p>
+            <div className="flex flex-col gap-2">
               <button
                 onClick={() => handleDelete(false)}
                 disabled={deleting}
-                className="px-4 py-2 rounded-lg bg-red-100 text-red-700 font-body text-[12px] font-medium hover:bg-red-200 transition-colors disabled:opacity-40"
+                className="w-full px-4 py-2.5 rounded-xl bg-red-50 text-red-700 border border-red-200 font-body text-[12px] font-medium hover:bg-red-100 transition-colors disabled:opacity-40 text-left"
               >
                 Remove from inbox only
               </button>
               <button
                 onClick={() => handleDelete(true)}
                 disabled={deleting}
-                className="px-4 py-2 rounded-lg bg-red-600 text-white font-body text-[12px] font-medium hover:bg-red-700 transition-colors disabled:opacity-40"
+                className="w-full px-4 py-2.5 rounded-xl bg-red-600 text-white font-body text-[12px] font-medium hover:bg-red-700 transition-colors disabled:opacity-40 text-left"
               >
                 {deleting ? 'Deleting…' : 'Also delete from Outlook'}
               </button>
               <button
                 onClick={() => setDeleteConfirm(false)}
-                className={`px-3 py-2 font-body text-[12px] ${tk.light} hover:text-fq-dark transition-colors`}
+                className={`w-full px-4 py-2.5 rounded-xl border border-fq-border font-body text-[12px] ${tk.light} hover:text-fq-dark hover:bg-fq-light-accent transition-colors text-center`}
               >
                 Cancel
               </button>
             </div>
           </div>
-        )}
-
-        <div className="h-2" /> {/* Bottom padding */}
-      </div>
+        </div>
+      )}
 
       {/* ── Toast ── */}
       {toast && (
