@@ -42,10 +42,32 @@ export interface ComposePanelProps {
    RichTextToolbar — thin formatting bar above contentEditable body
 ───────────────────────────────────────────────────────────────────────────── */
 function RichTextToolbar({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
+  const [colorOpen,   setColorOpen]   = useState(false);
+  const [activeColor, setActiveColor] = useState('#2C2C2C');
+  const colorBtnRef = useRef<HTMLDivElement>(null);
+
   const exec = (cmd: string) => {
     containerRef.current?.focus();
     document.execCommand(cmd, false, undefined);
   };
+
+  const applyColor = (color: string) => {
+    containerRef.current?.focus();
+    document.execCommand('foreColor', false, color);
+    setActiveColor(color);
+    setColorOpen(false);
+  };
+
+  useEffect(() => {
+    if (!colorOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (colorBtnRef.current && !colorBtnRef.current.contains(e.target as Node)) {
+        setColorOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [colorOpen]);
 
   const btn = (title: string, cmd: string, icon: ReactNode) => (
     <button
@@ -58,6 +80,14 @@ function RichTextToolbar({ containerRef }: { containerRef: React.RefObject<HTMLD
     </button>
   );
 
+  const COLORS = [
+    { label: 'Black',      value: '#2C2C2C' },
+    { label: 'Dark Red',   value: '#6B2737' },
+    { label: 'Warm Brown', value: '#8B6F4E' },
+    { label: 'Gray',       value: '#9B8E82' },
+    { label: 'White',      value: '#FFFFFF' },
+  ];
+
   return (
     <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
       {btn('Bold', 'bold', <Bold size={13} />)}
@@ -66,6 +96,38 @@ function RichTextToolbar({ containerRef }: { containerRef: React.RefObject<HTMLD
       <div className="w-px h-4 bg-fq-border mx-1" />
       {btn('Bullet list', 'insertUnorderedList', <List size={13} />)}
       {btn('Numbered list', 'insertOrderedList', <ListOrdered size={13} />)}
+      <div className="w-px h-4 bg-fq-border mx-1" />
+      <div ref={colorBtnRef} className="relative">
+        <button
+          type="button"
+          title="Font color"
+          onMouseDown={(e) => { e.preventDefault(); setColorOpen((v) => !v); }}
+          className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+        >
+          <span className="flex flex-col items-center gap-[1.5px]">
+            <span className="font-bold text-[12px] leading-none">A</span>
+            <span className="w-[11px] h-[2.5px] rounded-full" style={{ backgroundColor: activeColor }} />
+          </span>
+        </button>
+        {colorOpen && (
+          <div className="absolute left-0 top-full mt-1 z-50 bg-fq-card border border-fq-border rounded-lg shadow-md p-2 flex gap-1.5">
+            {COLORS.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                title={c.label}
+                onMouseDown={(e) => { e.preventDefault(); applyColor(c.value); }}
+                className="w-5 h-5 rounded-full border border-fq-border/60 hover:scale-110 transition-transform flex-shrink-0"
+                style={{
+                  backgroundColor: c.value,
+                  outline: activeColor === c.value ? '2px solid #8B6F4E' : undefined,
+                  outlineOffset: '2px',
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -423,7 +485,8 @@ export default function ComposePanel({
             contentEditable
             suppressContentEditableWarning
             data-placeholder="Write your message…"
-            className={`flex-1 overflow-y-auto px-5 py-3 font-body text-[13px] text-fq-dark/85 leading-relaxed focus:outline-none min-h-[140px]
+            style={{ color: '#2C2C2C' }}
+            className={`flex-1 overflow-y-auto px-5 py-3 font-body text-[13px] leading-relaxed focus:outline-none min-h-[140px]
               empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
           />
 

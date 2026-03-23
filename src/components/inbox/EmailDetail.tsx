@@ -574,8 +574,11 @@ function ReplyPanel({
   const [sent, setSent]                 = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
   const [isEmpty, setIsEmpty]           = useState(true);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const sigRef  = useRef<HTMLDivElement>(null);
+  const [colorOpen,   setColorOpen]     = useState(false);
+  const [activeColor, setActiveColor]   = useState('#2C2C2C');
+  const bodyRef    = useRef<HTMLDivElement>(null);
+  const sigRef     = useRef<HTMLDivElement>(null);
+  const colorBtnRef = useRef<HTMLDivElement>(null);
 
   // Focus on mount
   useEffect(() => { bodyRef.current?.focus(); }, []);
@@ -588,10 +591,37 @@ function ReplyPanel({
     }
   }, [initialText]);
 
+  // Close color picker on outside click
+  useEffect(() => {
+    if (!colorOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (colorBtnRef.current && !colorBtnRef.current.contains(e.target as Node)) {
+        setColorOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [colorOpen]);
+
   const execCmd = (cmd: string) => {
     bodyRef.current?.focus();
     document.execCommand(cmd, false, undefined);
   };
+
+  const applyColor = (color: string) => {
+    bodyRef.current?.focus();
+    document.execCommand('foreColor', false, color);
+    setActiveColor(color);
+    setColorOpen(false);
+  };
+
+  const COLORS = [
+    { label: 'Black',      value: '#2C2C2C' },
+    { label: 'Dark Red',   value: '#6B2737' },
+    { label: 'Warm Brown', value: '#8B6F4E' },
+    { label: 'Gray',       value: '#9B8E82' },
+    { label: 'White',      value: '#FFFFFF' },
+  ];
 
   const toolBtn = (title: string, cmd: string, icon: ReactNode) => (
     <button
@@ -687,6 +717,38 @@ function ReplyPanel({
         <div className="w-px h-4 bg-fq-border mx-1" />
         {toolBtn('Bullet list', 'insertUnorderedList', <List size={13} />)}
         {toolBtn('Numbered list', 'insertOrderedList', <ListOrdered size={13} />)}
+        <div className="w-px h-4 bg-fq-border mx-1" />
+        <div ref={colorBtnRef} className="relative">
+          <button
+            type="button"
+            title="Font color"
+            onMouseDown={(e) => { e.preventDefault(); setColorOpen((v) => !v); }}
+            className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+          >
+            <span className="flex flex-col items-center gap-[1.5px]">
+              <span className="font-bold text-[12px] leading-none">A</span>
+              <span className="w-[11px] h-[2.5px] rounded-full" style={{ backgroundColor: activeColor }} />
+            </span>
+          </button>
+          {colorOpen && (
+            <div className="absolute left-0 top-full mt-1 z-50 bg-fq-card border border-fq-border rounded-lg shadow-md p-2 flex gap-1.5">
+              {COLORS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  title={c.label}
+                  onMouseDown={(e) => { e.preventDefault(); applyColor(c.value); }}
+                  className="w-5 h-5 rounded-full border border-fq-border/60 hover:scale-110 transition-transform flex-shrink-0"
+                  style={{
+                    backgroundColor: c.value,
+                    outline: activeColor === c.value ? '2px solid #8B6F4E' : undefined,
+                    outlineOffset: '2px',
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Editable body */}
@@ -696,7 +758,8 @@ function ReplyPanel({
         suppressContentEditableWarning
         data-placeholder="Write your reply…"
         onInput={() => setIsEmpty(!(bodyRef.current?.innerText ?? '').trim())}
-        className={`min-h-[150px] px-4 py-3 font-body text-[13px] ${tk.body} focus:outline-none leading-relaxed
+        style={{ color: '#2C2C2C' }}
+        className={`min-h-[150px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
           empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
       />
 
