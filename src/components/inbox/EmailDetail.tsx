@@ -368,6 +368,7 @@ function DraftCard({
   showToast: (msg: string) => void;
 }) {
   const [loading, setLoading]               = useState(true);
+  const [fetchedBody, setFetchedBody]       = useState<string | null>(null);
   const [saveStatus, setSaveStatus]         = useState<'idle' | 'saving' | 'saved'>('idle');
   const [sending, setSending]               = useState(false);
   const [sent, setSent]                     = useState(false);
@@ -389,19 +390,23 @@ function DraftCard({
     { label: 'White',      value: '#FFFFFF' },
   ];
 
-  // Fetch draft body from Graph on mount
+  // Fetch draft body from Graph on mount — store in state so the second
+  // effect can write to bodyRef once the contentEditable div has mounted.
   useEffect(() => {
     if (!email.draft_message_id) { setLoading(false); return; }
     fetch(`/api/emails/draft-content?draft_message_id=${encodeURIComponent(email.draft_message_id)}`)
       .then((r) => r.json())
-      .then((data) => {
-        if (data.body && bodyRef.current) {
-          bodyRef.current.innerHTML = data.body.replace(/\n/g, '<br>');
-        }
-      })
+      .then((data) => { if (data.body) setFetchedBody(data.body); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [email.draft_message_id]);
+
+  // Once loading is done and the contentEditable div is in the DOM, seed it.
+  useEffect(() => {
+    if (!loading && fetchedBody && bodyRef.current) {
+      bodyRef.current.innerHTML = fetchedBody.replace(/\n/g, '<br>');
+    }
+  }, [loading, fetchedBody]);
 
   // Close color picker on outside click
   useEffect(() => {
