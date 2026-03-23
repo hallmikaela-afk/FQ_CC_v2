@@ -115,6 +115,24 @@ function processEmailHtml(
   return { html: sanitized, hasExternalImages };
 }
 
+/* Detect whether a string is plain text (no meaningful HTML tags) */
+function isPlainText(s: string): boolean {
+  return !/<(html|body|div|p|br|table|span|ul|ol|li|h[1-6]|a |img |pre|blockquote)[\s>/]/i.test(s);
+}
+
+/* Convert plain text to minimal HTML, preserving line breaks */
+function plaintextToHtml(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Double newlines → paragraph breaks; single newlines → line breaks
+  return escaped
+    .split(/\n{2,}/)
+    .map((para) => `<p>${para.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+}
+
 /* ── HTML body: renders safely in a sandboxed iframe ── */
 function EmailBody({ html, plaintext }: { html: string | null; plaintext: string | null }) {
   const iframeRef  = useRef<HTMLIFrameElement>(null);
@@ -124,7 +142,9 @@ function EmailBody({ html, plaintext }: { html: string | null; plaintext: string
   // Process HTML (memoised so it only re-runs when html/showImages change)
   const { html: processedHtml, hasExternalImages } = useMemo(() => {
     if (!html) return { html: null, hasExternalImages: false };
-    return processEmailHtml(html, showImages);
+    // If body is plain text, convert newlines to HTML before processing
+    const normalised = isPlainText(html) ? plaintextToHtml(html) : html;
+    return processEmailHtml(normalised, showImages);
   }, [html, showImages]);
 
   // Build the plain-text fallback
