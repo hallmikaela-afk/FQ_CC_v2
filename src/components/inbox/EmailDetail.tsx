@@ -25,6 +25,8 @@ interface Props {
   }) => Promise<void>;
   /** True while a draft is being generated for this email */
   generatingDraft?: boolean;
+  /** Callback to trigger AI draft generation for this email */
+  onGenerateDraft?: () => void;
 }
 
 /* ── Design tokens ── */
@@ -365,13 +367,15 @@ function DraftCard({
   onPatch: (id: string, updates: Record<string, unknown>) => void;
   showToast: (msg: string) => void;
 }) {
-  const [draftBody, setDraftBody]       = useState('');
-  const [loading, setLoading]           = useState(true);
-  const [saveStatus, setSaveStatus]     = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [sending, setSending]           = useState(false);
-  const [sent, setSent]                 = useState(false);
-  const [aiLoading, setAiLoading]       = useState(false);
-  const [deleting, setDeleting]         = useState(false);
+  const [draftBody, setDraftBody]           = useState('');
+  const [loading, setLoading]               = useState(true);
+  const [saveStatus, setSaveStatus]         = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [sending, setSending]               = useState(false);
+  const [sent, setSent]                     = useState(false);
+  const [aiAssistOpen, setAiAssistOpen]     = useState(false);
+  const [aiInstruction, setAiInstruction]   = useState('');
+  const [aiRegenerating, setAiRegenerating] = useState(false);
+  const [deleting, setDeleting]             = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch draft body from Graph on mount
@@ -441,18 +445,33 @@ function DraftCard({
     showToast('Copied to clipboard');
   };
 
-  const handleAiAssist = async () => {
-    setAiLoading(true);
+  const handleAiAssist = () => {
+    setAiAssistOpen((v) => !v);
+    if (aiAssistOpen) setAiInstruction('');
+  };
+
+  const handleRegenerate = async () => {
+    if (!aiInstruction.trim()) return;
+    setAiRegenerating(true);
     try {
       const res = await fetch('/api/emails/draft-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email_id: email.id }),
+        body: JSON.stringify({
+          email_id: email.id,
+          instruction: aiInstruction.trim(),
+          current_draft: draftBody,
+        }),
       });
       const data = await res.json();
-      if (data.draft) handleChange(data.draft);
+      if (data.draft) {
+        handleChange(data.draft);
+        setAiAssistOpen(false);
+        setAiInstruction('');
+        showToast('Draft updated ✓');
+      }
     } finally {
-      setAiLoading(false);
+      setAiRegenerating(false);
     }
   };
 
@@ -498,17 +517,17 @@ function DraftCard({
           )}
           <button
             onClick={handleAiAssist}
-            disabled={aiLoading}
-            className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
+            disabled={aiRegenerating}
+            className={`flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border transition-colors disabled:opacity-40 ${
+              aiAssistOpen
+                ? 'border-fq-blue bg-fq-blue-light text-fq-blue'
+                : 'border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light'
+            }`}
           >
-            {aiLoading ? (
-              <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
-            ) : (
-              <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z" />
-              </svg>
-            )}
-            {aiLoading ? 'Thinking…' : 'AI Assist'}
+            <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z" />
+            </svg>
+            AI Assist
           </button>
           <button
             onClick={handleDeleteDraft}
@@ -520,6 +539,41 @@ function DraftCard({
           </button>
         </div>
       </div>
+
+      {/* AI Assist inline instruction panel */}
+      {aiAssistOpen && (
+        <div className="px-4 py-3 border-b border-fq-border bg-fq-blue-light/15">
+          <textarea
+            value={aiInstruction}
+            onChange={(e) => setAiInstruction(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleRegenerate(); }}
+            placeholder="e.g. make this shorter, more formal, add that we'll follow up by Friday..."
+            rows={2}
+            className={`w-full px-3 py-2 rounded-lg border border-fq-border font-body text-[12.5px] ${tk.body} placeholder:text-fq-muted/45 focus:outline-none focus:ring-1 focus:ring-fq-blue/30 bg-fq-card resize-none`}
+            autoFocus
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={handleRegenerate}
+              disabled={aiRegenerating || !aiInstruction.trim()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fq-dark text-white font-body text-[12px] font-medium hover:bg-fq-dark/85 transition-colors disabled:opacity-40"
+            >
+              {aiRegenerating ? (
+                <>
+                  <span className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                  Regenerating…
+                </>
+              ) : 'Regenerate'}
+            </button>
+            <button
+              onClick={() => { setAiAssistOpen(false); setAiInstruction(''); }}
+              className={`font-body text-[12px] ${tk.light} hover:text-fq-dark transition-colors`}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Editable draft body */}
       {loading ? (
@@ -1380,7 +1434,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft }: Props) {
   const [replyOpen,    setReplyOpen]    = useState(false);
   const [forwardOpen,  setForwardOpen]  = useState(false);
   const [taskOpen,     setTaskOpen]     = useState(false);
@@ -1451,7 +1505,18 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
     setBadgeOpen(false);
     setDraftText('');
     setToast(null);
-  }, [email.id]);
+    // Scroll to top when switching to an email that already has a draft
+    if (email.draft_message_id) {
+      setTimeout(() => scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+    }
+  }, [email.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Scroll to top when draft generation starts (show the spinner / draft card)
+  useEffect(() => {
+    if (generatingDraft) {
+      scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [generatingDraft]);
 
   // Close badge dropdown on outside click
   useEffect(() => {
@@ -1663,6 +1728,17 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} />
         ) : forwardOpen ? (
           <ForwardPanel email={email} onClose={() => setForwardOpen(false)} />
+        ) : onGenerateDraft ? (
+          /* ── Generate AI Draft button ── */
+          <button
+            onClick={onGenerateDraft}
+            className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-fq-accent/25 bg-fq-amber-light/20 font-body text-[13px] font-medium text-fq-accent/80 hover:bg-fq-amber-light/40 hover:border-fq-accent/40 hover:text-fq-accent transition-colors group"
+          >
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" className="shrink-0 opacity-70 group-hover:opacity-100 transition-opacity">
+              <path d="M9.5 2a.75.75 0 01.75.75v.5a.75.75 0 01-1.5 0v-.5A.75.75 0 019.5 2zm4.243 1.757a.75.75 0 010 1.06l-.354.354a.75.75 0 11-1.06-1.06l.353-.354a.75.75 0 011.061 0zm-8.486 0a.75.75 0 011.06 0l.354.354a.75.75 0 01-1.06 1.06l-.354-.353a.75.75 0 010-1.061zM9.5 5a4.5 4.5 0 100 9 4.5 4.5 0 000-9zm-6.75 4a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5A.75.75 0 012.75 9zm12.5 0a.75.75 0 01.75-.75h.5a.75.75 0 010 1.5h-.5a.75.75 0 01-.75-.75zm-2.007 4.243a.75.75 0 011.06 0l.354.353a.75.75 0 01-1.06 1.061l-.354-.354a.75.75 0 010-1.06zm-9.486 0a.75.75 0 010 1.06l-.353.354a.75.75 0 01-1.061-1.06l.354-.354a.75.75 0 011.06 0zM9.5 14.25a.75.75 0 01.75.75v.5a.75.75 0 01-1.5 0v-.5a.75.75 0 01.75-.75z" />
+            </svg>
+            ✨ Generate AI Draft
+          </button>
         ) : null}
 
         {/* Email body */}

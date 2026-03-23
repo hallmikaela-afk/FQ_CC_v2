@@ -828,6 +828,7 @@ export default function InboxPage() {
           onReassign={handleReassign}
           onTriageSave={handleTriageSave}
           generatingDraft={generatingDraftFor === selected.id}
+          onGenerateDraft={() => handleDraftResponse(selected)}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-fq-bg">

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
   }
 
-  const { email_id } = await request.json();
+  const { email_id, instruction, current_draft } = await request.json();
   if (!email_id) {
     return NextResponse.json({ error: 'Missing email_id' }, { status: 400 });
   }
@@ -149,6 +149,47 @@ ${projectContext ? `CONTEXT FOR THIS PROJECT:\n${projectContext}` : 'No project 
 ---
 
 Write a professional, warm reply from Mikaela. Be specific and reference the actual project details where helpful. Keep it concise.`;
+
+  // ── Editing mode: user supplied an instruction + current draft ─────────────
+  if (instruction && current_draft !== undefined) {
+    const editSystemPrompt = `You are editing an email draft for Mikaela Hall, Owner & Creative Director of Fox & Quinn, a luxury wedding planning studio. Apply the requested changes to the draft while keeping her warm, professional voice.
+
+Do NOT add any preamble, explanation, or meta-commentary — output ONLY the revised email body text.
+Do NOT include any signature block, contact info (phone, email, website), or footer — the system appends those automatically.`;
+
+    const editUserMessage = `ORIGINAL EMAIL:
+Subject: ${email.subject || '(no subject)'}
+From: ${email.from_name || email.from_email || 'Unknown'} <${email.from_email || ''}>
+
+${emailBody}
+
+---
+
+CURRENT DRAFT:
+${current_draft}
+
+---
+
+INSTRUCTION:
+${instruction}
+
+Return only the revised draft text.`;
+
+    try {
+      const editResponse = await getAnthropic().messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        system: editSystemPrompt,
+        messages: [{ role: 'user', content: editUserMessage }],
+      });
+      const textContent = editResponse.content.find(c => c.type === 'text');
+      const draft = (textContent as { type: 'text'; text: string } | undefined)?.text ?? '';
+      return NextResponse.json({ draft });
+    } catch (err: any) {
+      console.error('[draft-reply] Claude editing error:', err);
+      return NextResponse.json({ error: err.message || 'Failed to edit draft' }, { status: 500 });
+    }
+  }
 
   // ── Call Claude ────────────────────────────────────────────────────────────
   try {
