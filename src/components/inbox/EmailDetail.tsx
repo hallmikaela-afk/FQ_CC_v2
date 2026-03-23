@@ -533,6 +533,13 @@ function DraftCard({
         />
       )}
 
+      {/* Signature preview — mirrors the reply composer */}
+      {!loading && (
+        <div className="px-4 pb-3">
+          <div dangerouslySetInnerHTML={{ __html: emailSignatureHtml }} />
+        </div>
+      )}
+
       {/* Actions */}
       <div className="px-4 py-2.5 border-t border-fq-border flex items-center gap-2">
         <button
