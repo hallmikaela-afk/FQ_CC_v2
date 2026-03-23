@@ -1,8 +1,10 @@
 /**
  * /api/emails/reassign
  *
- * POST — Reassign an email to a different project (or untagge it).
- *        Updates Supabase and moves the email to the matching Outlook folder.
+ * POST — Reassign an email to a different project (or un-tag it).
+ *        Updates Supabase and moves the email to the project's Outlook folder.
+ *
+ * Body: { email_id: string; project_id: string | null }
  */
 
 import { NextResponse } from 'next/server';
@@ -10,8 +12,6 @@ import { getServiceSupabase } from '@/lib/supabase';
 import { moveMessage } from '@/lib/microsoft-graph';
 
 export const dynamic = 'force-dynamic';
-
-const NUMBER_PREFIX = /^\d+\s*-\s*/;
 
 export async function POST(request: Request) {
   const supabase = getServiceSupabase();
@@ -22,10 +22,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing email_id' }, { status: 400 });
   }
 
-  // ── 1. Fetch email's message_id from Supabase ─────────────────────────────
+  // ── 1. Fetch the email's message_id and current folder_id ─────────────────
   const { data: emailRow } = await supabase
     .from('emails')
-    .select('message_id')
+    .select('message_id, folder_id')
     .eq('id', email_id)
     .single();
 
@@ -33,9 +33,9 @@ export async function POST(request: Request) {
   const { error: updateError } = await supabase
     .from('emails')
     .update({
-      project_id: project_id ?? null,
+      project_id:       project_id ?? null,
       match_confidence: project_id ? 'exact' : null,
-      dismissed: false,          // always surface after explicit reassignment
+      dismissed:        false,
     })
     .eq('id', email_id);
 
@@ -48,34 +48,29 @@ export async function POST(request: Request) {
     (async () => {
       try {
         if (project_id) {
-          // Look up the project name
+          // Use the project's stored outlook_folder_id — no name-matching needed
           const { data: project } = await supabase
             .from('projects')
-            .select('name')
+            .select('outlook_folder_id')
             .eq('id', project_id)
             .single();
 
-          if (project) {
-            // Find the matching Outlook folder by the number-prefix naming convention
-            const { data: folders } = await supabase
-              .from('mail_folders')
-              .select('folder_id, display_name');
-
-            const target = folders?.find((f) => {
-              const cleanName = f.display_name
-                .replace(NUMBER_PREFIX, '')
-                .trim()
-                .toLowerCase();
-              return cleanName === project.name.toLowerCase();
-            });
-
-            if (target) {
-              await moveMessage(emailRow.message_id, target.folder_id);
-            }
+          const targetFolderId = project?.outlook_folder_id;
+          if (targetFolderId && emailRow.folder_id !== targetFolderId) {
+            await moveMessage(emailRow.message_id, targetFolderId);
+            // Keep folder_id in sync with where the email actually lives
+            await supabase
+              .from('emails')
+              .update({ folder_id: targetFolderId })
+              .eq('id', email_id);
           }
         } else {
-          // Untagged → move back to Inbox well-known folder
+          // Un-tagged → move back to Inbox
           await moveMessage(emailRow.message_id, 'inbox');
+          await supabase
+            .from('emails')
+            .update({ folder_id: 'inbox' })
+            .eq('id', email_id);
         }
       } catch (err) {
         console.error('[reassign] Graph move error:', err);

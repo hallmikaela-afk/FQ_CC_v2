@@ -151,6 +151,11 @@ export default function InboxPage() {
   const [loadingMore,       setLoadingMore]       = useState(false);
   const [noMoreHistory,     setNoMoreHistory]     = useState(false);
 
+  /* ── Outlook folder migration ── */
+  const [migrating,         setMigrating]         = useState(false);
+  const [migrateProgress,   setMigrateProgress]   = useState<{ total: number; moved: number } | null>(null);
+  const [migrateToast,      setMigrateToast]      = useState<string | null>(null);
+
   /* ── "now" tick — updates relative "synced X ago" label every minute ── */
   useEffect(() => {
     const id = setInterval(() => setNowTick((n) => n + 1), 60_000);
@@ -300,6 +305,12 @@ export default function InboxPage() {
     runInitialSync();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── Populate projects.outlook_folder_id from Outlook once per session ── */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    fetch('/api/projects/sync-outlook-folders', { method: 'POST' }).catch(() => {});
   }, []);
 
   /* ── Auto-refresh every 5 min using Page Visibility API ── */
@@ -459,6 +470,14 @@ export default function InboxPage() {
   };
 
   const handleConfirmSuggested = (email: Email) => {
+    // Confirm match_confidence AND trigger Outlook move via the reassign endpoint
+    if (email.project_id) {
+      fetch('/api/emails/reassign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_id: email.id, project_id: email.project_id }),
+      });
+    }
     patch(email.id, { match_confidence: 'exact' });
   };
 
@@ -637,6 +656,47 @@ export default function InboxPage() {
     }
   };
 
+  /* ── Migrate all tagged emails to their correct Outlook folders ── */
+  const handleMigrateOutlookFolders = async () => {
+    setMigrating(true);
+    setMigrateProgress(null);
+    setMigrateToast(null);
+    try {
+      const res = await fetch('/api/emails/migrate-outlook-folders', { method: 'POST' });
+      if (!res.body) return;
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const evt = JSON.parse(line.slice(6));
+            if (typeof evt.total === 'number') {
+              setMigrateProgress({ total: evt.total, moved: evt.moved });
+            }
+            if (evt.done) {
+              setMigrateToast(`${evt.moved} email${evt.moved === 1 ? '' : 's'} organised ✓`);
+              setTimeout(() => setMigrateToast(null), 3000);
+              setMigrateProgress(null);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+    } catch (err) {
+      console.error('[inbox] migrate-outlook-folders error:', err);
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   /* ── Load more (older emails beyond the 90-day window) ── */
   const handleLoadMore = async () => {
     if (typeof window === 'undefined') return;
@@ -729,6 +789,18 @@ export default function InboxPage() {
           <div className="flex items-center justify-between mb-0.5">
             <h1 className={`font-heading text-[28px] font-semibold ${tk.heading}`}>Inbox</h1>
             <div className="flex items-center gap-2">
+              {/* Sync to Outlook Folders — subtle icon button */}
+              <button
+                onClick={handleMigrateOutlookFolders}
+                disabled={migrating}
+                title="Sync to Outlook Folders"
+                className={`p-2 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} disabled:opacity-40`}
+              >
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 7h14M3 12h10M3 17h6" />
+                  <path d="M15 14l2 2 4-4" />
+                </svg>
+              </button>
               <button
                 onClick={() => { lastSyncTimeRef.current = null; loadEmails(); }}
                 disabled={syncing || loading}
@@ -753,13 +825,17 @@ export default function InboxPage() {
               </button>
             </div>
           </div>
-          {/* Sync timestamp — re-renders each minute via nowTick */}
+          {/* Sync timestamp + migration progress */}
           <div className="flex items-center gap-1.5" suppressHydrationWarning>
-            {(syncing || historySyncing) && (
+            {(syncing || historySyncing || migrating) && (
               <div className="w-1.5 h-1.5 rounded-full bg-fq-accent/60 animate-pulse shrink-0" />
             )}
             <p className={`font-body text-[11.5px] ${tk.light}`}>
-              {historySyncing
+              {migrating && migrateProgress
+                ? `Moving ${migrateProgress.moved} of ${migrateProgress.total} emails to Outlook folders…`
+                : migrating
+                ? 'Syncing to Outlook folders…'
+                : historySyncing
                 ? `Loading email history… ${historySyncCount} emails loaded`
                 : nowTick >= 0 && syncedAt
                 ? `Synced ${relativeTime(syncedAt)}`
@@ -972,6 +1048,13 @@ export default function InboxPage() {
           )}
         </div>
       </div>
+
+      {/* ── Migrate success toast (bottom-right) ── */}
+      {migrateToast && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl bg-fq-dark text-white shadow-lg font-body text-[13px] whitespace-nowrap">
+          {migrateToast}
+        </div>
+      )}
 
       {/* ── Undo toast ── */}
       {undoToast && (

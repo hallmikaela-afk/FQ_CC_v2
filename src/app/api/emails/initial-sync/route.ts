@@ -78,7 +78,7 @@ export async function POST() {
             if (pairs.length > 0) {
               const count = await upsertBatch(
                 pairs, supabase, ctx.preloaded, ctx.folderProjectMap,
-                ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule,
+                ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule, ctx.projectOutlookFolderMap,
               );
               totalLoaded += count;
               send({ count: totalLoaded });

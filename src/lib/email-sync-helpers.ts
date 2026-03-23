@@ -87,6 +87,7 @@ export async function upsertEmail(
   folderProjectMap: Map<string, string>,
   receiptsFolderId: string | null,
   vendorEmails: Set<string>,
+  projectOutlookFolderMap: Map<string, string> = new Map(),
 ) {
   const fromEmail = msg.from?.emailAddress?.address ?? '';
   const fromName  = msg.from?.emailAddress?.name ?? '';
@@ -141,12 +142,24 @@ export async function upsertEmail(
     }
   }
 
+  // Auto-move to the project's Outlook folder if it differs from current folder
+  let effectiveFolderId = folderId;
+  if (projectId) {
+    const targetFolderId = projectOutlookFolderMap.get(projectId);
+    if (targetFolderId && folderId !== targetFolderId) {
+      moveMessage(msg.id, targetFolderId).catch(err =>
+        console.error('[emails] auto-move error:', err),
+      );
+      effectiveFolderId = targetFolderId;
+    }
+  }
+
   await supabase.from('emails').upsert(
     {
       message_id: msg.id, subject: msg.subject, from_name: fromName, from_email: fromEmail,
       body_preview: msg.bodyPreview, body: msg.body?.content ?? null,
       received_at: msg.receivedDateTime, is_read: msg.isRead,
-      conversation_id: msg.conversationId, folder_id: folderId,
+      conversation_id: msg.conversationId, folder_id: effectiveFolderId,
       project_id: projectId, match_confidence: confidence,
       is_meeting_summary: isMeetingSummary, category: null,
       dismissed: projectId ? false : true,
@@ -162,7 +175,7 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
     fetchAllFolders('default'),
     supabase
       .from('projects')
-      .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer')
+      .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer, outlook_folder_id')
       .in('status', ['active', 'completed']),
     supabase.from('vendors').select('project_id, email'),
     supabase.from('inbox_rules').select('rule_type, value, action'),
@@ -172,13 +185,21 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
 
   const receiptsFolderId = allFolders.find(f => f.displayName.toLowerCase() === 'receipts')?.id ?? null;
 
+  // folder_id → project_id (from number-prefix Outlook folder names)
   const folderProjectMap = new Map<string, string>();
+  // project_id → outlook_folder_id (for auto-move when email is matched)
+  const projectOutlookFolderMap = new Map<string, string>();
+
   const NUMBER_PREFIX = /^\d+\s*-\s*/;
   for (const folder of allFolders) {
     if (!NUMBER_PREFIX.test(folder.displayName)) continue;
     const cleanName = folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase();
     const project = projects.find(p => p.name.toLowerCase() === cleanName);
     if (project) folderProjectMap.set(folder.id, project.id);
+  }
+
+  for (const p of (projectsRes.data ?? [])) {
+    if (p.outlook_folder_id) projectOutlookFolderMap.set(p.id, p.outlook_folder_id);
   }
 
   const hideRules: { type: string; value: string }[] = (rulesRes.data ?? [])
@@ -208,7 +229,7 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
     );
   }
 
-  return { foldersToSync, preloaded, folderProjectMap, receiptsFolderId, vendorEmails, matchesHideRule };
+  return { foldersToSync, preloaded, folderProjectMap, projectOutlookFolderMap, receiptsFolderId, vendorEmails, matchesHideRule };
 }
 
 // ─── Upsert a batch of msg+folder pairs ──────────────────────────────────────
@@ -221,6 +242,7 @@ export async function upsertBatch(
   receiptsFolderId: string | null,
   vendorEmails: Set<string>,
   matchesHideRule: (email: string) => boolean,
+  projectOutlookFolderMap: Map<string, string> = new Map(),
 ): Promise<number> {
   if (!pairs.length) return 0;
 
@@ -240,7 +262,7 @@ export async function upsertBatch(
     const chunk = filtered.slice(i, i + SYNC_BATCH);
     await Promise.allSettled(
       chunk.map(({ msg, folderId }) =>
-        upsertEmail(msg, folderId, supabase, preloaded, existingMap, folderProjectMap, receiptsFolderId, vendorEmails),
+        upsertEmail(msg, folderId, supabase, preloaded, existingMap, folderProjectMap, receiptsFolderId, vendorEmails, projectOutlookFolderMap),
       ),
     );
     count += chunk.length;

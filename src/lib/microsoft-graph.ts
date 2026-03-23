@@ -318,6 +318,22 @@ export async function fetchAllFolders(userId = 'default'): Promise<GraphFolder[]
 }
 
 /**
+ * Create a child folder under a given parent (use well-known name 'inbox' or a folder id).
+ */
+export async function createChildFolder(
+  parentFolderId: string,
+  displayName: string,
+  userId = 'default',
+): Promise<GraphFolder> {
+  const data = await graphFetch(
+    `/me/mailFolders/${parentFolderId}/childFolders`,
+    { method: 'POST', body: JSON.stringify({ displayName }) },
+    userId,
+  );
+  return data as GraphFolder;
+}
+
+/**
  * Send a reply to an email.
  */
 interface GraphRecipient {

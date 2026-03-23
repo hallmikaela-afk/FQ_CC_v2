@@ -235,6 +235,6 @@ async function syncEmails(
 
   await upsertBatch(
     allPairs, supabase, ctx.preloaded, ctx.folderProjectMap,
-    ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule,
+    ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule, ctx.projectOutlookFolderMap,
   );
 }
