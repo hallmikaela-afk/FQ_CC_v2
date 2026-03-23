@@ -160,6 +160,7 @@ export default function InboxPage() {
     setError(null);
 
     // ── Step 1: Show cached emails instantly (no Graph API, no spinner) ──
+    let cachedCount = 0;
     try {
       const params = new URLSearchParams({ sync: 'false' });
       if (selectedFolder) params.set('folder_id', selectedFolder);
@@ -167,13 +168,23 @@ export default function InboxPage() {
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); setLoading(false); return; }
       const cached = data.emails ?? [];
+      cachedCount = cached.length;
       setEmails(cached);
       // Only keep the blocking spinner if cache is truly empty (first-ever load)
-      if (cached.length > 0) setLoading(false);
+      if (cachedCount > 0) setLoading(false);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+      // If we already have emails visible, silently swallow the error and try
+      // the sync step anyway — don't flash an error banner over a working inbox.
+      console.error('[inbox] Cache fetch error:', e);
       setLoading(false);
-      return;
+      // Only bail out entirely if there's truly nothing to show (first load failed)
+      setEmails(prev => {
+        if (prev.length === 0) {
+          setError(e instanceof Error ? e.message : 'Unknown error');
+        }
+        return prev;
+      });
+      // Don't return — fall through and attempt the sync anyway
     }
 
     // ── Step 2: Background sync from Outlook if stale (>5 min or never synced) ──
@@ -192,6 +203,7 @@ export default function InboxPage() {
       setEmails(data.emails ?? []);
       lastSyncTimeRef.current = Date.now();
       setSyncedAt(new Date());
+      setError(null); // clear any stale error now that sync succeeded
     } catch (err: unknown) {
       console.error('[inbox] Background sync error:', err);
     } finally {
