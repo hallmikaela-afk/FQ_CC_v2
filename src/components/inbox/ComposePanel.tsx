@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, X, ChevronDown, Mail } from 'lucide-react';
+import { Send, X, ChevronDown, Mail, Paperclip } from 'lucide-react';
 import { renderSignatureHtml } from '@/lib/emailSignature';
 import type { Project } from './EmailCard';
 
@@ -457,6 +457,15 @@ export default function ComposePanel({
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border border-fq-border font-body text-[12.5px] ${tk.body} hover:bg-fq-light-accent transition-colors disabled:opacity-50`}
           >
             {savingDraft ? 'Saving…' : 'Save Draft'}
+          </button>
+
+          <button
+            type="button"
+            title="Google Drive attachments coming soon"
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
+          >
+            <Paperclip size={13} />
+            Attach
           </button>
 
           <button

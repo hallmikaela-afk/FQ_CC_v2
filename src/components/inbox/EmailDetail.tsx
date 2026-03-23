@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check, CheckSquare, ListPlus, Calendar } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, Trash2, Paperclip } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
 
@@ -330,6 +330,175 @@ function TriagePanel({
   );
 }
 
+/* ── AI Draft Card (shown above email body when draft_message_id is set) ── */
+function DraftCard({
+  email,
+  onPatch,
+  showToast,
+}: {
+  email: Email;
+  onPatch: (id: string, updates: Record<string, unknown>) => void;
+  showToast: (msg: string) => void;
+}) {
+  const [draftBody, setDraftBody]       = useState('');
+  const [loading, setLoading]           = useState(true);
+  const [saveStatus, setSaveStatus]     = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [sending, setSending]           = useState(false);
+  const [sent, setSent]                 = useState(false);
+  const [aiLoading, setAiLoading]       = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch draft body from Graph on mount
+  useEffect(() => {
+    if (!email.draft_message_id) { setLoading(false); return; }
+    fetch(`/api/emails/draft-content?draft_message_id=${encodeURIComponent(email.draft_message_id)}`)
+      .then((r) => r.json())
+      .then((data) => { if (data.body) setDraftBody(data.body); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [email.draft_message_id]);
+
+  // Auto-save with 300ms debounce
+  const handleChange = (val: string) => {
+    setDraftBody(val);
+    setSaveStatus('saving');
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        await fetch('/api/emails/update-draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'update',
+            draft_message_id: email.draft_message_id,
+            body: val,
+          }),
+        });
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch {
+        setSaveStatus('idle');
+      }
+    }, 300);
+  };
+
+  const handleSend = async () => {
+    if (!draftBody.trim() || !email.draft_message_id) return;
+    setSending(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    try {
+      const res = await fetch('/api/emails/update-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'send',
+          draft_message_id: email.draft_message_id,
+          body: draftBody,
+          email_id: email.id,
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        showToast(d.error ?? 'Failed to send draft');
+        return;
+      }
+      setSent(true);
+      onPatch(email.id, { resolved: true, draft_message_id: null });
+      showToast('Draft sent ✓');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(draftBody).catch(() => {});
+    showToast('Copied to clipboard');
+  };
+
+  const handleAiAssist = async () => {
+    setAiLoading(true);
+    try {
+      const res = await fetch('/api/emails/draft-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_id: email.id }),
+      });
+      const data = await res.json();
+      if (data.draft) handleChange(data.draft);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  if (sent) return null;
+
+  return (
+    <div
+      className="rounded-xl border border-fq-border bg-fq-card"
+      style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}
+    >
+      {/* Header */}
+      <div className="px-4 py-2.5 border-b border-fq-border bg-fq-amber-light/25 flex items-center justify-between">
+        <span className={`font-heading text-[13.5px] font-semibold ${tk.heading}`}>
+          ✉ AI Draft Response
+        </span>
+        <div className="flex items-center gap-2">
+          {saveStatus === 'saving' && (
+            <span className={`font-body text-[11px] ${tk.light}`}>Saving…</span>
+          )}
+          {saveStatus === 'saved' && (
+            <span className="font-body text-[11px] text-fq-sage">Saved</span>
+          )}
+          <button
+            onClick={handleAiAssist}
+            disabled={aiLoading}
+            className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
+          >
+            {aiLoading ? (
+              <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z" />
+              </svg>
+            )}
+            {aiLoading ? 'Thinking…' : 'AI Assist'}
+          </button>
+        </div>
+      </div>
+
+      {/* Editable draft body */}
+      {loading ? (
+        <div className={`px-4 py-4 font-body text-[12.5px] ${tk.light}`}>Loading draft…</div>
+      ) : (
+        <textarea
+          value={draftBody}
+          onChange={(e) => handleChange(e.target.value)}
+          rows={8}
+          placeholder="Draft content…"
+          className={`w-full px-4 py-3 font-body text-[13px] ${tk.body} focus:outline-none resize-none leading-relaxed bg-transparent focus:ring-1 focus:ring-inset focus:ring-fq-accent/20`}
+        />
+      )}
+
+      {/* Actions */}
+      <div className="px-4 py-2.5 border-t border-fq-border flex items-center gap-2">
+        <button
+          onClick={handleSend}
+          disabled={sending || !draftBody.trim()}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fq-dark text-white font-body text-[12.5px] font-medium hover:bg-fq-dark/85 transition-colors disabled:opacity-40"
+        >
+          {sending ? 'Sending…' : 'Send'}
+        </button>
+        <button
+          onClick={handleCopy}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border border-fq-border font-body text-[12.5px] ${tk.body} hover:bg-fq-light-accent transition-colors`}
+        >
+          Copy
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── Reply compose panel ── */
 function ReplyPanel({
   email,
@@ -431,6 +600,14 @@ function ReplyPanel({
             <path d="M3 10l14-7-7 14V10H3z" />
           </svg>
           {sending ? 'Sending…' : 'Send Reply'}
+        </button>
+        <button
+          type="button"
+          title="Google Drive attachments coming soon"
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
+        >
+          <Paperclip size={12} />
+          Attach
         </button>
         <button
           onClick={onClose}
@@ -962,6 +1139,11 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
           <TriagePanel email={email} projects={projects} onTriageSave={onTriageSave} />
         )}
 
+        {/* AI Draft card — shown above email body when a draft exists */}
+        {email.draft_message_id && (
+          <DraftCard email={email} onPatch={onPatch} showToast={showToast} />
+        )}
+
         {/* Email body */}
         <EmailBody html={email.body} plaintext={email.body_preview} />
 
@@ -1029,27 +1211,10 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
             onClick={() => openPanel('reply')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
           >
-            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 7L4 12l5 5" /><path d="M4 12h8a4 4 0 0 1 4 4v1" />
-            </svg>
+            <Reply size={12} />
             Reply
           </button>
         )}
-
-        {/* Flag follow-up */}
-        <button
-          onClick={() => onPatch(email.id, { needs_followup: !email.needs_followup })}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-body text-[12px] font-medium transition-colors ${
-            email.needs_followup
-              ? 'border-fq-amber/35 bg-fq-amber-light text-fq-amber'
-              : `border-fq-border ${tk.body} hover:bg-fq-light-accent`
-          }`}
-        >
-          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 3L2 17h16L10 3z" /><path d="M10 8v4M10 14h.01" />
-          </svg>
-          {email.needs_followup ? 'Flagged' : 'Flag'}
-        </button>
 
         {/* Mark as read */}
         {!email.is_read && (
@@ -1112,9 +1277,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
               : `border-fq-border ${tk.light} hover:border-red-200 hover:text-red-500 hover:bg-red-50`
           }`}
         >
-          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h14M8 6V4h4v2M16 6l-1 11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6" />
-          </svg>
+          <Trash2 size={12} />
           Delete
         </button>
       </div>
