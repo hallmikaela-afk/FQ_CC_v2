@@ -109,7 +109,7 @@ ${projectContext}`;
   try {
     // Create a blank draft reply (POST createReply returns the new draft)
     const draft = await graphFetch(
-      `/me/messages/${email.message_id}/createReply`,
+      `/me/messages/${encodeURIComponent(email.message_id)}/createReply`,
       { method: 'POST', body: JSON.stringify({}) },
     ) as { id: string } | null;
 
@@ -118,7 +118,7 @@ ${projectContext}`;
 
       // Set the body of the draft as HTML with signature
       const draftHtml = buildOutgoingHtml(draftText.replace(/\n/g, '<br>'));
-      await graphFetch(`/me/messages/${draftMessageId}`, {
+      await graphFetch(`/me/messages/${encodeURIComponent(draftMessageId)}`, {
         method: 'PATCH',
         body: JSON.stringify({
           body: { contentType: 'HTML', content: draftHtml },
@@ -132,9 +132,9 @@ ${projectContext}`;
         .eq('id', email_id);
     }
   } catch (err: unknown) {
-    // Graph failed — still return the text so callers can show it
-    console.error('[quick-draft] Graph error:', err);
-    return NextResponse.json({ draft_text: draftText, draft_message_id: null });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[quick-draft] Graph error:', msg);
+    return NextResponse.json({ draft_text: draftText, draft_message_id: null, graph_error: msg });
   }
 
   return NextResponse.json({ draft_message_id: draftMessageId, draft_text: draftText });
