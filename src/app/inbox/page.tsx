@@ -908,7 +908,7 @@ export default function InboxPage() {
         <ComposePanel
           projects={projects}
           onClose={() => setComposeOpen(false)}
-          onSent={() => loadEmails(false)}
+          onSent={() => loadEmails()}
         />
       )}
     </div>
