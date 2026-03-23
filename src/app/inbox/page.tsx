@@ -800,6 +800,7 @@ export default function InboxPage() {
           projects={projects}
           onClose={() => setSelectedId(null)}
           onPatch={patch}
+          onReassign={handleReassign}
           onTriageSave={handleTriageSave}
         />
       ) : (

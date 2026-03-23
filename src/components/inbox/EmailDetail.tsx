@@ -12,6 +12,7 @@ interface Props {
   projects: Project[];
   onClose: () => void;
   onPatch: (id: string, updates: Record<string, unknown>) => void;
+  onReassign: (email: Email, projectId: string | null) => void;
   onTriageSave: (opts: {
     emailId: string;
     projectId: string | null;
@@ -961,7 +962,7 @@ function AddToTaskPanel({
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onTriageSave }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave }: Props) {
   const [replyOpen, setReplyOpen]         = useState(false);
   const [taskOpen, setTaskOpen]           = useState(false);
   const [addToTaskOpen, setAddToTaskOpen] = useState(false);
@@ -1107,7 +1108,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
                         <button
                           key={p.id}
                           onClick={() => {
-                            onPatch(email.id, { project_id: p.id, match_confidence: 'exact' });
+                            onReassign(email, p.id);
                             setBadgeOpen(false);
                           }}
                           className={`w-full text-left flex items-center gap-2.5 px-3 py-2
@@ -1130,7 +1131,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onTriag
                     {/* None / General */}
                     <button
                       onClick={() => {
-                        onPatch(email.id, { project_id: null, match_confidence: null });
+                        onReassign(email, null);
                         setBadgeOpen(false);
                       }}
                       className={`w-full text-left px-3 py-2 font-body text-[12.5px] ${tk.light}

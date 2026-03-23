@@ -47,6 +47,7 @@ export interface GraphMessage {
       address: string;
     };
   } | null;
+  toRecipients: Array<{ emailAddress: { name: string; address: string } }> | null;
 }
 
 export interface GraphFolder {
@@ -251,7 +252,7 @@ export async function fetchMessages(
     $skip: String(skip),
     $orderby: 'receivedDateTime desc',
     $select:
-      'id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from',
+      'id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from,toRecipients',
   });
   if (filters.length) params.set('$filter', filters.join(' and '));
 

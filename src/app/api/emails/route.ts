@@ -393,6 +393,7 @@ async function upsertEmail(
     projectId  = folderProjectId;
     confidence = 'exact';
   } else if (!projectId || confidence === 'suggested') {
+    const toEmails = (msg.toRecipients ?? []).map((r) => r.emailAddress.address);
     const match = await matchEmailToProject(
       fromEmail,
       msg.subject ?? '',
@@ -400,6 +401,7 @@ async function upsertEmail(
       msg.conversationId,
       supabase,
       preloaded,
+      toEmails,
     );
 
     const shouldApply =
