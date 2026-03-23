@@ -47,6 +47,7 @@ export interface Project {
 interface Props {
   email: Email;
   isSelected: boolean;
+  showStatusPill?: boolean;
   onSelect: () => void;
   onConfirmSuggested: (email: Email) => void;
   onDismissSuggested: (email: Email) => void;
@@ -132,6 +133,7 @@ function fmtTime(iso: string | null): string {
 export default function EmailCard({
   email,
   isSelected,
+  showStatusPill = false,
   onSelect,
   onConfirmSuggested,
   onDismissSuggested,
@@ -250,6 +252,23 @@ export default function EmailCard({
                   >
                     Follow-up
                   </button>
+                )}
+
+                {/* Status pill — shown in All tab when not already shown via specific badge */}
+                {showStatusPill && !email.needs_followup && (
+                  email.resolved ? (
+                    <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-light-accent text-fq-muted/70">
+                      Resolved
+                    </span>
+                  ) : email.draft_message_id ? (
+                    <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-sage-light text-fq-sage">
+                      Draft Ready
+                    </span>
+                  ) : email.needs_response ? (
+                    <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-blue-light text-fq-blue">
+                      Reply Needed
+                    </span>
+                  ) : null
                 )}
 
                 {/* Meeting summary badge */}

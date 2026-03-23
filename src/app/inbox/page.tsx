@@ -8,9 +8,10 @@ import EmailDetail from '@/components/inbox/EmailDetail';
 import ComposePanel from '@/components/inbox/ComposePanel';
 
 /* ── Filter types ── */
-type TabFilter = 'active' | 'needs_response' | 'draft_ready' | 'followup' | 'resolved';
+type TabFilter = 'all' | 'active' | 'needs_response' | 'draft_ready' | 'followup' | 'resolved';
 
 const TAB_FILTERS: { key: TabFilter; label: string }[] = [
+  { key: 'all',            label: 'All' },
   { key: 'active',         label: 'Active' },
   { key: 'needs_response', label: 'Needs Response' },
   { key: 'draft_ready',    label: 'Draft Ready' },
@@ -123,7 +124,7 @@ export default function InboxPage() {
 
   /* ── Filter/nav state ── */
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-  const [tabFilter,      setTabFilter]      = useState<TabFilter>('active');
+  const [tabFilter,      setTabFilter]      = useState<TabFilter>('all');
   const [projectFilter,  setProjectFilter]  = useState('');
   const [selectedId,     setSelectedId]     = useState<string | null>(null);
 
@@ -275,29 +276,38 @@ export default function InboxPage() {
   );
 
   const filteredEmails = useMemo(() => {
-    return visibleEmails
-      .filter((e) => {
-        switch (tabFilter) {
-          case 'active':
-            return !!e.project_id && !e.resolved;
-          case 'needs_response':
-            return !!e.needs_response && !e.resolved;
-          case 'draft_ready':
-            return !!e.draft_message_id && !e.resolved;
-          case 'followup':
-            return e.needs_followup && !e.resolved;
-          case 'resolved':
-            return !!e.project_id && e.resolved;
-          default:
-            return false;
-        }
-      })
-      .filter((e) => !projectFilter || e.project_id === projectFilter);
+    const byTab = visibleEmails.filter((e) => {
+      switch (tabFilter) {
+        case 'all':
+          return !e.dismissed;
+        case 'active':
+          return !!e.project_id && !e.resolved;
+        case 'needs_response':
+          return !!e.needs_response && !e.resolved;
+        case 'draft_ready':
+          return !!e.draft_message_id && !e.resolved;
+        case 'followup':
+          return e.needs_followup && !e.resolved;
+        case 'resolved':
+          return !!e.project_id && e.resolved;
+        default:
+          return false;
+      }
+    }).filter((e) => !projectFilter || e.project_id === projectFilter);
+
+    if (tabFilter === 'all') {
+      return [...byTab].sort((a, b) =>
+        (b.received_at ?? '').localeCompare(a.received_at ?? ''),
+      );
+    }
+    return byTab;
   }, [visibleEmails, tabFilter, projectFilter]);
 
   const countFor = useCallback(
     (tab: TabFilter) => {
       switch (tab) {
+        case 'all':
+          return visibleEmails.filter((e) => !e.dismissed).length;
         case 'active':
           return visibleEmails.filter((e) => !!e.project_id && !e.resolved).length;
         case 'needs_response':
@@ -486,6 +496,7 @@ export default function InboxPage() {
         onSelectFolder={(fid) => {
           setSelectedFolder(fid);
           setSelectedId(null);
+          setTabFilter('all');
         }}
         totalUnread={totalUnread}
       />
@@ -669,7 +680,9 @@ export default function InboxPage() {
               {!loading && filteredEmails.length === 0 && (
                 <div className="text-center mt-12">
                   <p className={`font-body text-[13px] ${tk.light}`}>
-                    {tabFilter === 'active'
+                    {tabFilter === 'all'
+                      ? 'No emails.'
+                      : tabFilter === 'active'
                       ? 'No active project emails.'
                       : tabFilter === 'needs_response'
                       ? 'No emails need a response right now.'
@@ -689,6 +702,7 @@ export default function InboxPage() {
                   key={email.id}
                   email={email}
                   isSelected={selectedId === email.id}
+                  showStatusPill={tabFilter === 'all'}
                   onSelect={() => handleSelectEmail(email)}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
