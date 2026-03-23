@@ -382,6 +382,10 @@ function DraftCard({
   const [deleting, setDeleting]             = useState(false);
   const [colorOpen, setColorOpen]           = useState(false);
   const [activeColor, setActiveColor]       = useState('#2C2C2C');
+  const [showCcBcc, setShowCcBcc]           = useState(false);
+  const [ccChips,   setCcChips]             = useState<ContactChip[]>([]);
+  const [bccChips,  setBccChips]            = useState<ContactChip[]>([]);
+  const contacts = useContacts();
   const bodyRef     = useRef<HTMLDivElement>(null);
   const colorBtnRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -483,6 +487,8 @@ function DraftCard({
           body: html,
           body_is_html: true,
           email_id: email.id,
+          cc:  chipsToRecipients(ccChips),
+          bcc: chipsToRecipients(bccChips),
         }),
       });
       if (!res.ok) {
@@ -599,6 +605,34 @@ function DraftCard({
         </div>
       </div>
 
+      {/* ── Recipient / CC / BCC subheader ── */}
+      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center gap-2 min-w-0">
+        <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
+          Replying to {email.from_name || email.from_email}
+        </span>
+        {!showCcBcc && (
+          <button
+            type="button"
+            onClick={() => setShowCcBcc(true)}
+            className={`font-body text-[11px] font-medium ${tk.light} hover:text-fq-dark transition-colors shrink-0`}
+          >
+            + CC / BCC
+          </button>
+        )}
+      </div>
+
+      {/* ── CC / BCC fields (expanded) ── */}
+      {showCcBcc && (
+        <div className="divide-y divide-fq-border border-b border-fq-border">
+          <div className="px-4 py-2">
+            <AddressField label="CC" chips={ccChips} onChipsChange={setCcChips} contacts={contacts} />
+          </div>
+          <div className="px-4 py-2">
+            <AddressField label="BCC" chips={bccChips} onChipsChange={setBccChips} contacts={contacts} />
+          </div>
+        </div>
+      )}
+
       {/* ── AI Assist inline instruction panel ── */}
       {aiAssistOpen && (
         <div className="px-4 py-3 border-b border-fq-border bg-fq-blue-light/15">
@@ -708,11 +742,22 @@ function DraftCard({
           disabled={sending}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fq-dark text-white font-body text-[12.5px] font-medium hover:bg-fq-dark/85 transition-colors disabled:opacity-40"
         >
-          {sending ? 'Sending…' : 'Send'}
+          <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 10l14-7-7 14V10H3z" />
+          </svg>
+          {sending ? 'Sending…' : 'Send Reply'}
+        </button>
+        <button
+          type="button"
+          title="Google Drive attachments coming soon"
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
+        >
+          <Paperclip size={12} />
+          Attach
         </button>
         <button
           onClick={handleCopy}
-          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg border border-fq-border font-body text-[12.5px] ${tk.body} hover:bg-fq-light-accent transition-colors`}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.body} hover:bg-fq-light-accent transition-colors`}
         >
           Copy
         </button>

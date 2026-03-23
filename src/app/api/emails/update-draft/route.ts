@@ -16,7 +16,7 @@ import { buildOutgoingHtml } from '@/lib/emailSignature';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  const { action, draft_message_id, body, body_is_html, email_id } = await request.json();
+  const { action, draft_message_id, body, body_is_html, email_id, cc, bcc } = await request.json();
 
   if (!draft_message_id) {
     return NextResponse.json({ error: 'Missing draft_message_id' }, { status: 400 });
@@ -39,6 +39,22 @@ export async function POST(request: Request) {
     }
 
     if (action === 'send') {
+      // If CC/BCC recipients were specified, patch them onto the draft first
+      const toGraphRecipient = (r: { address: string; name?: string }) => ({
+        emailAddress: { address: r.address, name: r.name ?? r.address },
+      });
+      const hasCc  = Array.isArray(cc)  && cc.length  > 0;
+      const hasBcc = Array.isArray(bcc) && bcc.length > 0;
+      if (hasCc || hasBcc) {
+        const patch: Record<string, unknown> = {};
+        if (hasCc)  patch.ccRecipients  = cc.map(toGraphRecipient);
+        if (hasBcc) patch.bccRecipients = bcc.map(toGraphRecipient);
+        await graphFetch(`/me/messages/${encodeURIComponent(draft_message_id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(patch),
+        });
+      }
+
       // Send the draft
       await graphFetch(`/me/messages/${encodeURIComponent(draft_message_id)}/send`, {
         method: 'POST',
