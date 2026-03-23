@@ -173,6 +173,7 @@ const SKIP_FOLDERS = new Set([
   'outbox',
   'junk email',
   'deleted items',
+  'drafts',
 ]);
 
 async function syncEmails(
