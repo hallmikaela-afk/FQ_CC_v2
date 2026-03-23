@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { graphFetch } from '@/lib/microsoft-graph';
 import { getServiceSupabase } from '@/lib/supabase';
+import { buildOutgoingHtml } from '@/lib/emailSignature';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -115,11 +116,12 @@ ${projectContext}`;
     if (draft?.id) {
       draftMessageId = draft.id;
 
-      // Set the body of the draft
+      // Set the body of the draft as HTML with signature
+      const draftHtml = buildOutgoingHtml(draftText.replace(/\n/g, '<br>'));
       await graphFetch(`/me/messages/${draftMessageId}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          body: { contentType: 'Text', content: draftText },
+          body: { contentType: 'HTML', content: draftHtml },
         }),
       });
 

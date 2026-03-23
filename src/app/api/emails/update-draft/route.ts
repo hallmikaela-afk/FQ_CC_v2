@@ -10,6 +10,7 @@
 import { NextResponse } from 'next/server';
 import { graphFetch } from '@/lib/microsoft-graph';
 import { getServiceSupabase } from '@/lib/supabase';
+import { buildOutgoingHtml } from '@/lib/emailSignature';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +22,13 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Always update the draft body when provided
+    // Always update the draft body when provided, wrapped in HTML template
     if (body !== undefined) {
+      const htmlContent = buildOutgoingHtml(body.replace(/\n/g, '<br>'));
       await graphFetch(`/me/messages/${encodeURIComponent(draft_message_id)}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          body: { contentType: 'text', content: body },
+          body: { contentType: 'HTML', content: htmlContent },
         }),
       });
     }

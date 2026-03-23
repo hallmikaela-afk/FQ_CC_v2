@@ -6,9 +6,9 @@
  * basic rich-text body (bold/italic/list), auto-appended signature.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, X, ChevronDown, Mail, Paperclip } from 'lucide-react';
-import { renderSignatureHtml } from '@/lib/emailSignature';
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { Send, X, ChevronDown, Mail, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
+import { emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
 import type { Project } from './EmailCard';
 
 /* ── Design tokens ── */
@@ -42,25 +42,30 @@ export interface ComposePanelProps {
    RichTextToolbar — thin formatting bar above contentEditable body
 ───────────────────────────────────────────────────────────────────────────── */
 function RichTextToolbar({ containerRef }: { containerRef: React.RefObject<HTMLDivElement | null> }) {
-  const exec = (cmd: string, value?: string) => {
+  const exec = (cmd: string) => {
     containerRef.current?.focus();
-    document.execCommand(cmd, false, value);
+    document.execCommand(cmd, false, undefined);
   };
 
-  const btnCls = `px-2 py-1 rounded font-body text-[12px] font-medium ${tk.light}
-    hover:bg-fq-light-accent hover:text-fq-dark/80 transition-colors select-none`;
+  const btn = (title: string, cmd: string, icon: ReactNode) => (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => { e.preventDefault(); exec(cmd); }}
+      className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+    >
+      {icon}
+    </button>
+  );
 
   return (
-    <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-light-accent/30">
-      <button type="button" className={btnCls} onMouseDown={(e) => { e.preventDefault(); exec('bold'); }} title="Bold">
-        <strong>B</strong>
-      </button>
-      <button type="button" className={btnCls} onMouseDown={(e) => { e.preventDefault(); exec('italic'); }} title="Italic">
-        <em>I</em>
-      </button>
-      <button type="button" className={`${btnCls} text-[14px] leading-none`} onMouseDown={(e) => { e.preventDefault(); exec('insertUnorderedList'); }} title="Bullet list">
-        •≡
-      </button>
+    <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
+      {btn('Bold', 'bold', <Bold size={13} />)}
+      {btn('Italic', 'italic', <Italic size={13} />)}
+      {btn('Underline', 'underline', <Underline size={13} />)}
+      <div className="w-px h-4 bg-fq-border mx-1" />
+      {btn('Bullet list', 'insertUnorderedList', <List size={13} />)}
+      {btn('Numbered list', 'insertOrderedList', <ListOrdered size={13} />)}
     </div>
   );
 }
@@ -258,9 +263,9 @@ export default function ComposePanel({
 
   /* ── Build email body HTML ── */
   const buildBodyHtml = (): string => {
-    const bodyHtml  = bodyRef.current?.innerHTML ?? '';
-    const sigHtml   = sigRef.current?.innerHTML ?? renderSignatureHtml();
-    return `${bodyHtml}<hr style="border:none;border-top:1px solid #E8E0D8;margin:24px 0 16px" />${sigHtml}`;
+    const bodyHtml = bodyRef.current?.innerHTML ?? '';
+    const sigHtml  = sigRef.current?.innerHTML ?? emailSignatureHtml;
+    return wrapHtmlEmail(`${bodyHtml}<br><br>${sigHtml}`);
   };
 
   /* ── Parse recipients ── */
@@ -422,20 +427,14 @@ export default function ComposePanel({
               empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
           />
 
-          {/* Signature separator + editable signature */}
-          <div className="px-5 pt-1 pb-2 shrink-0">
-            <hr className="border-fq-border mb-3" />
+          {/* Editable signature */}
+          <div className="px-5 pb-3 shrink-0">
             <div
               ref={sigRef}
               contentEditable
               suppressContentEditableWarning
-              className={`font-body text-[12.5px] ${tk.light} leading-relaxed focus:outline-none`}
-              dangerouslySetInnerHTML={{ __html: [
-                '<strong style="color:#2C2420;font-weight:600">Mikaela Hall | Owner &amp; Creative Director</strong><br/>',
-                '(916)715-4122<br/>',
-                '<a href="mailto:Mikaela@foxandquinn.co" style="color:#8B6F4E;text-decoration:none">Mikaela@foxandquinn.co</a><br/>',
-                '<a href="https://www.foxandquinn.co" style="color:#8B6F4E;text-decoration:none">www.foxandquinn.co</a>',
-              ].join('') }}
+              className="focus:outline-none"
+              dangerouslySetInnerHTML={{ __html: emailSignatureHtml }}
             />
           </div>
         </div>

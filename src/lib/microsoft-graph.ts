@@ -321,7 +321,7 @@ export async function fetchAllFolders(userId = 'default'): Promise<GraphFolder[]
  */
 export async function sendReply(
   messageId: string,
-  replyBody: string,
+  replyBodyHtml: string,
   userId = 'default',
 ): Promise<void> {
   await graphFetch(
@@ -329,8 +329,9 @@ export async function sendReply(
     {
       method: 'POST',
       body: JSON.stringify({
-        message: {},
-        comment: replyBody,
+        message: {
+          body: { contentType: 'HTML', content: replyBodyHtml },
+        },
       }),
     },
     userId,

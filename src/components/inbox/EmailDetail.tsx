@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, Trash2, Paperclip } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
+import { buildReplyHtml, emailSignatureHtml } from '@/lib/emailSignature';
 
 interface Props {
   email: Email;
@@ -509,25 +510,60 @@ function ReplyPanel({
   onClose: () => void;
   initialText?: string;
 }) {
-  const [text, setText]       = useState(initialText);
-  const [sending, setSending] = useState(false);
-  const [sent, setSent]       = useState(false);
+  const [sending, setSending]           = useState(false);
+  const [sent, setSent]                 = useState(false);
   const [draftLoading, setDraftLoading] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isEmpty, setIsEmpty]           = useState(true);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const sigRef  = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { textareaRef.current?.focus(); }, []);
+  // Focus on mount
+  useEffect(() => { bodyRef.current?.focus(); }, []);
 
-  // Pick up AI draft arriving asynchronously (from Add to Sprint)
-  useEffect(() => { if (initialText) setText(initialText); }, [initialText]);
+  // Inject AI draft text when it arrives asynchronously (e.g. from Add to Sprint)
+  useEffect(() => {
+    if (initialText && bodyRef.current) {
+      bodyRef.current.innerHTML = initialText.replace(/\n/g, '<br>');
+      setIsEmpty(false);
+    }
+  }, [initialText]);
+
+  const execCmd = (cmd: string) => {
+    bodyRef.current?.focus();
+    document.execCommand(cmd, false, undefined);
+  };
+
+  const toolBtn = (title: string, cmd: string, icon: ReactNode) => (
+    <button
+      type="button"
+      key={cmd}
+      title={title}
+      onMouseDown={(e) => { e.preventDefault(); execCmd(cmd); }}
+      className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+    >
+      {icon}
+    </button>
+  );
 
   const handleSend = async () => {
-    if (!text.trim()) return;
+    const bodyHtml = bodyRef.current?.innerHTML ?? '';
+    if (!bodyHtml.trim() || bodyHtml === '<br>') return;
     setSending(true);
     try {
+      const originalDate   = fmtFull(email.received_at);
+      const originalSender = email.from_name ?? email.from_email ?? 'Unknown';
+      const originalBody   = email.body || (email.body_preview ?? '').replace(/\n/g, '<br>');
+      const sigHtml        = sigRef.current?.innerHTML ?? emailSignatureHtml;
+      const replyHtml      = buildReplyHtml(
+        `${bodyHtml}<br><br>${sigHtml}`,
+        originalDate,
+        originalSender,
+        originalBody,
+      );
       await fetch('/api/emails/reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message_id: email.message_id, reply_text: text }),
+        body: JSON.stringify({ message_id: email.message_id, reply_html: replyHtml }),
       });
       setSent(true);
     } finally {
@@ -538,15 +574,16 @@ function ReplyPanel({
   const handleAIDraft = async () => {
     setDraftLoading(true);
     try {
-      const res = await fetch('/api/emails/draft-reply', {
+      const res  = await fetch('/api/emails/draft-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email_id: email.id }),
       });
       const data = await res.json();
-      if (data.draft) {
-        setText(data.draft);
-        textareaRef.current?.focus();
+      if (data.draft && bodyRef.current) {
+        bodyRef.current.innerHTML = data.draft.replace(/\n/g, '<br>');
+        setIsEmpty(false);
+        bodyRef.current.focus();
       }
     } finally {
       setDraftLoading(false);
@@ -563,14 +600,15 @@ function ReplyPanel({
 
   return (
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
-      <div className={`px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between`}>
+      {/* Panel header */}
+      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
         <span className={`font-body text-[11.5px] ${tk.light}`}>
           Replying to {email.from_name || email.from_email}
         </span>
         <button
           onClick={handleAIDraft}
           disabled={draftLoading}
-          className={`flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40`}
+          className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
         >
           {draftLoading ? (
             <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
@@ -581,19 +619,43 @@ function ReplyPanel({
         </button>
       </div>
 
-      <textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={8}
-        placeholder="Type your reply…"
-        className={`w-full font-body text-[13px] ${tk.body} px-4 py-3 focus:outline-none resize-none leading-relaxed bg-fq-card`}
+      {/* Rich text toolbar */}
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
+        {toolBtn('Bold', 'bold', <Bold size={13} />)}
+        {toolBtn('Italic', 'italic', <Italic size={13} />)}
+        {toolBtn('Underline', 'underline', <Underline size={13} />)}
+        <div className="w-px h-4 bg-fq-border mx-1" />
+        {toolBtn('Bullet list', 'insertUnorderedList', <List size={13} />)}
+        {toolBtn('Numbered list', 'insertOrderedList', <ListOrdered size={13} />)}
+      </div>
+
+      {/* Editable body */}
+      <div
+        ref={bodyRef}
+        contentEditable
+        suppressContentEditableWarning
+        data-placeholder="Write your reply…"
+        onInput={() => setIsEmpty(!(bodyRef.current?.innerText ?? '').trim())}
+        className={`min-h-[150px] px-4 py-3 font-body text-[13px] ${tk.body} focus:outline-none leading-relaxed
+          empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
       />
 
+      {/* Editable signature preview */}
+      <div className="px-4 pb-2">
+        <div
+          ref={sigRef}
+          contentEditable
+          suppressContentEditableWarning
+          className="focus:outline-none"
+          dangerouslySetInnerHTML={{ __html: emailSignatureHtml }}
+        />
+      </div>
+
+      {/* Actions */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-t border-fq-border">
         <button
           onClick={handleSend}
-          disabled={sending || !text.trim()}
+          disabled={sending || isEmpty}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fq-accent text-white font-body text-[12.5px] font-medium hover:bg-fq-accent/90 transition-colors disabled:opacity-40"
         >
           <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
