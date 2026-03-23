@@ -151,25 +151,52 @@ export default function InboxPage() {
     return () => clearInterval(id);
   }, []);
 
+  /* ── Tracks when we last actually synced from Outlook (not just cache reads) ── */
+  const lastSyncTimeRef = useRef<number | null>(null);
+
   /* ─── Data loaders ────────────────────────────────────────────────────── */
 
-  const loadEmails = useCallback(async (showSpinner = true) => {
-    if (showSpinner) setLoading(true); else setSyncing(true);
+  const loadEmails = useCallback(async () => {
     setError(null);
+
+    // ── Step 1: Show cached emails instantly (no Graph API, no spinner) ──
+    try {
+      const params = new URLSearchParams({ sync: 'false' });
+      if (selectedFolder) params.set('folder_id', selectedFolder);
+      const res  = await fetch(`/api/emails?${params}`);
+      const data = await res.json();
+      if (data.error === 'NOT_CONNECTED') { setNotConnected(true); setLoading(false); return; }
+      const cached = data.emails ?? [];
+      setEmails(cached);
+      // Only keep the blocking spinner if cache is truly empty (first-ever load)
+      if (cached.length > 0) setLoading(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Unknown error');
+      setLoading(false);
+      return;
+    }
+
+    // ── Step 2: Background sync from Outlook if stale (>5 min or never synced) ──
+    const FIVE_MIN = 5 * 60_000;
+    const shouldSync = lastSyncTimeRef.current === null ||
+      Date.now() - lastSyncTimeRef.current > FIVE_MIN;
+    if (!shouldSync) return;
+
+    setSyncing(true);
     try {
       const params = new URLSearchParams();
       if (selectedFolder) params.set('folder_id', selectedFolder);
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); return; }
-      if (!res.ok) throw new Error(data.error ?? 'Failed to load emails');
       setEmails(data.emails ?? []);
+      lastSyncTimeRef.current = Date.now();
       setSyncedAt(new Date());
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error');
+    } catch (err: unknown) {
+      console.error('[inbox] Background sync error:', err);
     } finally {
-      setLoading(false);
       setSyncing(false);
+      setLoading(false); // clear spinner even if cache was empty and sync failed
     }
   }, [selectedFolder]);
 
@@ -200,7 +227,7 @@ export default function InboxPage() {
 
   /* ── Initial load ── */
   useEffect(() => {
-    loadEmails(true);
+    loadEmails();
     loadFolders();
     loadProjects();
     loadRules();
@@ -215,13 +242,13 @@ export default function InboxPage() {
     let timerId: ReturnType<typeof setInterval>;
 
     const tick = () => {
-      if (!document.hidden) loadEmailsRef.current(false);
+      if (!document.hidden) loadEmailsRef.current();
     };
 
     const onVisibility = () => {
       if (!document.hidden) {
         // Tab became active — refresh immediately, restart timer
-        loadEmailsRef.current(false);
+        loadEmailsRef.current();
         clearInterval(timerId);
         timerId = setInterval(tick, FIVE_MIN);
       } else {
@@ -237,9 +264,9 @@ export default function InboxPage() {
     };
   }, []); // runs once; uses ref for fresh loadEmails
 
-  /* ── Reload emails when folder changes ── */
+  /* ── Reload emails when folder changes — instant from cache, no spinner ── */
   useEffect(() => {
-    if (!loading) loadEmails(true);
+    if (!loading) loadEmails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolder]);
 
@@ -606,7 +633,7 @@ export default function InboxPage() {
             <h1 className={`font-heading text-[28px] font-semibold ${tk.heading}`}>Inbox</h1>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => loadEmails(false)}
+                onClick={() => { lastSyncTimeRef.current = null; loadEmails(); }}
                 disabled={syncing || loading}
                 title="Refresh"
                 className={`p-2 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} disabled:opacity-40`}
@@ -630,11 +657,16 @@ export default function InboxPage() {
             </div>
           </div>
           {/* Sync timestamp — re-renders each minute via nowTick */}
-          <p className={`font-body text-[11.5px] ${tk.light}`} suppressHydrationWarning>
-            {nowTick >= 0 && syncedAt
-              ? `Synced ${relativeTime(syncedAt)}`
-              : loading ? 'Syncing…' : 'Not synced yet'}
-          </p>
+          <div className="flex items-center gap-1.5" suppressHydrationWarning>
+            {syncing && (
+              <div className="w-1.5 h-1.5 rounded-full bg-fq-accent/60 animate-pulse shrink-0" />
+            )}
+            <p className={`font-body text-[11.5px] ${tk.light}`}>
+              {nowTick >= 0 && syncedAt
+                ? `Synced ${relativeTime(syncedAt)}`
+                : syncing ? 'Syncing…' : 'Not synced yet'}
+            </p>
+          </div>
         </div>
 
         {/* Search bar */}
@@ -771,10 +803,11 @@ export default function InboxPage() {
           {/* ── Normal list mode ── */}
           {!searchQuery && (
             <>
+              {/* Only block the list on very first load when cache is empty */}
               {loading && (
                 <div className="flex flex-col items-center justify-center mt-16 gap-3">
                   <div className="w-6 h-6 border-2 border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
-                  <p className={`font-body text-[13px] ${tk.light}`}>Syncing from Outlook…</p>
+                  <p className={`font-body text-[13px] ${tk.light}`}>Loading…</p>
                 </div>
               )}
 
