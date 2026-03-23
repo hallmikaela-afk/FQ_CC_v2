@@ -377,19 +377,35 @@ export default function InboxPage() {
 
   const handleResolve = useCallback(
     (email: Email) => {
-      patch(email.id, { resolved: true });
-      showToast('Marked as resolved', () => patch(email.id, { resolved: false }));
+      patch(email.id, { resolved: true, needs_followup: false, needs_response: false });
+      showToast('Marked as resolved', () =>
+        patch(email.id, {
+          resolved:        false,
+          needs_followup:  email.needs_followup,
+          needs_response:  email.needs_response,
+        }),
+      );
     },
     [patch, showToast],
   );
 
   const handleToggleFollowup = (email: Email) => {
-    patch(email.id, { needs_followup: !email.needs_followup });
+    // Turning on follow-up clears needs_response (mutually exclusive)
+    if (!email.needs_followup) {
+      patch(email.id, { needs_followup: true, needs_response: false });
+    } else {
+      patch(email.id, { needs_followup: false });
+    }
   };
 
   const handleNeedsResponse = useCallback(
     (email: Email) => {
-      patch(email.id, { needs_response: !email.needs_response });
+      // Turning on needs_response clears needs_followup (mutually exclusive)
+      if (!email.needs_response) {
+        patch(email.id, { needs_response: true, needs_followup: false });
+      } else {
+        patch(email.id, { needs_response: false });
+      }
     },
     [patch],
   );
