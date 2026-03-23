@@ -591,7 +591,7 @@ function ReplyPanel({
   // Inject AI draft text when it arrives asynchronously (e.g. from Add to Sprint)
   useEffect(() => {
     if (initialText && bodyRef.current) {
-      bodyRef.current.innerHTML = initialText.replace(/\n/g, '<br>');
+      bodyRef.current.innerHTML = `<span style="color:#2C2C2C">${initialText.replace(/\n/g, '<br>')}</span>`;
       setIsEmpty(false);
     }
   }, [initialText]);
@@ -681,7 +681,7 @@ function ReplyPanel({
       });
       const data = await res.json();
       if (data.draft && bodyRef.current) {
-        bodyRef.current.innerHTML = data.draft.replace(/\n/g, '<br>');
+        bodyRef.current.innerHTML = `<span style="color:#2C2C2C">${data.draft.replace(/\n/g, '<br>')}</span>`;
         setIsEmpty(false);
         bodyRef.current.focus();
       }

@@ -128,8 +128,9 @@ When writing a reply:
 - Address the sender's question or topic directly and concisely
 - Reference actual project details, dates, tasks where relevant
 - Keep it focused — don't pad with unnecessary filler
-- Sign off as: Mikaela
+- End with: Mikaela
 - Do NOT add a subject line
+- Do NOT include any signature block, contact info (phone, email, website), or footer — the system appends those automatically
 - Do NOT add any preamble, explanation, or meta-commentary — output ONLY the email body`;
 
   const userMessage = `Please draft a reply to this email.
