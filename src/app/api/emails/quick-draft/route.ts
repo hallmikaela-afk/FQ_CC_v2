@@ -1,20 +1,16 @@
 /**
  * /api/emails/quick-draft
  *
- * POST — Step 1 of 2: Generate AI reply text with Claude.
+ * POST — Step 1 of 2: Generate AI reply text with Claude using full project context.
  *        Does NOT save to Outlook (kept separate to stay under Vercel Hobby 10s limit).
  *        Returns { draft_text } — caller should then POST /api/emails/save-draft.
  */
 
 import { NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
 import { getServiceSupabase } from '@/lib/supabase';
+import { generateEmailDraft } from '@/lib/generateEmailDraft';
 
 export const dynamic = 'force-dynamic';
-
-function getAnthropic() {
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-}
 
 export async function POST(request: Request) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -27,9 +23,7 @@ export async function POST(request: Request) {
   }
 
   const supabase = getServiceSupabase();
-  const today = new Date().toISOString().split('T')[0];
 
-  // ── Fetch email ───────────────────────────────────────────────────────────
   const { data: email, error: emailError } = await supabase
     .from('emails')
     .select('id, message_id, subject, from_name, from_email, body, body_preview, received_at, project_id')
@@ -40,61 +34,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Email not found' }, { status: 404 });
   }
 
-  // ── Build project context ─────────────────────────────────────────────────
-  let projectContext = 'No project context available.';
-  if (email.project_id) {
-    const [projectRes, tasksRes] = await Promise.all([
-      supabase
-        .from('projects')
-        .select('name, type, status, event_date, client1_name, client2_name, venue_name, service_tier, concept')
-        .eq('id', email.project_id)
-        .single(),
-      supabase
-        .from('tasks')
-        .select('text, due_date, status')
-        .eq('project_id', email.project_id)
-        .eq('completed', false)
-        .order('due_date', { ascending: true })
-        .limit(10),
-    ]);
-    const project = projectRes.data;
-    const tasks   = tasksRes.data ?? [];
-    if (project) {
-      projectContext  = `PROJECT: ${project.name} (${project.type})\n`;
-      projectContext += `Status: ${project.status} | Event: ${project.event_date ?? 'TBD'}\n`;
-      projectContext += `Clients: ${[project.client1_name, project.client2_name].filter(Boolean).join(' & ') || 'N/A'}\n`;
-      if (project.venue_name) projectContext += `Venue: ${project.venue_name}\n`;
-      if (tasks.length > 0) {
-        projectContext += `Open tasks: ${tasks.map((t) => t.text).join(', ')}\n`;
-      }
-    }
-  }
-
-  // ── Generate draft with Claude ────────────────────────────────────────────
-  const systemPrompt = `You are helping Mikaela Hall, owner of Fox & Quinn Events — a luxury wedding and event planning company.
-Write email replies in Mikaela's voice: calm, warm, professional, and specific. Today is ${today}.
-Output ONLY the email body — no subject line, no preamble, no meta-commentary. Sign off as: Mikaela`;
-
-  const userMessage = `Draft a reply to this email.
-
-FROM: ${email.from_name || email.from_email || 'Unknown'} <${email.from_email || ''}>
-SUBJECT: ${email.subject || '(no subject)'}
-
-${email.body || email.body_preview || '(no content)'}
-
----
-${projectContext}`;
-
   try {
-    const response = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
-    });
-    const textContent = response.content.find((c) => c.type === 'text');
-    const draftText = (textContent as { type: 'text'; text: string } | undefined)?.text ?? '';
-    return NextResponse.json({ draft_text: draftText });
+    const draft_text = await generateEmailDraft(email, supabase);
+    return NextResponse.json({ draft_text });
   } catch (err: unknown) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Claude error' },
