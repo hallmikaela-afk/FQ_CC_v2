@@ -10,6 +10,10 @@ import { buildReplyHtml } from '@/lib/emailSignature';
 
 export const dynamic = 'force-dynamic';
 
+interface GraphRecipient {
+  emailAddress: { address: string; name?: string };
+}
+
 interface ReplyBody {
   message_id: string;
   /** Preferred: caller-built HTML (contenteditable innerHTML + quote). */
@@ -20,11 +24,14 @@ interface ReplyBody {
   original_date?: string;
   original_sender?: string;
   original_body?: string;
+  /** Optional CC and BCC recipients. */
+  cc?: GraphRecipient[];
+  bcc?: GraphRecipient[];
 }
 
 export async function POST(request: Request) {
   const body: ReplyBody = await request.json();
-  const { message_id, reply_html, reply_text, original_date = '', original_sender = '', original_body = '' } = body;
+  const { message_id, reply_html, reply_text, original_date = '', original_sender = '', original_body = '', cc = [], bcc = [] } = body;
 
   if (!message_id || (!reply_html?.trim() && !reply_text?.trim())) {
     return NextResponse.json({ error: 'Missing message_id or reply body' }, { status: 400 });
@@ -39,7 +46,7 @@ export async function POST(request: Request) {
   );
 
   try {
-    await sendReply(message_id, htmlBody, 'default');
+    await sendReply(message_id, htmlBody, 'default', cc, bcc);
     return NextResponse.json({ success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

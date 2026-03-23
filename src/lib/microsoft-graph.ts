@@ -320,20 +320,28 @@ export async function fetchAllFolders(userId = 'default'): Promise<GraphFolder[]
 /**
  * Send a reply to an email.
  */
+interface GraphRecipient {
+  emailAddress: { address: string; name?: string };
+}
+
 export async function sendReply(
   messageId: string,
   replyBodyHtml: string,
   userId = 'default',
+  cc: GraphRecipient[] = [],
+  bcc: GraphRecipient[] = [],
 ): Promise<void> {
+  const message: Record<string, unknown> = {
+    body: { contentType: 'HTML', content: replyBodyHtml },
+  };
+  if (cc.length > 0)  message.ccRecipients  = cc;
+  if (bcc.length > 0) message.bccRecipients = bcc;
+
   await graphFetch(
     `/me/messages/${messageId}/reply`,
     {
       method: 'POST',
-      body: JSON.stringify({
-        message: {
-          body: { contentType: 'HTML', content: replyBodyHtml },
-        },
-      }),
+      body: JSON.stringify({ message }),
     },
     userId,
   );

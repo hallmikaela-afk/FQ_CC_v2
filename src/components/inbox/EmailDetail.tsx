@@ -6,6 +6,7 @@ import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, Trash2, Pap
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
 import { buildReplyHtml, emailSignatureHtml } from '@/lib/emailSignature';
+import { AddressField, useContacts, chipsToRecipients, type ContactChip } from './AddressField';
 
 interface Props {
   email: Email;
@@ -576,8 +577,12 @@ function ReplyPanel({
   const [isEmpty, setIsEmpty]           = useState(true);
   const [colorOpen,   setColorOpen]     = useState(false);
   const [activeColor, setActiveColor]   = useState('#2C2C2C');
-  const bodyRef    = useRef<HTMLDivElement>(null);
-  const sigRef     = useRef<HTMLDivElement>(null);
+  const [showCcBcc, setShowCcBcc]       = useState(false);
+  const [ccChips,   setCcChips]         = useState<ContactChip[]>([]);
+  const [bccChips,  setBccChips]        = useState<ContactChip[]>([]);
+  const contacts = useContacts();
+  const bodyRef     = useRef<HTMLDivElement>(null);
+  const sigRef      = useRef<HTMLDivElement>(null);
   const colorBtnRef = useRef<HTMLDivElement>(null);
 
   // Focus on mount
@@ -653,7 +658,12 @@ function ReplyPanel({
       await fetch('/api/emails/reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message_id: email.message_id, reply_html: replyHtml }),
+        body: JSON.stringify({
+          message_id: email.message_id,
+          reply_html: replyHtml,
+          cc:  chipsToRecipients(ccChips),
+          bcc: chipsToRecipients(bccChips),
+        }),
       });
       setSent(true);
     } finally {
@@ -692,9 +702,20 @@ function ReplyPanel({
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
       {/* Panel header */}
       <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
-        <span className={`font-body text-[11.5px] ${tk.light}`}>
-          Replying to {email.from_name || email.from_email}
-        </span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
+            Replying to {email.from_name || email.from_email}
+          </span>
+          {!showCcBcc && (
+            <button
+              type="button"
+              onClick={() => setShowCcBcc(true)}
+              className={`font-body text-[11px] font-medium ${tk.light} hover:text-fq-dark transition-colors shrink-0`}
+            >
+              + CC / BCC
+            </button>
+          )}
+        </div>
         <button
           onClick={handleAIDraft}
           disabled={draftLoading}
@@ -708,6 +729,18 @@ function ReplyPanel({
           {draftLoading ? 'Drafting…' : 'AI Draft'}
         </button>
       </div>
+
+      {/* CC / BCC fields (expanded) */}
+      {showCcBcc && (
+        <div className="divide-y divide-fq-border border-b border-fq-border">
+          <div className="px-4 py-2">
+            <AddressField label="CC" chips={ccChips} onChipsChange={setCcChips} contacts={contacts} />
+          </div>
+          <div className="px-4 py-2">
+            <AddressField label="BCC" chips={bccChips} onChipsChange={setBccChips} contacts={contacts} />
+          </div>
+        </div>
+      )}
 
       {/* Rich text toolbar */}
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">

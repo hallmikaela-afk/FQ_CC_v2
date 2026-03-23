@@ -2,14 +2,15 @@
 
 /**
  * ComposePanel — slide-up compose/new-email modal.
- * Features: To autocomplete, CC (collapsed), Subject, Project tag,
- * basic rich-text body (bold/italic/list), auto-appended signature.
+ * Features: To/CC/BCC with chip autocomplete, Subject, Project tag,
+ * basic rich-text body (bold/italic/list/color), auto-appended signature.
  */
 
 import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
-import { Send, X, ChevronDown, Mail, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
+import { Send, X, Mail, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
 import { emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
 import type { Project } from './EmailCard';
+import { AddressField, useContacts, chipsToRecipients, type ContactChip } from './AddressField';
 
 /* ── Design tokens ── */
 const tk = {
@@ -18,16 +19,6 @@ const tk = {
   light:   'text-fq-muted/65',
   icon:    'text-fq-muted/55',
 };
-
-const INPUT = `w-full font-body text-[13px] text-fq-dark/85 bg-fq-bg border border-fq-border rounded-lg
-  px-3 py-2 focus:outline-none focus:ring-1 focus:ring-fq-accent/30 placeholder:text-fq-muted/50`;
-
-/* ── Contact suggestion type ── */
-interface Contact {
-  name: string;
-  email: string;
-  source: 'client' | 'vendor' | 'recent';
-}
 
 /* ── Props ── */
 export interface ComposePanelProps {
@@ -133,93 +124,6 @@ function RichTextToolbar({ containerRef }: { containerRef: React.RefObject<HTMLD
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   ToField — text input with autocomplete dropdown
-───────────────────────────────────────────────────────────────────────────── */
-function ToField({
-  value,
-  onChange,
-  contacts,
-  placeholder = 'To',
-  label = 'To',
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  contacts: Contact[];
-  placeholder?: string;
-  label?: string;
-}) {
-  const [open, setOpen]   = useState(false);
-  const wrapRef           = useRef<HTMLDivElement>(null);
-
-  const suggestions = value.length > 0
-    ? contacts.filter((c) => {
-        const q = value.toLowerCase();
-        return (
-          c.name.toLowerCase().includes(q) ||
-          c.email.toLowerCase().includes(q)
-        );
-      }).slice(0, 6)
-    : [];
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  return (
-    <div ref={wrapRef} className="relative">
-      <div className="flex items-center gap-2">
-        <span className={`font-body text-[11.5px] font-medium ${tk.light} w-14 shrink-0`}>{label}</span>
-        <input
-          type="email"
-          value={value}
-          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
-          onFocus={() => value.length > 0 && setOpen(true)}
-          placeholder={placeholder}
-          className="flex-1 font-body text-[13px] text-fq-dark/85 bg-transparent border-none outline-none py-0 placeholder:text-fq-muted/50"
-        />
-      </div>
-
-      {open && suggestions.length > 0 && (
-        <div className="absolute left-16 right-0 top-full mt-1 z-50 rounded-xl border border-fq-border bg-fq-card shadow-lg overflow-hidden">
-          {suggestions.map((c) => (
-            <button
-              key={c.email}
-              type="button"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChange(c.email);
-                setOpen(false);
-              }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2 hover:bg-fq-bg transition-colors text-left`}
-            >
-              <div className="w-6 h-6 rounded-full bg-fq-light-accent flex items-center justify-center shrink-0">
-                <span className={`font-body text-[10px] font-semibold ${tk.light}`}>
-                  {c.name?.[0]?.toUpperCase() ?? '?'}
-                </span>
-              </div>
-              <div className="min-w-0">
-                <p className={`font-body text-[12.5px] font-medium text-fq-dark/80 truncate`}>{c.name}</p>
-                <p className={`font-body text-[11px] ${tk.light} truncate`}>{c.email}</p>
-              </div>
-              <span className={`ml-auto font-body text-[10px] ${tk.light} shrink-0 capitalize`}>
-                {c.source}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
    ComposePanel — main export
 ───────────────────────────────────────────────────────────────────────────── */
 export default function ComposePanel({
@@ -230,14 +134,17 @@ export default function ComposePanel({
   onSent,
 }: ComposePanelProps) {
   /* ── Field state ── */
-  const [to,        setTo]        = useState(initialTo ?? '');
-  const [cc,        setCc]        = useState('');
-  const [showCc,    setShowCc]    = useState(false);
-  const [subject,   setSubject]   = useState('');
-  const [projectId, setProjectId] = useState(initialProjectId ?? '');
+  const [toChips,    setToChips]    = useState<ContactChip[]>(() =>
+    initialTo ? [{ name: initialTo, email: initialTo }] : [],
+  );
+  const [ccChips,    setCcChips]    = useState<ContactChip[]>([]);
+  const [bccChips,   setBccChips]   = useState<ContactChip[]>([]);
+  const [showCcBcc,  setShowCcBcc]  = useState(false);
+  const [subject,    setSubject]    = useState('');
+  const [projectId,  setProjectId]  = useState(initialProjectId ?? '');
 
   /* ── Contacts for autocomplete ── */
-  const [contacts, setContacts] = useState<Contact[]>([]);
+  const contacts = useContacts();
 
   /* ── UI state ── */
   const [sending,     setSending]     = useState(false);
@@ -247,65 +154,9 @@ export default function ComposePanel({
   const [discardAsk,  setDiscardAsk]  = useState(false);
 
   /* ── Refs ── */
-  const bodyRef      = useRef<HTMLDivElement>(null);
-  const sigRef       = useRef<HTMLDivElement>(null);
-  const toastTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /* ── Load contacts ── */
-  useEffect(() => {
-    const load = async () => {
-      try {
-        // Clients from projects
-        const projRes  = await fetch('/api/projects');
-        const projData = await projRes.json();
-        const projectList: Array<{
-          client1_name?: string; client1_email?: string;
-          client2_name?: string; client2_email?: string;
-        }> = projData.projects ?? projData ?? [];
-
-        const clientContacts: Contact[] = [];
-        for (const p of projectList) {
-          if (p.client1_email) clientContacts.push({ name: p.client1_name ?? p.client1_email, email: p.client1_email, source: 'client' });
-          if (p.client2_email) clientContacts.push({ name: p.client2_name ?? p.client2_email, email: p.client2_email, source: 'client' });
-        }
-
-        // Vendors
-        const vendorRes  = await fetch('/api/vendors');
-        const vendorData = await vendorRes.json();
-        const vendorContacts: Contact[] = (vendorData.vendors ?? vendorData ?? [])
-          .filter((v: { email?: string }) => !!v.email)
-          .map((v: { vendor_name?: string; email: string }) => ({
-            name: v.vendor_name ?? v.email,
-            email: v.email,
-            source: 'vendor' as const,
-          }));
-
-        // Recent senders
-        const emailRes  = await fetch('/api/emails?top=50');
-        const emailData = await emailRes.json();
-        const seen = new Set<string>();
-        const recentContacts: Contact[] = [];
-        for (const e of (emailData.emails ?? [])) {
-          if (e.from_email && !seen.has(e.from_email)) {
-            seen.add(e.from_email);
-            recentContacts.push({ name: e.from_name ?? e.from_email, email: e.from_email, source: 'recent' });
-          }
-        }
-
-        // Merge, deduplicate by email (prefer earlier sources)
-        const allSeen = new Set<string>();
-        const merged: Contact[] = [];
-        for (const c of [...clientContacts, ...vendorContacts, ...recentContacts]) {
-          if (!allSeen.has(c.email.toLowerCase())) {
-            allSeen.add(c.email.toLowerCase());
-            merged.push(c);
-          }
-        }
-        setContacts(merged);
-      } catch {}
-    };
-    load();
-  }, []);
+  const bodyRef    = useRef<HTMLDivElement>(null);
+  const sigRef     = useRef<HTMLDivElement>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ── Show toast ── */
   const showToast = useCallback((msg: string) => {
@@ -317,11 +168,11 @@ export default function ComposePanel({
   /* ── Has content? (for discard confirmation) ── */
   const hasContent = useCallback(() => {
     return (
-      to.trim().length > 0 ||
+      toChips.length > 0 ||
       subject.trim().length > 0 ||
       (bodyRef.current?.innerText ?? '').trim().length > 0
     );
-  }, [to, subject]);
+  }, [toChips, subject]);
 
   /* ── Build email body HTML ── */
   const buildBodyHtml = (): string => {
@@ -330,15 +181,9 @@ export default function ComposePanel({
     return wrapHtmlEmail(`${bodyHtml}<br><br>${sigHtml}`);
   };
 
-  /* ── Parse recipients ── */
-  const parseRecipients = (raw: string) =>
-    raw.split(/[,;]/).map((s) => s.trim()).filter(Boolean).map((addr) => ({
-      emailAddress: { address: addr, name: addr },
-    }));
-
   /* ── Send ── */
   const handleSend = async () => {
-    if (!to.trim() || !subject.trim()) {
+    if (toChips.length === 0 || !subject.trim()) {
       showToast('Please fill in To and Subject');
       return;
     }
@@ -348,12 +193,13 @@ export default function ComposePanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action:      'send',
-          to:          parseRecipients(to),
-          cc:          cc.trim() ? parseRecipients(cc) : [],
+          action:     'send',
+          to:         chipsToRecipients(toChips),
+          cc:         chipsToRecipients(ccChips),
+          bcc:        chipsToRecipients(bccChips),
           subject,
-          body:        buildBodyHtml(),
-          project_id:  projectId || null,
+          body:       buildBodyHtml(),
+          project_id: projectId || null,
         }),
       });
       if (!res.ok) {
@@ -378,12 +224,13 @@ export default function ComposePanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action:      'draft',
-          to:          parseRecipients(to),
-          cc:          cc.trim() ? parseRecipients(cc) : [],
-          subject:     subject || '(no subject)',
-          body:        buildBodyHtml(),
-          project_id:  projectId || null,
+          action:     'draft',
+          to:         chipsToRecipients(toChips),
+          cc:         chipsToRecipients(ccChips),
+          bcc:        chipsToRecipients(bccChips),
+          subject:    subject || '(no subject)',
+          body:       buildBodyHtml(),
+          project_id: projectId || null,
         }),
       });
       if (!res.ok) {
@@ -426,25 +273,33 @@ export default function ComposePanel({
 
         {/* ── Fields ── */}
         <div className="divide-y divide-fq-border shrink-0">
-          {/* To */}
-          <div className="px-5 py-2.5">
-            <div className="flex items-center gap-2">
-              <ToField value={to} onChange={setTo} contacts={contacts} label="To" placeholder="recipient@email.com" />
+          {/* To row */}
+          <div className="px-5 py-2.5 flex items-start gap-2">
+            <div className="flex-1 min-w-0">
+              <AddressField label="To" chips={toChips} onChipsChange={setToChips} contacts={contacts} />
+            </div>
+            {/* + CC / BCC toggle */}
+            {!showCcBcc && (
               <button
                 type="button"
-                onClick={() => setShowCc((v) => !v)}
-                className={`shrink-0 font-body text-[11px] font-medium ${tk.light} hover:text-fq-dark flex items-center gap-0.5 transition-colors`}
+                onClick={() => setShowCcBcc(true)}
+                className={`shrink-0 font-body text-[11px] font-medium ${tk.light} hover:text-fq-dark transition-colors pt-0.5`}
               >
-                CC <ChevronDown size={11} className={`transition-transform ${showCc ? 'rotate-180' : ''}`} />
+                + CC / BCC
               </button>
-            </div>
+            )}
           </div>
 
-          {/* CC (collapsed by default) */}
-          {showCc && (
-            <div className="px-5 py-2.5">
-              <ToField value={cc} onChange={setCc} contacts={contacts} label="CC" placeholder="cc@email.com" />
-            </div>
+          {/* CC + BCC (expanded) */}
+          {showCcBcc && (
+            <>
+              <div className="px-5 py-2.5">
+                <AddressField label="CC" chips={ccChips} onChipsChange={setCcChips} contacts={contacts} />
+              </div>
+              <div className="px-5 py-2.5">
+                <AddressField label="BCC" chips={bccChips} onChipsChange={setBccChips} contacts={contacts} />
+              </div>
+            </>
           )}
 
           {/* Subject */}
