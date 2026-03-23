@@ -9,8 +9,12 @@
 
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { fetchMessages, fetchAllFolders, markAsRead, deleteMessage, moveMessage } from '@/lib/microsoft-graph';
-import { matchEmailToProject, type PreloadedMatchData } from '@/lib/email-matching';
+import { markAsRead, deleteMessage } from '@/lib/microsoft-graph';
+import {
+  FOLDER_BATCH,
+  buildSyncContext, upsertBatch,
+  fetchMessages,
+} from '@/lib/email-sync-helpers';
 import type { GraphMessage } from '@/lib/microsoft-graph';
 
 export const dynamic = 'force-dynamic';
@@ -185,73 +189,35 @@ export async function DELETE(request: Request) {
 
 // ─── Sync helper ──────────────────────────────────────────────────────────────
 
-const SYNC_BATCH = 10;   // parallel upserts per round
-const FOLDER_BATCH = 5;  // parallel folder fetches per round
-
-// Folders that contain no useful email for inbox purposes
-const SKIP_FOLDERS = new Set([
-  'conversation history',
-  'rss feeds',
-  'rss subscriptions',
-  'clutter',
-  'sync issues',
-  'outbox',
-  'junk email',
-  'deleted items',
-  'drafts',
-]);
-
 async function syncEmails(
   opts: { top?: number; dateFrom?: string; dateTo?: string },
   supabase: ReturnType<typeof getServiceSupabase>,
 ) {
-  const dateFrom =
-    opts.dateFrom ??
-    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-  // ── 1. Fetch all folders + lookup data in parallel ───────────────────────
-  const [allFolders, projectsRes, vendorsRes, rulesRes] = await Promise.all([
-    fetchAllFolders('default'),
-    supabase
-      .from('projects')
-      .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer')
-      .in('status', ['active', 'completed']),
-    supabase.from('vendors').select('project_id, email'),
-    supabase.from('inbox_rules').select('rule_type, value, action'),
-  ]);
-
-  const projects = (projectsRes.data ?? []) as PreloadedMatchData['projects'];
-
-  // ── 2. Find Receipts folder + build folder → project map ────────────────
-  const receiptsFolderId =
-    allFolders.find(f => f.displayName.toLowerCase() === 'receipts')?.id ?? null;
-
-  const folderProjectMap = new Map<string, string>(); // folder_id → project_id
-  const NUMBER_PREFIX = /^\d+\s*-\s*/;
-
-  for (const folder of allFolders) {
-    if (!NUMBER_PREFIX.test(folder.displayName)) continue;
-    const cleanName = folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase();
-    const project = projects.find(p => p.name.toLowerCase() === cleanName);
-    if (project) folderProjectMap.set(folder.id, project.id);
+  // Incremental sync: only fetch emails newer than the most recent one in DB.
+  // Falls back to 30 days on first run (before initial-sync completes).
+  let dateFrom = opts.dateFrom;
+  if (!dateFrom) {
+    const { data: newest } = await supabase
+      .from('emails')
+      .select('received_at')
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    dateFrom = newest?.received_at
+      ? new Date(new Date(newest.received_at).getTime() - 60 * 60_000).toISOString()
+      : new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
   }
 
-  // ── 3. Filter to folders worth syncing ───────────────────────────────────
-  const foldersToSync = allFolders.filter(
-    f => !SKIP_FOLDERS.has(f.displayName.toLowerCase()),
-  );
-
-  // ── 4. Fetch messages from all folders in parallel batches ───────────────
-  const allPairs: Array<{ msg: import('@/lib/microsoft-graph').GraphMessage; folderId: string }> = [];
+  const ctx = await buildSyncContext(supabase);
   const seen = new Set<string>();
+  const allPairs: Array<{ msg: GraphMessage; folderId: string }> = [];
 
-  for (let i = 0; i < foldersToSync.length; i += FOLDER_BATCH) {
-    const folderBatch = foldersToSync.slice(i, i + FOLDER_BATCH);
+  for (let i = 0; i < ctx.foldersToSync.length; i += FOLDER_BATCH) {
+    const batch = ctx.foldersToSync.slice(i, i + FOLDER_BATCH);
     const results = await Promise.allSettled(
-      folderBatch.map(folder =>
-        fetchMessages({ folderId: folder.id, top: opts.top ?? 20, dateFrom }, 'default').then(
-          ({ messages }) =>
-            messages.map(msg => ({ msg, folderId: folder.id })),
+      batch.map(folder =>
+        fetchMessages({ folderId: folder.id, top: opts.top ?? 25, dateFrom }, 'default').then(
+          ({ messages }) => messages.map(msg => ({ msg, folderId: folder.id })),
         ),
       ),
     );
@@ -267,246 +233,8 @@ async function syncEmails(
 
   if (!allPairs.length) return;
 
-  // ── 5. Load existing email records + build helpers ───────────────────────
-  const hideRules: { type: string; value: string }[] = (rulesRes.data ?? [])
-    .filter(r => r.action === 'hide')
-    .map(r => ({ type: r.rule_type, value: (r.value as string).toLowerCase() }));
-
-  function matchesHideRule(fromEmail: string): boolean {
-    const email = fromEmail.toLowerCase();
-    const domain = email.split('@')[1] ?? '';
-    return hideRules.some(
-      r =>
-        (r.type === 'sender' && email === r.value) ||
-        (r.type === 'domain' && domain === r.value),
-    );
-  }
-
-  const existingRes = await supabase
-    .from('emails')
-    .select('message_id, project_id, match_confidence, category')
-    .in('message_id', allPairs.map(({ msg }) => msg.id));
-
-  const existingMap = new Map<
-    string,
-    { project_id: string | null; match_confidence: string | null; category: string | null }
-  >();
-  for (const row of existingRes.data ?? []) {
-    existingMap.set(row.message_id, row);
-  }
-
-  const preloaded: PreloadedMatchData = {
-    projects,
-    vendors: (vendorsRes.data ?? []) as PreloadedMatchData['vendors'],
-  };
-
-  // Build vendor email set for receipt exclusion check
-  const vendorEmails = new Set(
-    (vendorsRes.data ?? []).map(v => (v.email as string).toLowerCase()),
+  await upsertBatch(
+    allPairs, supabase, ctx.preloaded, ctx.folderProjectMap,
+    ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule,
   );
-
-  // ── 6. Upsert in parallel batches ────────────────────────────────────────
-  for (let i = 0; i < allPairs.length; i += SYNC_BATCH) {
-    const batch = allPairs.slice(i, i + SYNC_BATCH);
-    await Promise.allSettled(
-      batch
-        .filter(({ msg }) => !matchesHideRule(msg.from?.emailAddress?.address ?? ''))
-        .map(({ msg, folderId }) =>
-          upsertEmail(
-            msg,
-            folderId,
-            supabase,
-            preloaded,
-            existingMap,
-            folderProjectMap,
-            receiptsFolderId,
-            vendorEmails,
-          ),
-        ),
-    );
-  }
-}
-
-async function upsertEmail(
-  msg: GraphMessage,
-  folderId: string,
-  supabase: ReturnType<typeof getServiceSupabase>,
-  preloaded: PreloadedMatchData,
-  existingMap: Map<
-    string,
-    { project_id: string | null; match_confidence: string | null; category: string | null }
-  >,
-  folderProjectMap: Map<string, string>,
-  receiptsFolderId: string | null,
-  vendorEmails: Set<string>,
-) {
-  const fromEmail = msg.from?.emailAddress?.address ?? '';
-  const fromName  = msg.from?.emailAddress?.name ?? '';
-  const isMeetingSummary = detectMeetingSummary(fromEmail, msg.subject ?? '');
-  const existing = existingMap.get(msg.id);
-
-  // ── Receipt detection runs FIRST and takes absolute priority ─────────────
-  // Re-run on every sync so incorrectly-tagged emails are corrected.
-  const isAutoReceipt    = detectReceipt(fromEmail, msg.subject ?? '', vendorEmails);
-  const isManualReceipt  = existing?.category === 'receipt'; // user manually flagged
-  const isReceipt        = isAutoReceipt || isManualReceipt;
-
-  if (isReceipt) {
-    const wasAlreadyReceipt = isManualReceipt; // avoid re-moving if already done
-    await supabase.from('emails').upsert(
-      {
-        message_id:        msg.id,
-        subject:           msg.subject,
-        from_name:         fromName,
-        from_email:        fromEmail,
-        body_preview:      msg.bodyPreview,
-        body:              msg.body?.content ?? null,
-        received_at:       msg.receivedDateTime,
-        is_read:           msg.isRead,
-        conversation_id:   msg.conversationId,
-        folder_id:         folderId,
-        project_id:        null,  // receipt always clears project
-        match_confidence:  null,
-        is_meeting_summary: isMeetingSummary,
-        category:          'receipt',
-        dismissed:         true,
-      },
-      { onConflict: 'message_id' },
-    );
-
-    // Move to Receipts folder (only for newly auto-detected, not already moved)
-    if (isAutoReceipt && !wasAlreadyReceipt && receiptsFolderId && folderId !== receiptsFolderId) {
-      moveMessage(msg.id, receiptsFolderId).catch(err =>
-        console.error('[emails] receipt move error:', err),
-      );
-    }
-    return;
-  }
-
-  // ── Project matching (only runs for non-receipts) ─────────────────────────
-  let projectId: string | null = existing?.project_id ?? null;
-  let confidence: string | null = existing?.match_confidence ?? null;
-
-  // Folder-based match is the strongest signal — apply unless already confirmed
-  const folderProjectId = folderProjectMap.get(folderId) ?? null;
-  if (folderProjectId && existing?.match_confidence !== 'exact') {
-    projectId  = folderProjectId;
-    confidence = 'exact';
-  } else if (!projectId || confidence === 'suggested') {
-    const toEmails = (msg.toRecipients ?? []).map((r) => r.emailAddress.address);
-    const match = await matchEmailToProject(
-      fromEmail,
-      msg.subject ?? '',
-      msg.body?.content ?? msg.bodyPreview ?? '',
-      msg.conversationId,
-      supabase,
-      preloaded,
-      toEmails,
-    );
-
-    const shouldApply =
-      !existing?.project_id ||
-      (match.confidence === 'exact'  && existing.match_confidence !== 'exact') ||
-      (match.confidence === 'high'   && !['exact'].includes(existing.match_confidence ?? '')) ||
-      (match.confidence === 'thread' && !['exact', 'high'].includes(existing.match_confidence ?? ''));
-
-    if (shouldApply && match.projectId) {
-      projectId  = match.projectId;
-      confidence = match.confidence;
-    }
-  }
-
-  // Matched emails: un-dismiss; unmatched: keep dismissed
-  const dismissed = projectId ? false : true;
-
-  await supabase.from('emails').upsert(
-    {
-      message_id:        msg.id,
-      subject:           msg.subject,
-      from_name:         fromName,
-      from_email:        fromEmail,
-      body_preview:      msg.bodyPreview,
-      body:              msg.body?.content ?? null,
-      received_at:       msg.receivedDateTime,
-      is_read:           msg.isRead,
-      conversation_id:   msg.conversationId,
-      folder_id:         folderId,
-      project_id:        projectId,
-      match_confidence:  confidence,
-      is_meeting_summary: isMeetingSummary,
-      category:          null,   // clear any stale category
-      dismissed,
-    },
-    { onConflict: 'message_id' },
-  );
-}
-
-// ─── Receipt detection ────────────────────────────────────────────────────────
-
-const RECEIPT_SENDER_DOMAINS = new Set([
-  'anthropic.com',
-  'vercel.com',
-  'adobe.com',
-  'canva.com',
-  'notion.so',
-  'figma.com',
-  'zapier.com',
-  'google.com',
-  'microsoft.com',
-  'flodesk.com',
-  'honeybook.com',
-  'aisle-planner.com',
-]);
-
-const RECEIPT_SUBJECT_BILLING_WORDS = ['renewal', 'renewed', 'billed', 'charge', 'receipt', 'confirmed'];
-
-function detectReceipt(
-  fromEmail: string,
-  subject: string,
-  vendorEmails: Set<string>,
-): boolean {
-  const email = fromEmail.toLowerCase();
-  const subj = subject.toLowerCase();
-
-  // Never treat vendor emails as receipts
-  if (vendorEmails.has(email)) return false;
-
-  // Never treat invoices as receipts
-  if (subj.includes('invoice')) return false;
-
-  // Sender-domain-based detection
-  const domain = email.split('@')[1] ?? '';
-  if (RECEIPT_SENDER_DOMAINS.has(domain)) return true;
-
-  // Subject-based detection: must contain "subscription" + at least one billing word
-  if (
-    subj.includes('subscription') &&
-    RECEIPT_SUBJECT_BILLING_WORDS.some(w => subj.includes(w))
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-// ─── Meeting summary detection ──────────────────────────────────────────────
-
-const ZOOM_NOREPLY_PATTERNS = [
-  'no-reply@zoom.us',
-  'noreply@zoom.us',
-  'no_reply@zoom.us',
-];
-
-function detectMeetingSummary(fromEmail: string, subject: string): boolean {
-  const email = fromEmail.toLowerCase();
-  const subj = subject.toLowerCase();
-
-  // Zoom AI Companion summaries: from no-reply@zoom.us with "Meeting Summary:" prefix
-  const isZoom = ZOOM_NOREPLY_PATTERNS.some(p => email.includes(p)) || email.endsWith('@zoom.us');
-  if (isZoom && subj.includes('meeting summary')) return true;
-
-  // Also catch generic meeting summary patterns from Zoom
-  if (isZoom && (subj.includes('summary') || subj.includes('recap'))) return true;
-
-  return false;
 }

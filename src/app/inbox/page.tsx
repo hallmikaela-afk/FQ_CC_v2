@@ -145,6 +145,12 @@ export default function InboxPage() {
   const [undoToast, setUndoToast] = useState<{ message: string; undo: () => void } | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /* ── History / load-more ── */
+  const [historySyncing,    setHistorySyncing]    = useState(false);
+  const [historySyncCount,  setHistorySyncCount]  = useState(0);
+  const [loadingMore,       setLoadingMore]       = useState(false);
+  const [noMoreHistory,     setNoMoreHistory]     = useState(false);
+
   /* ── "now" tick — updates relative "synced X ago" label every minute ── */
   useEffect(() => {
     const id = setInterval(() => setNowTick((n) => n + 1), 60_000);
@@ -244,6 +250,57 @@ export default function InboxPage() {
     loadProjects();
     loadRules();
   }, [loadEmails, loadFolders, loadProjects, loadRules]);
+
+  /* ── One-time 90-day history sync (runs only on first ever load) ── */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem('inbox_initial_sync_done')) return;
+
+    let cancelled = false;
+
+    async function runInitialSync() {
+      setHistorySyncing(true);
+      setHistorySyncCount(0);
+      try {
+        const res = await fetch('/api/emails/initial-sync', { method: 'POST' });
+        if (!res.body) return;
+        const reader  = res.body.getReader();
+        const decoder = new TextDecoder();
+        let   buffer  = '';
+
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const evt = JSON.parse(line.slice(6));
+              if (typeof evt.count === 'number') setHistorySyncCount(evt.count);
+              if (evt.done) {
+                localStorage.setItem('inbox_initial_sync_done', 'true');
+                if (evt.oldest_date) {
+                  localStorage.setItem('inbox_sync_cursor', evt.oldest_date);
+                }
+                loadEmails(); // refresh list with full history
+              }
+            } catch { /* ignore parse errors */ }
+          }
+        }
+      } catch (err) {
+        console.error('[inbox] initial sync error:', err);
+      } finally {
+        if (!cancelled) setHistorySyncing(false);
+      }
+    }
+
+    runInitialSync();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ── Auto-refresh every 5 min using Page Visibility API ── */
   const loadEmailsRef = useRef(loadEmails);
@@ -580,6 +637,34 @@ export default function InboxPage() {
     }
   };
 
+  /* ── Load more (older emails beyond the 90-day window) ── */
+  const handleLoadMore = async () => {
+    if (typeof window === 'undefined') return;
+    const cursor = localStorage.getItem('inbox_sync_cursor');
+    if (!cursor) return;
+
+    setLoadingMore(true);
+    try {
+      const res  = await fetch('/api/emails/load-more', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ before_date: cursor }),
+      });
+      const data = await res.json();
+      if (data.done || data.loaded_count === 0) {
+        setNoMoreHistory(true);
+        localStorage.setItem('inbox_no_more_history', 'true');
+      } else if (data.oldest_date) {
+        localStorage.setItem('inbox_sync_cursor', data.oldest_date);
+      }
+      loadEmails(); // refresh list
+    } catch (err) {
+      console.error('[inbox] load-more error:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   /* ── Not connected screen ── */
   if (notConnected) {
     return (
@@ -670,11 +755,13 @@ export default function InboxPage() {
           </div>
           {/* Sync timestamp — re-renders each minute via nowTick */}
           <div className="flex items-center gap-1.5" suppressHydrationWarning>
-            {syncing && (
+            {(syncing || historySyncing) && (
               <div className="w-1.5 h-1.5 rounded-full bg-fq-accent/60 animate-pulse shrink-0" />
             )}
             <p className={`font-body text-[11.5px] ${tk.light}`}>
-              {nowTick >= 0 && syncedAt
+              {historySyncing
+                ? `Loading email history… ${historySyncCount} emails loaded`
+                : nowTick >= 0 && syncedAt
                 ? `Synced ${relativeTime(syncedAt)}`
                 : syncing ? 'Syncing…' : 'Not synced yet'}
             </p>
@@ -865,6 +952,22 @@ export default function InboxPage() {
                   onReassign={handleReassign}
                 />
               ))}
+
+              {/* Load more older emails */}
+              {!loading && !searchQuery && typeof window !== 'undefined' &&
+                localStorage.getItem('inbox_initial_sync_done') &&
+                !noMoreHistory &&
+                !localStorage.getItem('inbox_no_more_history') && (
+                <div className="px-5 py-4 text-center">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                    className={`font-body text-[12px] ${tk.light} hover:underline disabled:opacity-50`}
+                  >
+                    {loadingMore ? 'Loading…' : 'Load older emails'}
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
