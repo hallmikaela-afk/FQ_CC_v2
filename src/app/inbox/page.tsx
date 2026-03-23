@@ -129,6 +129,7 @@ export default function InboxPage() {
   const [projectFilter,  setProjectFilter]  = useState('');
   const [selectedId,         setSelectedId]         = useState<string | null>(null);
   const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
+  const [draftFallbackText,  setDraftFallbackText]  = useState<string | null>(null);
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
@@ -415,6 +416,8 @@ export default function InboxPage() {
     async (email: Email) => {
       // Open the detail panel immediately
       handleSelectEmail(email);
+      // Clear any previous fallback text for this email
+      setDraftFallbackText(null);
       // Show "Generating draft…" in the composer zone
       setGeneratingDraftFor(email.id);
       try {
@@ -424,9 +427,15 @@ export default function InboxPage() {
           body: JSON.stringify({ email_id: email.id }),
         });
         const data = await res.json();
+
         if (data.draft_message_id) {
+          // Full success — Outlook draft created and saved
           patch(email.id, { draft_message_id: data.draft_message_id });
+        } else if (data.draft_text) {
+          // Claude generated text but Outlook save failed — show in reply panel
+          setDraftFallbackText(data.draft_text);
         }
+        // If neither, the error will be surfaced via the draftError prop
       } finally {
         setGeneratingDraftFor(null);
       }
@@ -829,6 +838,8 @@ export default function InboxPage() {
           onTriageSave={handleTriageSave}
           generatingDraft={generatingDraftFor === selected.id}
           onGenerateDraft={() => handleDraftResponse(selected)}
+          draftFallbackText={draftFallbackText}
+          onDraftFallbackConsumed={() => setDraftFallbackText(null)}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-fq-bg">

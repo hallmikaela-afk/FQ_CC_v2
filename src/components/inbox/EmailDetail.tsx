@@ -27,6 +27,10 @@ interface Props {
   generatingDraft?: boolean;
   /** Callback to trigger AI draft generation for this email */
   onGenerateDraft?: () => void;
+  /** Draft text from Claude when Outlook save failed — opens ReplyPanel with this text */
+  draftFallbackText?: string | null;
+  /** Called once the fallback text has been consumed so parent can clear it */
+  onDraftFallbackConsumed?: () => void;
 }
 
 /* ── Design tokens ── */
@@ -1536,7 +1540,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed }: Props) {
   const [replyOpen,    setReplyOpen]    = useState(false);
   const [forwardOpen,  setForwardOpen]  = useState(false);
   const [taskOpen,     setTaskOpen]     = useState(false);
@@ -1619,6 +1623,14 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
       scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [generatingDraft]);
+
+  // When Graph save failed but Claude produced text, open reply panel with that text
+  useEffect(() => {
+    if (!draftFallbackText) return;
+    setDraftText(draftFallbackText);
+    openPanel('reply');
+    onDraftFallbackConsumed?.();
+  }, [draftFallbackText]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close badge dropdown on outside click
   useEffect(() => {
