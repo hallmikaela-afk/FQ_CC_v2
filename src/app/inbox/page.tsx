@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, Mail } from 'lucide-react';
+import { Search, X, Mail, ChevronDown, ChevronRight, Inbox } from 'lucide-react';
 import FolderSidebar, { type Folder } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
 import EmailDetail from '@/components/inbox/EmailDetail';
@@ -130,6 +130,7 @@ export default function InboxPage() {
   const [selectedId,         setSelectedId]         = useState<string | null>(null);
   const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
   const [draftFallbackText,  setDraftFallbackText]  = useState<string | null>(null);
+  const [triageCollapsed,    setTriageCollapsed]    = useState(false);
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
@@ -461,6 +462,15 @@ export default function InboxPage() {
 
   const untaggedCount = useMemo(
     () => visibleEmails.filter((e) => !e.project_id && !e.dismissed).length,
+    [visibleEmails],
+  );
+
+  /* ── Triage banner: untagged emails shown at top of "All" tab ── */
+  const triageEmails = useMemo(
+    () =>
+      visibleEmails
+        .filter((e) => !e.project_id && !e.dismissed)
+        .sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? '')),
     [visibleEmails],
   );
 
@@ -1006,7 +1016,7 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {!loading && filteredEmails.length === 0 && (
+              {!loading && filteredEmails.length === 0 && !(tabFilter === 'all' && triageEmails.length > 0) && (
                 <div className="text-center mt-12">
                   <p className={`font-body text-[13px] ${tk.light}`}>
                     {tabFilter === 'all'
@@ -1028,7 +1038,61 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {!loading && filteredEmails.map((email) => (
+              {/* ── Needs Triage banner — pinned at top of All tab ── */}
+              {!loading && tabFilter === 'all' && triageEmails.length > 0 && (
+                <div className="mb-4 rounded-xl border border-fq-amber/25 bg-fq-amber/[0.04] overflow-hidden">
+                  {/* Header */}
+                  <button
+                    onClick={() => setTriageCollapsed((v) => !v)}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-fq-amber/[0.04] transition-colors"
+                  >
+                    {triageCollapsed ? (
+                      <ChevronRight size={14} className="text-fq-amber shrink-0" />
+                    ) : (
+                      <ChevronDown size={14} className="text-fq-amber shrink-0" />
+                    )}
+                    <Inbox size={14} className="text-fq-amber shrink-0" />
+                    <span className="font-body text-[12.5px] font-semibold text-fq-amber">
+                      Needs Triage
+                    </span>
+                    <span className="font-body text-[11px] font-medium text-fq-amber/70 bg-fq-amber/15 px-2 py-0.5 rounded-full">
+                      {triageEmails.length}
+                    </span>
+                    {triageCollapsed && (
+                      <span className={`font-body text-[11px] ${tk.light} ml-auto`}>
+                        {triageEmails.length} email{triageEmails.length !== 1 ? 's' : ''} to sort
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Triage email list */}
+                  {!triageCollapsed && (
+                    <div className="border-t border-fq-amber/15 px-1 pb-1">
+                      {triageEmails.map((email) => (
+                        <EmailCard
+                          key={email.id}
+                          email={email}
+                          isSelected={selectedId === email.id}
+                          showTriage
+                          projects={projects}
+                          onSelect={() => handleSelectEmail(email)}
+                          onReply={handleReply}
+                          onConfirmSuggested={handleConfirmSuggested}
+                          onDismissSuggested={handleDismissSuggested}
+                          onToggleFollowup={handleToggleFollowup}
+                          onResolve={handleResolve}
+                          onNeedsResponse={handleNeedsResponse}
+                          onDraftResponse={handleDraftResponse}
+                          onDismiss={handleDismiss}
+                          onReassign={handleReassign}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!loading && filteredEmails.filter((e) => tabFilter !== 'all' || !!e.project_id || e.dismissed).map((email) => (
                 <EmailCard
                   key={email.id}
                   email={email}
