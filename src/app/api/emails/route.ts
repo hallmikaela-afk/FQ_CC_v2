@@ -1,15 +1,20 @@
 /**
  * /api/emails
  *
- * GET  — Returns emails from Supabase cache. Triggers a Graph sync if stale.
- *        Query params: folder_id, skip, top, date_from, date_to, filter, project_id
- * PATCH — Update a single email (project assignment, needs_followup, is_read)
+ * GET    — Returns emails from Supabase cache. Triggers a Graph sync if stale.
+ *          Query params: folder_id, skip, top, date_from, date_to, filter, project_id
+ * PATCH  — Update a single email (project assignment, needs_followup, is_read)
+ * DELETE — Remove an email from Supabase and optionally from Outlook
  */
 
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { fetchMessages, markAsRead } from '@/lib/microsoft-graph';
-import { matchEmailToProject, type PreloadedMatchData } from '@/lib/email-matching';
+import { markAsRead, deleteMessage } from '@/lib/microsoft-graph';
+import {
+  FOLDER_BATCH,
+  buildSyncContext, upsertBatch,
+  fetchMessages,
+} from '@/lib/email-sync-helpers';
 import type { GraphMessage } from '@/lib/microsoft-graph';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +38,7 @@ export async function GET(request: Request) {
   // ── Sync from Graph API ──────────────────────────────────────────────────
   if (doSync) {
     try {
-      await syncEmails({ folderId, top: 25, dateFrom, dateTo }, supabase);
+      await syncEmails({ top: 25, dateFrom, dateTo }, supabase);
     } catch (err) {
       // If NOT_CONNECTED, let caller handle it
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
@@ -44,13 +49,34 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── Purge any Outlook draft emails that slipped into the DB ─────────────
+  // Find the Drafts folder id and delete matching rows (fire-and-forget).
+  supabase
+    .from('mail_folders')
+    .select('folder_id')
+    .ilike('display_name', 'drafts')
+    .then(({ data: draftFolders }) => {
+      const draftFolderIds = (draftFolders ?? []).map((f: { folder_id: string }) => f.folder_id);
+      if (draftFolderIds.length > 0) {
+        supabase.from('emails').delete().in('folder_id', draftFolderIds).then(() => {});
+      }
+    });
+
   // ── Query Supabase cache ─────────────────────────────────────────────────
+  // Also look up draft folder IDs to exclude them from results
+  const { data: draftFolderRows } = await supabase
+    .from('mail_folders')
+    .select('folder_id')
+    .ilike('display_name', 'drafts');
+  const draftFolderIds = (draftFolderRows ?? []).map((f: { folder_id: string }) => f.folder_id);
+
   let query = supabase
     .from('emails')
     .select(
       `id, message_id, subject, from_name, from_email, body_preview, body,
        received_at, is_read, project_id, match_confidence, conversation_id,
        folder_id, needs_followup, followup_due_date, is_meeting_summary, created_at,
+       category, dismissed, resolved, draft_message_id,
        projects(id, name, type, color, event_date)`,
     )
     .order('received_at', { ascending: false })
@@ -60,6 +86,15 @@ export async function GET(request: Request) {
   if (dateFrom) query = query.gte('received_at', dateFrom);
   if (dateTo) query = query.lte('received_at', dateTo);
   if (projectId) query = query.eq('project_id', projectId);
+
+  // Never surface receipts or dismissed emails in the main inbox view
+  query = query.or('category.is.null,category.neq.receipt');
+  query = query.or('dismissed.is.null,dismissed.eq.false');
+
+  // Exclude Outlook draft emails that may have been synced before the skip-folder fix
+  if (draftFolderIds.length > 0 && !folderId) {
+    query = query.not('folder_id', 'in', `(${draftFolderIds.join(',')})`);
+  }
 
   if (filter === 'tagged') query = query.not('project_id', 'is', null);
   if (filter === 'untagged') query = query.is('project_id', null);
@@ -101,6 +136,9 @@ export async function PATCH(request: Request) {
     'needs_followup',
     'followup_due_date',
     'is_read',
+    'resolved',
+    'dismissed',
+    'category',
   ];
   const safeUpdates: Record<string, unknown> = {};
   for (const key of allowedFields) {
@@ -119,137 +157,84 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ email: data });
 }
 
-// ─── Sync helper ──────────────────────────────────────────────────────────────
+// ─── DELETE ───────────────────────────────────────────────────────────────────
 
-const SYNC_BATCH = 10; // parallel upserts per round
+export async function DELETE(request: Request) {
+  const supabase = getServiceSupabase();
+  const body = await request.json();
+  const { id, delete_from_outlook } = body;
 
-async function syncEmails(
-  opts: { folderId?: string; top?: number; dateFrom?: string; dateTo?: string },
-  supabase: ReturnType<typeof getServiceSupabase>,
-) {
-  // Default: last 30 days (reduced from 90 to keep sync fast)
-  const dateFrom =
-    opts.dateFrom ??
-    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  if (!id) return NextResponse.json({ error: 'Missing email id' }, { status: 400 });
 
-  const { messages } = await fetchMessages(
-    { ...opts, dateFrom, top: opts.top ?? 25 },
-    'default',
-  );
+  // Look up message_id before deleting (needed for Graph API call)
+  const { data: emailRow } = await supabase
+    .from('emails')
+    .select('message_id')
+    .eq('id', id)
+    .single();
 
-  if (!messages.length) return;
+  // Remove from Supabase
+  const { error } = await supabase.from('emails').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // ── Load lookup data once for all messages ───────────────────────────────
-  const [projectsRes, vendorsRes, existingRes] = await Promise.all([
-    supabase
-      .from('projects')
-      .select('id, type, name, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, location, event_date, photographer')
-      .in('status', ['active', 'completed']),
-    supabase.from('vendors').select('project_id, email'),
-    supabase
-      .from('emails')
-      .select('message_id, project_id, match_confidence')
-      .in('message_id', messages.map(m => m.id)),
-  ]);
-
-  const preloaded: PreloadedMatchData = {
-    projects: (projectsRes.data ?? []) as PreloadedMatchData['projects'],
-    vendors: (vendorsRes.data ?? []) as PreloadedMatchData['vendors'],
-  };
-
-  // Build existing map: message_id → { project_id, match_confidence }
-  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null }>();
-  for (const row of existingRes.data ?? []) {
-    existingMap.set(row.message_id, row);
-  }
-
-  // ── Process in parallel batches ──────────────────────────────────────────
-  for (let i = 0; i < messages.length; i += SYNC_BATCH) {
-    const batch = messages.slice(i, i + SYNC_BATCH);
-    await Promise.allSettled(
-      batch.map(msg =>
-        upsertEmail(msg, opts.folderId ?? msg.parentFolderId, supabase, preloaded, existingMap),
-      ),
+  // Optionally delete from Outlook (fire-and-forget — don't fail if Graph errors)
+  if (delete_from_outlook && emailRow?.message_id) {
+    deleteMessage(emailRow.message_id).catch(err =>
+      console.error('[emails] Graph delete error:', err),
     );
   }
+
+  return NextResponse.json({ deleted: true });
 }
 
-async function upsertEmail(
-  msg: GraphMessage,
-  folderId: string,
+// ─── Sync helper ──────────────────────────────────────────────────────────────
+
+async function syncEmails(
+  opts: { top?: number; dateFrom?: string; dateTo?: string },
   supabase: ReturnType<typeof getServiceSupabase>,
-  preloaded: PreloadedMatchData,
-  existingMap: Map<string, { project_id: string | null; match_confidence: string | null }>,
 ) {
-  const fromEmail = msg.from?.emailAddress?.address ?? '';
-  const fromName = msg.from?.emailAddress?.name ?? '';
-  const isMeetingSummary = detectMeetingSummary(fromEmail, msg.subject ?? '');
+  // Incremental sync: only fetch emails newer than the most recent one in DB.
+  // Falls back to 30 days on first run (before initial-sync completes).
+  let dateFrom = opts.dateFrom;
+  if (!dateFrom) {
+    const { data: newest } = await supabase
+      .from('emails')
+      .select('received_at')
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    dateFrom = newest?.received_at
+      ? new Date(new Date(newest.received_at).getTime() - 60 * 60_000).toISOString()
+      : new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
+  }
 
-  const existing = existingMap.get(msg.id);
-  let projectId: string | null = existing?.project_id ?? null;
-  let confidence: string | null = existing?.match_confidence ?? null;
+  const ctx = await buildSyncContext(supabase);
+  const seen = new Set<string>();
+  const allPairs: Array<{ msg: GraphMessage; folderId: string }> = [];
 
-  // Only run matching if not already manually tagged
-  if (!projectId || confidence === 'suggested') {
-    const match = await matchEmailToProject(
-      fromEmail,
-      msg.subject ?? '',
-      msg.body?.content ?? msg.bodyPreview ?? '',
-      msg.conversationId,
-      supabase,
-      preloaded,
+  for (let i = 0; i < ctx.foldersToSync.length; i += FOLDER_BATCH) {
+    const batch = ctx.foldersToSync.slice(i, i + FOLDER_BATCH);
+    const results = await Promise.allSettled(
+      batch.map(folder =>
+        fetchMessages({ folderId: folder.id, top: opts.top ?? 25, dateFrom }, 'default').then(
+          ({ messages }) => messages.map(msg => ({ msg, folderId: folder.id })),
+        ),
+      ),
     );
-
-    const shouldApply =
-      !existing?.project_id ||
-      (match.confidence === 'exact' && existing.match_confidence !== 'exact') ||
-      (match.confidence === 'high' && !['exact'].includes(existing.match_confidence ?? '')) ||
-      (match.confidence === 'thread' && !['exact', 'high'].includes(existing.match_confidence ?? ''));
-
-    if (shouldApply && match.projectId) {
-      projectId = match.projectId;
-      confidence = match.confidence;
+    for (const result of results) {
+      if (result.status !== 'fulfilled') continue;
+      for (const pair of result.value) {
+        if (seen.has(pair.msg.id)) continue;
+        seen.add(pair.msg.id);
+        allPairs.push(pair);
+      }
     }
   }
 
-  await supabase.from('emails').upsert(
-    {
-      message_id: msg.id,
-      subject: msg.subject,
-      from_name: fromName,
-      from_email: fromEmail,
-      body_preview: msg.bodyPreview,
-      body: msg.body?.content ?? null,
-      received_at: msg.receivedDateTime,
-      is_read: msg.isRead,
-      conversation_id: msg.conversationId,
-      folder_id: folderId,
-      project_id: projectId,
-      match_confidence: confidence,
-      is_meeting_summary: isMeetingSummary,
-    },
-    { onConflict: 'message_id' },
+  if (!allPairs.length) return;
+
+  await upsertBatch(
+    allPairs, supabase, ctx.preloaded, ctx.folderProjectMap,
+    ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule, ctx.projectOutlookFolderMap,
   );
-}
-
-// ─── Meeting summary detection ──────────────────────────────────────────────
-
-const ZOOM_NOREPLY_PATTERNS = [
-  'no-reply@zoom.us',
-  'noreply@zoom.us',
-  'no_reply@zoom.us',
-];
-
-function detectMeetingSummary(fromEmail: string, subject: string): boolean {
-  const email = fromEmail.toLowerCase();
-  const subj = subject.toLowerCase();
-
-  // Zoom AI Companion summaries: from no-reply@zoom.us with "Meeting Summary:" prefix
-  const isZoom = ZOOM_NOREPLY_PATTERNS.some(p => email.includes(p)) || email.endsWith('@zoom.us');
-  if (isZoom && subj.includes('meeting summary')) return true;
-
-  // Also catch generic meeting summary patterns from Zoom
-  if (isZoom && (subj.includes('summary') || subj.includes('recap'))) return true;
-
-  return false;
 }

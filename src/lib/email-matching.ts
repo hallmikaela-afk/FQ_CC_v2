@@ -100,6 +100,36 @@ function textContains(haystack: string, needle: string): boolean {
   return normalise(haystack).includes(normalise(needle));
 }
 
+// ─── Match safety guard ───────────────────────────────────────────────────────
+
+/**
+ * Words too common / generic to be reliable match signals on their own.
+ * An exact project/venue name that is one of these words is skipped.
+ */
+const MATCH_BLOCKLIST = new Set([
+  'entertainment', 'music', 'band', 'party', 'event',
+  'wedding', 'design', 'style', 'color', 'theme',
+  'update', 'question', 'details', 'things', 'items',
+  'follow', 'check', 'please', 'thank', 'hello',
+  // Extra short/generic words that add no signal
+  'new', 'the', 'and', 'for', 'all',
+]);
+
+/**
+ * Returns true if the name is specific enough to be a reliable match signal:
+ * - At least 5 characters, AND
+ * - Not entirely composed of blocklisted words
+ */
+function isSafeMatchToken(name: string): boolean {
+  const n = normalise(name);
+  if (n.length < 5) return false;
+  // If the entire normalised name (single or multi-word) is in the blocklist → skip
+  if (MATCH_BLOCKLIST.has(n)) return false;
+  // For single-word names, also check the blocklist
+  if (!n.includes(' ') && MATCH_BLOCKLIST.has(n)) return false;
+  return true;
+}
+
 // ─── Core matching ────────────────────────────────────────────────────────────
 
 export interface PreloadedMatchData {
@@ -125,9 +155,11 @@ export async function matchEmailToProject(
   conversationId: string,
   supabase: SupabaseClient,
   preloaded?: PreloadedMatchData,
+  toEmails: string[] = [],
 ): Promise<MatchResult> {
-  const emailLower = (fromEmail ?? '').toLowerCase().trim();
-  const searchText = `${subject ?? ''} ${body ?? ''}`;
+  const emailLower  = (fromEmail ?? '').toLowerCase().trim();
+  const toNorm      = toEmails.map((e) => e.toLowerCase().trim());
+  const searchText  = `${subject ?? ''} ${body ?? ''}`;
 
   // ── 1. Load projects (once, or use pre-loaded) ────────────────────────────
   let projects: ProjectLike[];
@@ -145,7 +177,20 @@ export async function matchEmailToProject(
 
   if (!projects.length) return { projectId: null, confidence: null };
 
-  // ── 2. Exact client email match ───────────────────────────────────────────
+  // ── 2. To/CC recipient is a known client email → exact match ─────────────
+  // Handles sent emails (From = Mikaela) addressed TO a client.
+  if (toNorm.length > 0) {
+    for (const p of projects) {
+      if (
+        (p.client1_email && toNorm.includes(p.client1_email.toLowerCase())) ||
+        (p.client2_email && toNorm.includes(p.client2_email.toLowerCase()))
+      ) {
+        return { projectId: p.id, confidence: 'exact' };
+      }
+    }
+  }
+
+  // ── 3. Exact sender email match against project clients ───────────────────
   for (const p of projects) {
     if (
       (p.client1_email && p.client1_email.toLowerCase() === emailLower) ||
@@ -155,7 +200,7 @@ export async function matchEmailToProject(
     }
   }
 
-  // ── 3. Exact vendor email match ───────────────────────────────────────────
+  // ── 4. Exact vendor email match ───────────────────────────────────────────
   if (emailLower) {
     const vendors: VendorLike[] = preloaded
       ? preloaded.vendors.filter(v => v.email?.toLowerCase() === emailLower)
@@ -172,7 +217,7 @@ export async function matchEmailToProject(
     }
   }
 
-  // ── 4. Thread match ───────────────────────────────────────────────────────
+  // ── 5. Thread match ───────────────────────────────────────────────────────
   if (conversationId) {
     const { data: threadEmails } = await supabase
       .from('emails')
@@ -186,7 +231,7 @@ export async function matchEmailToProject(
     }
   }
 
-  // ── 5. Multi-signal text match ────────────────────────────────────────────
+  // ── 6. Multi-signal text match ────────────────────────────────────────────
   let bestProject: ProjectLike | null = null;
   let bestScore = 0;
   let bestVenueOnly = false;
@@ -203,26 +248,26 @@ export async function matchEmailToProject(
     }
 
     // Client names
-    if (p.client1_name && textContains(searchText, p.client1_name)) {
+    if (p.client1_name && isSafeMatchToken(p.client1_name) && textContains(searchText, p.client1_name)) {
       score += 1;
       signals.push('client1-name');
     }
-    if (p.client2_name && textContains(searchText, p.client2_name)) {
+    if (p.client2_name && isSafeMatchToken(p.client2_name) && textContains(searchText, p.client2_name)) {
       score += 1;
       signals.push('client2-name');
     }
 
     // Project name (for shoots)
-    if (p.type === 'shoot' && textContains(searchText, p.name)) {
+    if (p.type === 'shoot' && isSafeMatchToken(p.name) && textContains(searchText, p.name)) {
       score += 1;
       signals.push('project-name');
     }
 
     // Venue / location signals
     const venueScore =
-      (p.venue_name && textContains(searchText, p.venue_name) ? 1 : 0) +
-      (p.venue_location && textContains(searchText, p.venue_location) ? 1 : 0) +
-      (p.location && textContains(searchText, p.location) ? 1 : 0);
+      (p.venue_name     && isSafeMatchToken(p.venue_name)     && textContains(searchText, p.venue_name)     ? 1 : 0) +
+      (p.venue_location && isSafeMatchToken(p.venue_location) && textContains(searchText, p.venue_location) ? 1 : 0) +
+      (p.location       && isSafeMatchToken(p.location)       && textContains(searchText, p.location)       ? 1 : 0);
 
     if (venueScore > 0) {
       signals.push('venue');

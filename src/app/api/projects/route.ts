@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { fetchChildFolders, createChildFolder } from '@/lib/microsoft-graph';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,5 +85,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  return NextResponse.json(project, { status: 201 });
+  // ── Create matching Outlook folder (best-effort, non-blocking) ────────────
+  let outlookFolderCreated = false;
+  try {
+    const inboxChildren = await fetchChildFolders('inbox', 'default');
+    // Find the highest existing number prefix to determine next number
+    const NUMBER_PREFIX = /^(\d+)\s*[-–]\s*/;
+    const maxNum = inboxChildren.reduce((max, f) => {
+      const m = f.displayName.match(NUMBER_PREFIX);
+      return m ? Math.max(max, parseInt(m[1], 10)) : max;
+    }, 0);
+    const folderName = `${maxNum + 1} - ${project.name}`;
+    const newFolder  = await createChildFolder('inbox', folderName, 'default');
+    // Store the folder ID back on the project
+    await supabase
+      .from('projects')
+      .update({ outlook_folder_id: newFolder.id })
+      .eq('id', project.id);
+    project.outlook_folder_id = newFolder.id;
+    outlookFolderCreated = true;
+  } catch {
+    // Outlook not connected or Graph error — project still created successfully
+  }
+
+  return NextResponse.json({ ...project, outlook_folder_created: outlookFolderCreated }, { status: 201 });
 }

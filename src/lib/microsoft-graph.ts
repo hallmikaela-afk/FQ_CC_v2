@@ -47,6 +47,7 @@ export interface GraphMessage {
       address: string;
     };
   } | null;
+  toRecipients: Array<{ emailAddress: { name: string; address: string } }> | null;
 }
 
 export interface GraphFolder {
@@ -55,6 +56,7 @@ export interface GraphFolder {
   totalItemCount: number;
   unreadItemCount: number;
   parentFolderId: string | null;
+  childFolderCount: number;
 }
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
@@ -214,9 +216,11 @@ export async function graphFetch(
     throw new Error(`GRAPH_ERROR_${res.status}: ${body}`);
   }
 
-  // 204 No Content
-  if (res.status === 204) return null;
-  return res.json();
+  // 202 Accepted (sendMail) and 204 No Content both have empty bodies
+  if (res.status === 204 || res.status === 202) return null;
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 // ─── Email helpers ────────────────────────────────────────────────────────────
@@ -248,7 +252,7 @@ export async function fetchMessages(
     $skip: String(skip),
     $orderby: 'receivedDateTime desc',
     $select:
-      'id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from',
+      'id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from,toRecipients',
   });
   if (filters.length) params.set('$filter', filters.join(' and '));
 
@@ -268,11 +272,11 @@ export async function fetchMessages(
 }
 
 /**
- * Fetch all mail folders.
+ * Fetch top-level mail folders.
  */
 export async function fetchFolders(userId = 'default'): Promise<GraphFolder[]> {
   const data = (await graphFetch(
-    '/me/mailFolders?$top=50&$select=id,displayName,totalItemCount,unreadItemCount,parentFolderId',
+    '/me/mailFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount,parentFolderId,childFolderCount',
     {},
     userId,
   )) as { value: GraphFolder[] };
@@ -280,21 +284,80 @@ export async function fetchFolders(userId = 'default'): Promise<GraphFolder[]> {
 }
 
 /**
+ * Fetch child folders of a given parent folder.
+ */
+export async function fetchChildFolders(
+  parentFolderId: string,
+  userId = 'default',
+): Promise<GraphFolder[]> {
+  const data = (await graphFetch(
+    `/me/mailFolders/${parentFolderId}/childFolders?$top=100&$select=id,displayName,totalItemCount,unreadItemCount,parentFolderId,childFolderCount`,
+    {},
+    userId,
+  )) as { value: GraphFolder[] };
+  return data.value ?? [];
+}
+
+/**
+ * Fetch all folders (top-level + one level of children).
+ */
+export async function fetchAllFolders(userId = 'default'): Promise<GraphFolder[]> {
+  const topLevel = await fetchFolders(userId);
+
+  const withChildren = topLevel.filter(f => f.childFolderCount > 0);
+  const childResults = await Promise.allSettled(
+    withChildren.map(f => fetchChildFolders(f.id, userId)),
+  );
+
+  const children: GraphFolder[] = [];
+  for (const result of childResults) {
+    if (result.status === 'fulfilled') children.push(...result.value);
+  }
+
+  return [...topLevel, ...children];
+}
+
+/**
+ * Create a child folder under a given parent (use well-known name 'inbox' or a folder id).
+ */
+export async function createChildFolder(
+  parentFolderId: string,
+  displayName: string,
+  userId = 'default',
+): Promise<GraphFolder> {
+  const data = await graphFetch(
+    `/me/mailFolders/${parentFolderId}/childFolders`,
+    { method: 'POST', body: JSON.stringify({ displayName }) },
+    userId,
+  );
+  return data as GraphFolder;
+}
+
+/**
  * Send a reply to an email.
  */
+interface GraphRecipient {
+  emailAddress: { address: string; name?: string };
+}
+
 export async function sendReply(
   messageId: string,
-  replyBody: string,
+  replyBodyHtml: string,
   userId = 'default',
+  cc: GraphRecipient[] = [],
+  bcc: GraphRecipient[] = [],
 ): Promise<void> {
+  const message: Record<string, unknown> = {
+    body: { contentType: 'HTML', content: replyBodyHtml },
+  };
+  if (cc.length > 0)  message.ccRecipients  = cc;
+  if (bcc.length > 0) message.bccRecipients = bcc;
+
   await graphFetch(
     `/me/messages/${messageId}/reply`,
     {
       method: 'POST',
-      body: JSON.stringify({
-        message: {},
-        comment: replyBody,
-      }),
+      body: JSON.stringify({ message }),
     },
     userId,
   );
@@ -309,6 +372,31 @@ export async function markAsRead(messageId: string, userId = 'default'): Promise
     {
       method: 'PATCH',
       body: JSON.stringify({ isRead: true }),
+    },
+    userId,
+  );
+}
+
+/**
+ * Permanently delete a message from Outlook.
+ */
+export async function deleteMessage(messageId: string, userId = 'default'): Promise<void> {
+  await graphFetch(`/me/messages/${messageId}`, { method: 'DELETE' }, userId);
+}
+
+/**
+ * Move a message to a different mail folder.
+ */
+export async function moveMessage(
+  messageId: string,
+  destinationFolderId: string,
+  userId = 'default',
+): Promise<void> {
+  await graphFetch(
+    `/me/messages/${messageId}/move`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ destinationId: destinationFolderId }),
     },
     userId,
   );
