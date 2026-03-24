@@ -225,13 +225,13 @@ export default function InboxPage() {
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); return; }
       setEmails(data.emails ?? []);
       lastSyncTimeRef.current = Date.now();
-      setSyncedAt(new Date());
-      setError(null); // clear any stale error now that sync succeeded
-      // Surface sync failures from the API
+      setError(null);
+      // Only update the "last synced" timestamp when sync actually succeeded
       if (data.sync_ok === false) {
         setSyncError(data.sync_error || 'Email sync failed');
       } else if (data.sync_ok === true) {
         setSyncError(null);
+        setSyncedAt(new Date());
       }
     } catch (err: unknown) {
       console.error('[inbox] Background sync error:', err);

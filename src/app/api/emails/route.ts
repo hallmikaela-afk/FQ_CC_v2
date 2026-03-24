@@ -58,7 +58,7 @@ export async function GET(request: Request) {
       } else if (errMsg.includes('GRAPH_ERROR_5')) {
         syncError = 'Microsoft servers temporarily unavailable';
       } else {
-        syncError = 'Email sync failed — check connection';
+        syncError = `Sync error: ${errMsg}`;
       }
       console.error('[emails] Graph sync error:', err);
     }
@@ -237,6 +237,8 @@ async function syncEmails(
   const ctx = await buildSyncContext(supabase);
   const seen = new Set<string>();
   const allPairs: Array<{ msg: GraphMessage; folderId: string }> = [];
+  let totalAttempts = 0;
+  let totalFailed = 0;
 
   for (let i = 0; i < ctx.foldersToSync.length; i += FOLDER_BATCH) {
     const batch = ctx.foldersToSync.slice(i, i + FOLDER_BATCH);
@@ -247,14 +249,23 @@ async function syncEmails(
         ),
       ),
     );
+    totalAttempts += results.length;
     for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
+      if (result.status !== 'fulfilled') {
+        totalFailed++;
+        continue;
+      }
       for (const pair of result.value) {
         if (seen.has(pair.msg.id)) continue;
         seen.add(pair.msg.id);
         allPairs.push(pair);
       }
     }
+  }
+
+  // If every folder fetch failed, surface the error instead of silently returning 0 results
+  if (totalFailed > 0 && totalFailed === totalAttempts) {
+    throw new Error(`All ${totalFailed} folder fetches failed — check Microsoft connection`);
   }
 
   if (!allPairs.length) return;
