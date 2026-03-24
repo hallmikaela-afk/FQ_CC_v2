@@ -1,8 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 let _supabase: SupabaseClient | null = null;
 
-// Lazy-initialized Supabase client (avoids build-time errors when env vars aren't set)
+// Lazy-initialized Supabase browser client with cookie-based auth (SSR-compatible)
 export function getSupabase(): SupabaseClient {
   if (!_supabase) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -10,7 +11,7 @@ export function getSupabase(): SupabaseClient {
     if (!url || !key) {
       throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY');
     }
-    _supabase = createClient(url, key);
+    _supabase = createBrowserClient(url, key);
   }
   return _supabase;
 }
