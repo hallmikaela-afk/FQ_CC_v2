@@ -198,10 +198,10 @@ export default function InboxPage() {
       // Don't return — fall through and attempt the sync anyway
     }
 
-    // ── Step 2: Background sync from Outlook if stale (>5 min or never synced) ──
-    const FIVE_MIN = 5 * 60_000;
+    // ── Step 2: Background sync from Outlook if stale (≥4 min or never synced) ──
+    const STALE_AFTER = 4 * 60_000;   // slightly shorter than the 5-min interval
     const shouldSync = lastSyncTimeRef.current === null ||
-      Date.now() - lastSyncTimeRef.current > FIVE_MIN;
+      Date.now() - lastSyncTimeRef.current >= STALE_AFTER;
     if (!shouldSync) return;
 
     setSyncing(true);
@@ -333,12 +333,12 @@ export default function InboxPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Auto-refresh every 5 min using Page Visibility API ── */
+  /* ── Auto-refresh every 3 min using Page Visibility API ── */
   const loadEmailsRef = useRef(loadEmails);
   useEffect(() => { loadEmailsRef.current = loadEmails; }, [loadEmails]);
 
   useEffect(() => {
-    const FIVE_MIN = 5 * 60_000;
+    const REFRESH_INTERVAL = 3 * 60_000;   // 3 min (stale gate inside loadEmails is 4 min)
     let timerId: ReturnType<typeof setInterval>;
 
     const tick = () => {
@@ -350,13 +350,13 @@ export default function InboxPage() {
         // Tab became active — refresh immediately, restart timer
         loadEmailsRef.current();
         clearInterval(timerId);
-        timerId = setInterval(tick, FIVE_MIN);
+        timerId = setInterval(tick, REFRESH_INTERVAL);
       } else {
         clearInterval(timerId);
       }
     };
 
-    timerId = setInterval(tick, FIVE_MIN);
+    timerId = setInterval(tick, REFRESH_INTERVAL);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       clearInterval(timerId);

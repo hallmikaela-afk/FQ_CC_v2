@@ -204,6 +204,7 @@ export async function graphFetch(
 
   const res = await fetch(`${GRAPH_BASE}${path}`, {
     ...options,
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
