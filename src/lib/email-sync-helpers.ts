@@ -83,7 +83,7 @@ export async function upsertEmail(
   folderId: string,
   supabase: ReturnType<typeof getServiceSupabase>,
   preloaded: PreloadedMatchData,
-  existingMap: Map<string, { project_id: string | null; match_confidence: string | null; category: string | null }>,
+  existingMap: Map<string, { project_id: string | null; match_confidence: string | null; category: string | null; dismissed: boolean | null }>,
   folderProjectMap: Map<string, string>,
   receiptsFolderId: string | null,
   vendorEmails: Set<string>,
@@ -162,7 +162,8 @@ export async function upsertEmail(
       conversation_id: msg.conversationId, folder_id: effectiveFolderId,
       project_id: projectId, match_confidence: confidence,
       is_meeting_summary: isMeetingSummary, category: null,
-      dismissed: projectId ? false : true,
+      // Preserve the user's dismissed state for existing emails; new emails default to visible
+      dismissed: existing?.dismissed ?? false,
     },
     { onConflict: 'message_id' },
   );
@@ -248,10 +249,10 @@ export async function upsertBatch(
 
   const existingRes = await supabase
     .from('emails')
-    .select('message_id, project_id, match_confidence, category')
+    .select('message_id, project_id, match_confidence, category, dismissed')
     .in('message_id', pairs.map(p => p.msg.id));
 
-  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null; category: string | null }>();
+  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null; category: string | null; dismissed: boolean | null }>();
   for (const row of existingRes.data ?? []) {
     existingMap.set(row.message_id, row);
   }
