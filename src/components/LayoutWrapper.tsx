@@ -1,11 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import FloatingChat from './FloatingChat';
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+
+  // Login page gets a clean layout with no sidebar
+  if (pathname === '/login') {
+    return <>{children}</>;
+  }
 
   return (
     <>
