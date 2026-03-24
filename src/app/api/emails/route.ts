@@ -36,15 +36,21 @@ export async function GET(request: Request) {
   const doSync = url.searchParams.get('sync') !== 'false'; // default true
 
   // ── Sync from Graph API ──────────────────────────────────────────────────
+  let syncOk: boolean | null = null;   // null = sync not attempted
+  let syncError: string | null = null;
+
   if (doSync) {
+    syncOk = true;
     try {
       await syncEmails({ top: 50, dateFrom, dateTo }, supabase);
     } catch (err) {
+      syncOk = false;
       // If NOT_CONNECTED, let caller handle it
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
         return NextResponse.json({ error: 'NOT_CONNECTED' }, { status: 401 });
       }
       // Other Graph errors: log but still return cached data
+      syncError = 'Email sync failed — check connection';
       console.error('[emails] Graph sync error:', err);
     }
   }
@@ -112,7 +118,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ emails: data ?? [], synced_at: new Date().toISOString() });
+  return NextResponse.json({
+    emails: data ?? [],
+    synced_at: new Date().toISOString(),
+    sync_ok: syncOk,
+    sync_error: syncError,
+  });
 }
 
 // ─── PATCH ───────────────────────────────────────────────────────────────────

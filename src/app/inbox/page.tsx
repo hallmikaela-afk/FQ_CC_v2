@@ -120,6 +120,7 @@ export default function InboxPage() {
   const [syncing,      setSyncing]      = useState(false); // background refresh indicator
   const [notConnected, setNotConnected] = useState(false);
   const [error,        setError]        = useState<string | null>(null);
+  const [syncError,    setSyncError]    = useState<string | null>(null); // Graph sync failure
   const [syncedAt,     setSyncedAt]     = useState<Date | null>(null);
   const [nowTick,      setNowTick]      = useState(0); // increments every minute to trigger re-render
 
@@ -226,8 +227,15 @@ export default function InboxPage() {
       lastSyncTimeRef.current = Date.now();
       setSyncedAt(new Date());
       setError(null); // clear any stale error now that sync succeeded
+      // Surface sync failures from the API
+      if (data.sync_ok === false) {
+        setSyncError(data.sync_error || 'Email sync failed');
+      } else if (data.sync_ok === true) {
+        setSyncError(null);
+      }
     } catch (err: unknown) {
       console.error('[inbox] Background sync error:', err);
+      setSyncError('Unable to reach email server');
     } finally {
       setSyncing(false);
       setLoading(false); // clear spinner even if cache was empty and sync failed
@@ -258,6 +266,12 @@ export default function InboxPage() {
       setDismissedCount((data.emails ?? []).length);
     } catch {}
   }, []);
+
+  const handleForceSync = useCallback(() => {
+    lastSyncTimeRef.current = null;
+    setSyncError(null);
+    loadEmails();
+  }, [loadEmails]);
 
   const loadRules = useCallback(async () => {
     try {
@@ -866,7 +880,7 @@ export default function InboxPage() {
                 </svg>
               </button>
               <button
-                onClick={() => { lastSyncTimeRef.current = null; loadEmails(); }}
+                onClick={handleForceSync}
                 disabled={syncing || loading}
                 title="Refresh"
                 className={`p-2 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} disabled:opacity-40`}
@@ -894,13 +908,17 @@ export default function InboxPage() {
             {(syncing || historySyncing || migrating) && (
               <div className="w-1.5 h-1.5 rounded-full bg-fq-accent/60 animate-pulse shrink-0" />
             )}
-            <p className={`font-body text-[11.5px] ${tk.light}`}>
+            <p className={`font-body text-[11.5px] ${syncError ? 'text-amber-600' : tk.light}`}>
               {migrating && migrateProgress
                 ? `Moving ${migrateProgress.moved} of ${migrateProgress.total} emails to Outlook folders…`
                 : migrating
                 ? 'Syncing to Outlook folders…'
                 : historySyncing
                 ? `Loading email history… ${historySyncCount} emails loaded`
+                : syncError && syncedAt
+                ? `Last synced ${relativeTime(syncedAt)} — sync failing`
+                : syncError
+                ? 'Sync failing'
                 : nowTick >= 0 && syncedAt
                 ? `Synced ${relativeTime(syncedAt)}`
                 : syncing ? 'Syncing…' : 'Not synced yet'}
@@ -949,6 +967,20 @@ export default function InboxPage() {
         {error && (
           <div className="mx-5 mt-3 px-4 py-2.5 rounded-lg border border-red-200 bg-red-50">
             <p className="font-body text-[12px] text-red-600">{error}</p>
+          </div>
+        )}
+
+        {/* Sync warning banner */}
+        {syncError && !error && (
+          <div className="mx-5 mt-3 px-4 py-2.5 rounded-lg border border-amber-200 bg-amber-50 flex items-center justify-between">
+            <p className="font-body text-[12px] text-amber-700">{syncError}</p>
+            <button
+              onClick={handleForceSync}
+              disabled={syncing}
+              className="font-body text-[11px] font-medium text-amber-700 hover:text-amber-900 underline disabled:opacity-40"
+            >
+              Retry
+            </button>
           </div>
         )}
 
