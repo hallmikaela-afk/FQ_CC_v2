@@ -20,32 +20,15 @@ import type { GraphMessage } from '@/lib/microsoft-graph';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-// ─── One-time migration: un-dismiss non-receipt emails that were incorrectly
-//     auto-dismissed by the old `dismissed: projectId ? false : true` logic. ──
-let dismissMigrationDone = false;
-
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
 export async function GET(request: Request) {
   const supabase = getServiceSupabase();
   const url = new URL(request.url);
 
-  if (!dismissMigrationDone) {
-    dismissMigrationDone = true;
-    // Un-dismiss every non-receipt email so they appear in the inbox again.
-    // Receipts (category = 'receipt') stay dismissed intentionally.
-    const { error: migErr } = await supabase
-      .from('emails')
-      .update({ dismissed: false })
-      .eq('dismissed', true)
-      .or('category.is.null,category.neq.receipt');
-    if (migErr) console.error('[emails] dismiss migration error:', migErr);
-    else console.log('[emails] dismiss migration complete');
-  }
-
   const folderId = url.searchParams.get('folder_id') ?? undefined;
   const skip = parseInt(url.searchParams.get('skip') ?? '0', 10);
-  const top = parseInt(url.searchParams.get('top') ?? '25', 10);
+  const top = parseInt(url.searchParams.get('top') ?? '200', 10);
   const dateFrom = url.searchParams.get('date_from') ?? undefined;
   const dateTo = url.searchParams.get('date_to') ?? undefined;
   const filter = url.searchParams.get('filter'); // 'all'|'tagged'|'untagged'|'followup'
@@ -55,7 +38,7 @@ export async function GET(request: Request) {
   // ── Sync from Graph API ──────────────────────────────────────────────────
   if (doSync) {
     try {
-      await syncEmails({ top: 25, dateFrom, dateTo }, supabase);
+      await syncEmails({ top: 50, dateFrom, dateTo }, supabase);
     } catch (err) {
       // If NOT_CONNECTED, let caller handle it
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
