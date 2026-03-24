@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 
   const folderId = url.searchParams.get('folder_id') ?? undefined;
   const skip = parseInt(url.searchParams.get('skip') ?? '0', 10);
-  const top = parseInt(url.searchParams.get('top') ?? '25', 10);
+  const top = parseInt(url.searchParams.get('top') ?? '200', 10);
   const dateFrom = url.searchParams.get('date_from') ?? undefined;
   const dateTo = url.searchParams.get('date_to') ?? undefined;
   const filter = url.searchParams.get('filter'); // 'all'|'tagged'|'untagged'|'followup'
@@ -36,15 +36,30 @@ export async function GET(request: Request) {
   const doSync = url.searchParams.get('sync') !== 'false'; // default true
 
   // ── Sync from Graph API ──────────────────────────────────────────────────
+  let syncOk: boolean | null = null;   // null = sync not attempted
+  let syncError: string | null = null;
+
   if (doSync) {
+    syncOk = true;
     try {
-      await syncEmails({ top: 25, dateFrom, dateTo }, supabase);
+      await syncEmails({ top: 50, dateFrom, dateTo }, supabase);
     } catch (err) {
+      syncOk = false;
       // If NOT_CONNECTED, let caller handle it
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
         return NextResponse.json({ error: 'NOT_CONNECTED' }, { status: 401 });
       }
-      // Other Graph errors: log but still return cached data
+      // Surface a meaningful error to the client
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('GRAPH_ERROR_401')) {
+        syncError = 'Microsoft authentication expired — please reconnect your account';
+      } else if (errMsg.includes('GRAPH_ERROR_429')) {
+        syncError = 'Microsoft rate limit hit — will retry shortly';
+      } else if (errMsg.includes('GRAPH_ERROR_5')) {
+        syncError = 'Microsoft servers temporarily unavailable';
+      } else {
+        syncError = `Sync error: ${errMsg}`;
+      }
       console.error('[emails] Graph sync error:', err);
     }
   }
@@ -87,9 +102,15 @@ export async function GET(request: Request) {
   if (dateTo) query = query.lte('received_at', dateTo);
   if (projectId) query = query.eq('project_id', projectId);
 
-  // Never surface receipts or dismissed emails in the main inbox view
+  // Never surface receipts in the main inbox view
   query = query.or('category.is.null,category.neq.receipt');
-  query = query.or('dismissed.is.null,dismissed.eq.false');
+
+  // Dismissed filter: show dismissed emails only when explicitly requested
+  if (filter === 'dismissed') {
+    query = query.eq('dismissed', true);
+  } else {
+    query = query.or('dismissed.is.null,dismissed.eq.false');
+  }
 
   // Exclude Outlook draft emails that may have been synced before the skip-folder fix
   if (draftFolderIds.length > 0 && !folderId) {
@@ -106,7 +127,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ emails: data ?? [], synced_at: new Date().toISOString() });
+  return NextResponse.json({
+    emails: data ?? [],
+    synced_at: new Date().toISOString(),
+    sync_ok: syncOk,
+    sync_error: syncError,
+  });
 }
 
 // ─── PATCH ───────────────────────────────────────────────────────────────────
@@ -204,13 +230,15 @@ async function syncEmails(
       .limit(1)
       .maybeSingle();
     dateFrom = newest?.received_at
-      ? new Date(new Date(newest.received_at).getTime() - 60 * 60_000).toISOString()
+      ? new Date(new Date(newest.received_at).getTime() - 48 * 60 * 60_000).toISOString()
       : new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
   }
 
   const ctx = await buildSyncContext(supabase);
   const seen = new Set<string>();
   const allPairs: Array<{ msg: GraphMessage; folderId: string }> = [];
+  let totalAttempts = 0;
+  let totalFailed = 0;
 
   for (let i = 0; i < ctx.foldersToSync.length; i += FOLDER_BATCH) {
     const batch = ctx.foldersToSync.slice(i, i + FOLDER_BATCH);
@@ -221,14 +249,23 @@ async function syncEmails(
         ),
       ),
     );
+    totalAttempts += results.length;
     for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
+      if (result.status !== 'fulfilled') {
+        totalFailed++;
+        continue;
+      }
       for (const pair of result.value) {
         if (seen.has(pair.msg.id)) continue;
         seen.add(pair.msg.id);
         allPairs.push(pair);
       }
     }
+  }
+
+  // If every folder fetch failed, surface the error instead of silently returning 0 results
+  if (totalFailed > 0 && totalFailed === totalAttempts) {
+    throw new Error(`All ${totalFailed} folder fetches failed — check Microsoft connection`);
   }
 
   if (!allPairs.length) return;

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, Mail } from 'lucide-react';
-import FolderSidebar, { type Folder } from '@/components/inbox/FolderSidebar';
+import { Search, X, Mail, ChevronDown, ChevronRight, Inbox } from 'lucide-react';
+import FolderSidebar, { type Folder, DISMISSED_FOLDER_ID } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
 import EmailDetail from '@/components/inbox/EmailDetail';
 import ComposePanel from '@/components/inbox/ComposePanel';
@@ -120,6 +120,7 @@ export default function InboxPage() {
   const [syncing,      setSyncing]      = useState(false); // background refresh indicator
   const [notConnected, setNotConnected] = useState(false);
   const [error,        setError]        = useState<string | null>(null);
+  const [syncError,    setSyncError]    = useState<string | null>(null); // Graph sync failure
   const [syncedAt,     setSyncedAt]     = useState<Date | null>(null);
   const [nowTick,      setNowTick]      = useState(0); // increments every minute to trigger re-render
 
@@ -130,6 +131,8 @@ export default function InboxPage() {
   const [selectedId,         setSelectedId]         = useState<string | null>(null);
   const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
   const [draftFallbackText,  setDraftFallbackText]  = useState<string | null>(null);
+  const [triageCollapsed,    setTriageCollapsed]    = useState(false);
+  const [dismissedCount,     setDismissedCount]     = useState(0);
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
@@ -171,10 +174,15 @@ export default function InboxPage() {
     setError(null);
 
     // ── Step 1: Show cached emails instantly (no Graph API, no spinner) ──
+    const isDismissedView = selectedFolder === DISMISSED_FOLDER_ID;
     let cachedCount = 0;
     try {
       const params = new URLSearchParams({ sync: 'false' });
-      if (selectedFolder) params.set('folder_id', selectedFolder);
+      if (isDismissedView) {
+        params.set('filter', 'dismissed');
+      } else if (selectedFolder) {
+        params.set('folder_id', selectedFolder);
+      }
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); setLoading(false); return; }
@@ -198,25 +206,36 @@ export default function InboxPage() {
       // Don't return — fall through and attempt the sync anyway
     }
 
-    // ── Step 2: Background sync from Outlook if stale (>5 min or never synced) ──
-    const FIVE_MIN = 5 * 60_000;
+    // ── Step 2: Background sync from Outlook if stale (≥4 min or never synced) ──
+    const STALE_AFTER = 4 * 60_000;   // slightly shorter than the 5-min interval
     const shouldSync = lastSyncTimeRef.current === null ||
-      Date.now() - lastSyncTimeRef.current > FIVE_MIN;
+      Date.now() - lastSyncTimeRef.current >= STALE_AFTER;
     if (!shouldSync) return;
 
     setSyncing(true);
     try {
       const params = new URLSearchParams();
-      if (selectedFolder) params.set('folder_id', selectedFolder);
+      if (isDismissedView) {
+        params.set('filter', 'dismissed');
+      } else if (selectedFolder) {
+        params.set('folder_id', selectedFolder);
+      }
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); return; }
       setEmails(data.emails ?? []);
       lastSyncTimeRef.current = Date.now();
-      setSyncedAt(new Date());
-      setError(null); // clear any stale error now that sync succeeded
+      setError(null);
+      // Only update the "last synced" timestamp when sync actually succeeded
+      if (data.sync_ok === false) {
+        setSyncError(data.sync_error || 'Email sync failed');
+      } else if (data.sync_ok === true) {
+        setSyncError(null);
+        setSyncedAt(new Date());
+      }
     } catch (err: unknown) {
       console.error('[inbox] Background sync error:', err);
+      setSyncError('Unable to reach email server');
     } finally {
       setSyncing(false);
       setLoading(false); // clear spinner even if cache was empty and sync failed
@@ -240,6 +259,20 @@ export default function InboxPage() {
     } catch {}
   }, []);
 
+  const loadDismissedCount = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/emails?sync=false&filter=dismissed');
+      const data = await res.json();
+      setDismissedCount((data.emails ?? []).length);
+    } catch {}
+  }, []);
+
+  const handleForceSync = useCallback(() => {
+    lastSyncTimeRef.current = null;
+    setSyncError(null);
+    loadEmails();
+  }, [loadEmails]);
+
   const loadRules = useCallback(async () => {
     try {
       const res  = await fetch('/api/inbox-rules');
@@ -254,7 +287,8 @@ export default function InboxPage() {
     loadFolders();
     loadProjects();
     loadRules();
-  }, [loadEmails, loadFolders, loadProjects, loadRules]);
+    loadDismissedCount();
+  }, [loadEmails, loadFolders, loadProjects, loadRules, loadDismissedCount]);
 
   /* ── 90-day history sync — re-runs if history is incomplete ── */
   useEffect(() => {
@@ -333,12 +367,12 @@ export default function InboxPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Auto-refresh every 5 min using Page Visibility API ── */
+  /* ── Auto-refresh every 3 min using Page Visibility API ── */
   const loadEmailsRef = useRef(loadEmails);
   useEffect(() => { loadEmailsRef.current = loadEmails; }, [loadEmails]);
 
   useEffect(() => {
-    const FIVE_MIN = 5 * 60_000;
+    const REFRESH_INTERVAL = 3 * 60_000;   // 3 min (stale gate inside loadEmails is 4 min)
     let timerId: ReturnType<typeof setInterval>;
 
     const tick = () => {
@@ -350,13 +384,13 @@ export default function InboxPage() {
         // Tab became active — refresh immediately, restart timer
         loadEmailsRef.current();
         clearInterval(timerId);
-        timerId = setInterval(tick, FIVE_MIN);
+        timerId = setInterval(tick, REFRESH_INTERVAL);
       } else {
         clearInterval(timerId);
       }
     };
 
-    timerId = setInterval(tick, FIVE_MIN);
+    timerId = setInterval(tick, REFRESH_INTERVAL);
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       clearInterval(timerId);
@@ -399,17 +433,26 @@ export default function InboxPage() {
   }, [searchQuery]);
 
   /* ── Derived email list ── */
-  // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net
+  // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net.
+  // In dismissed view, skip client-side filtering — show everything the API returned.
+  const isDismissedView = selectedFolder === DISMISSED_FOLDER_ID;
   const visibleEmails = useMemo(
-    () => emails.filter((e) => !shouldFilterEmail(e, rules)),
-    [emails, rules],
+    () => isDismissedView ? emails : emails.filter((e) => !shouldFilterEmail(e, rules)),
+    [emails, rules, isDismissedView],
   );
 
   const filteredEmails = useMemo(() => {
+    // Dismissed view: show all dismissed emails sorted by date, skip tab filtering
+    if (isDismissedView) {
+      return [...visibleEmails].sort((a, b) =>
+        (b.received_at ?? '').localeCompare(a.received_at ?? ''),
+      );
+    }
+
     const byTab = visibleEmails.filter((e) => {
       switch (tabFilter) {
         case 'all':
-          return !!e.project_id && !e.dismissed;
+          return !e.dismissed;
         case 'active':
           return !!e.project_id && !e.resolved;
         case 'needs_response':
@@ -425,7 +468,7 @@ export default function InboxPage() {
         default:
           return false;
       }
-    }).filter((e) => tabFilter === 'untagged' || !projectFilter || e.project_id === projectFilter);
+    }).filter((e) => tabFilter === 'untagged' || tabFilter === 'all' || !projectFilter || e.project_id === projectFilter);
 
     if (tabFilter === 'all' || tabFilter === 'untagged') {
       return [...byTab].sort((a, b) =>
@@ -433,13 +476,13 @@ export default function InboxPage() {
       );
     }
     return byTab;
-  }, [visibleEmails, tabFilter, projectFilter]);
+  }, [visibleEmails, tabFilter, projectFilter, isDismissedView]);
 
   const countFor = useCallback(
     (tab: TabFilter) => {
       switch (tab) {
         case 'all':
-          return visibleEmails.filter((e) => !!e.project_id && !e.dismissed).length;
+          return visibleEmails.filter((e) => !e.dismissed).length;
         case 'active':
           return visibleEmails.filter((e) => !!e.project_id && !e.resolved).length;
         case 'needs_response':
@@ -461,6 +504,15 @@ export default function InboxPage() {
 
   const untaggedCount = useMemo(
     () => visibleEmails.filter((e) => !e.project_id && !e.dismissed).length,
+    [visibleEmails],
+  );
+
+  /* ── Triage banner: untagged emails shown at top of "All" tab ── */
+  const triageEmails = useMemo(
+    () =>
+      visibleEmails
+        .filter((e) => !e.project_id && !e.dismissed)
+        .sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? '')),
     [visibleEmails],
   );
 
@@ -504,6 +556,7 @@ export default function InboxPage() {
   const handleDismissSuggested = (email: Email) => {
     // No project → auto-dismiss completely from main view
     patch(email.id, { project_id: null, match_confidence: null, dismissed: true });
+    setDismissedCount(c => c + 1);
   };
 
   const showToast = useCallback((message: string, undo: () => void) => {
@@ -596,7 +649,11 @@ export default function InboxPage() {
   const handleDismiss = useCallback(
     (email: Email) => {
       patch(email.id, { dismissed: true });
-      showToast('Email dismissed', () => patch(email.id, { dismissed: false }));
+      setDismissedCount(c => c + 1);
+      showToast('Email dismissed', () => {
+        patch(email.id, { dismissed: false });
+        setDismissedCount(c => Math.max(0, c - 1));
+      });
     },
     [patch, showToast],
   );
@@ -796,6 +853,7 @@ export default function InboxPage() {
           setTabFilter('all');
         }}
         totalUnread={totalUnread}
+        dismissedCount={dismissedCount}
       />
 
       {/* ── Email list panel ── */}
@@ -822,7 +880,7 @@ export default function InboxPage() {
                 </svg>
               </button>
               <button
-                onClick={() => { lastSyncTimeRef.current = null; loadEmails(); }}
+                onClick={handleForceSync}
                 disabled={syncing || loading}
                 title="Refresh"
                 className={`p-2 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} disabled:opacity-40`}
@@ -850,13 +908,17 @@ export default function InboxPage() {
             {(syncing || historySyncing || migrating) && (
               <div className="w-1.5 h-1.5 rounded-full bg-fq-accent/60 animate-pulse shrink-0" />
             )}
-            <p className={`font-body text-[11.5px] ${tk.light}`}>
+            <p className={`font-body text-[11.5px] ${syncError ? 'text-amber-600' : tk.light}`}>
               {migrating && migrateProgress
                 ? `Moving ${migrateProgress.moved} of ${migrateProgress.total} emails to Outlook folders…`
                 : migrating
                 ? 'Syncing to Outlook folders…'
                 : historySyncing
                 ? `Loading email history… ${historySyncCount} emails loaded`
+                : syncError && syncedAt
+                ? `Last synced ${relativeTime(syncedAt)} — sync failing`
+                : syncError
+                ? 'Sync failing'
                 : nowTick >= 0 && syncedAt
                 ? `Synced ${relativeTime(syncedAt)}`
                 : syncing ? 'Syncing…' : 'Not synced yet'}
@@ -908,8 +970,22 @@ export default function InboxPage() {
           </div>
         )}
 
-        {/* Tab filter bar — hidden when searching */}
-        {!searchQuery && (
+        {/* Sync warning banner */}
+        {syncError && !error && (
+          <div className="mx-5 mt-3 px-4 py-2.5 rounded-lg border border-amber-200 bg-amber-50 flex items-center justify-between">
+            <p className="font-body text-[12px] text-amber-700">{syncError}</p>
+            <button
+              onClick={handleForceSync}
+              disabled={syncing}
+              className="font-body text-[11px] font-medium text-amber-700 hover:text-amber-900 underline disabled:opacity-40"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Tab filter bar — hidden when searching or in dismissed view */}
+        {!searchQuery && !isDismissedView && (
           <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
             {[
               ...TAB_FILTERS,
@@ -1006,7 +1082,7 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {!loading && filteredEmails.length === 0 && (
+              {!loading && filteredEmails.length === 0 && !(tabFilter === 'all' && triageEmails.length > 0) && (
                 <div className="text-center mt-12">
                   <p className={`font-body text-[13px] ${tk.light}`}>
                     {tabFilter === 'all'
@@ -1028,7 +1104,61 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {!loading && filteredEmails.map((email) => (
+              {/* ── Needs Triage banner — pinned at top of All tab ── */}
+              {!loading && tabFilter === 'all' && triageEmails.length > 0 && (
+                <div className="mb-4 rounded-xl border border-fq-amber/25 bg-fq-amber/[0.04] overflow-hidden">
+                  {/* Header */}
+                  <button
+                    onClick={() => setTriageCollapsed((v) => !v)}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 hover:bg-fq-amber/[0.04] transition-colors"
+                  >
+                    {triageCollapsed ? (
+                      <ChevronRight size={14} className="text-fq-amber shrink-0" />
+                    ) : (
+                      <ChevronDown size={14} className="text-fq-amber shrink-0" />
+                    )}
+                    <Inbox size={14} className="text-fq-amber shrink-0" />
+                    <span className="font-body text-[12.5px] font-semibold text-fq-amber">
+                      Needs Triage
+                    </span>
+                    <span className="font-body text-[11px] font-medium text-fq-amber/70 bg-fq-amber/15 px-2 py-0.5 rounded-full">
+                      {triageEmails.length}
+                    </span>
+                    {triageCollapsed && (
+                      <span className={`font-body text-[11px] ${tk.light} ml-auto`}>
+                        {triageEmails.length} email{triageEmails.length !== 1 ? 's' : ''} to sort
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Triage email list */}
+                  {!triageCollapsed && (
+                    <div className="border-t border-fq-amber/15 px-1 pb-1">
+                      {triageEmails.map((email) => (
+                        <EmailCard
+                          key={email.id}
+                          email={email}
+                          isSelected={selectedId === email.id}
+                          showTriage
+                          projects={projects}
+                          onSelect={() => handleSelectEmail(email)}
+                          onReply={handleReply}
+                          onConfirmSuggested={handleConfirmSuggested}
+                          onDismissSuggested={handleDismissSuggested}
+                          onToggleFollowup={handleToggleFollowup}
+                          onResolve={handleResolve}
+                          onNeedsResponse={handleNeedsResponse}
+                          onDraftResponse={handleDraftResponse}
+                          onDismiss={handleDismiss}
+                          onReassign={handleReassign}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!loading && filteredEmails.filter((e) => tabFilter !== 'all' || !!e.project_id || e.dismissed).map((email) => (
                 <EmailCard
                   key={email.id}
                   email={email}

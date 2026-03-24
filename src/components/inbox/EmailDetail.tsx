@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, ReplyAll, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
 import { buildReplyHtml, emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
@@ -771,10 +771,12 @@ function ReplyPanel({
   email,
   onClose,
   initialText = '',
+  replyAll = false,
 }: {
   email: Email;
   onClose: () => void;
   initialText?: string;
+  replyAll?: boolean;
 }) {
   const [sending, setSending]           = useState(false);
   const [sent, setSent]                 = useState(false);
@@ -855,10 +857,11 @@ function ReplyPanel({
       const originalBody   = email.body || (email.body_preview ?? '').replace(/\n/g, '<br>');
       const sigHtml        = sigRef.current?.innerHTML ?? emailSignatureHtml;
       const replyHtml      = buildReplyHtml(
-        `${bodyHtml}<br><br>${sigHtml}`,
+        bodyHtml,
         originalDate,
         originalSender,
         originalBody,
+        sigHtml,
       );
       await fetch('/api/emails/reply', {
         method: 'POST',
@@ -868,6 +871,7 @@ function ReplyPanel({
           reply_html: replyHtml,
           cc:  chipsToRecipients(ccChips),
           bcc: chipsToRecipients(bccChips),
+          reply_all: replyAll,
         }),
       });
       setSent(true);
@@ -909,7 +913,7 @@ function ReplyPanel({
       <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
-            Replying to {email.from_name || email.from_email}
+            {replyAll ? 'Replying all' : `Replying to ${email.from_name || email.from_email}`}
           </span>
           {!showCcBcc && (
             <button
@@ -1022,7 +1026,7 @@ function ReplyPanel({
           <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 10l14-7-7 14V10H3z" />
           </svg>
-          {sending ? 'Sending…' : 'Send Reply'}
+          {sending ? 'Sending…' : replyAll ? 'Send to All' : 'Send Reply'}
         </button>
         <button
           type="button"
@@ -1587,6 +1591,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
 ───────────────────────────────────────────────────────────────────────────── */
 export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed }: Props) {
   const [replyOpen,    setReplyOpen]    = useState(false);
+  const [replyAllMode, setReplyAllMode] = useState(false);
   const [forwardOpen,  setForwardOpen]  = useState(false);
   const [taskOpen,     setTaskOpen]     = useState(false);
   const [addToTaskOpen, setAddToTaskOpen] = useState(false);
@@ -1606,13 +1611,14 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   };
 
-  const openPanel = (panel: 'task' | 'addToTask' | 'reply' | 'forward' | 'none') => {
+  const openPanel = (panel: 'task' | 'addToTask' | 'reply' | 'replyAll' | 'forward' | 'none') => {
     setTaskOpen(panel === 'task');
     setAddToTaskOpen(panel === 'addToTask');
-    setReplyOpen(panel === 'reply');
+    setReplyOpen(panel === 'reply' || panel === 'replyAll');
+    setReplyAllMode(panel === 'replyAll');
     setForwardOpen(panel === 'forward');
     // Scroll composer into view at top when opening reply or forward
-    if (panel === 'reply' || panel === 'forward') {
+    if (panel === 'reply' || panel === 'replyAll' || panel === 'forward') {
       setTimeout(() => scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' }), 50);
     }
   };
@@ -1884,7 +1890,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
             <div className={`px-4 py-4 font-body text-[12.5px] ${tk.light}`}>Preparing your AI draft response…</div>
           </div>
         ) : replyOpen ? (
-          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} />
+          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} replyAll={replyAllMode} />
         ) : forwardOpen ? (
           <ForwardPanel email={email} onClose={() => setForwardOpen(false)} />
         ) : onGenerateDraft ? (
@@ -1970,13 +1976,22 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
         {/* Reply */}
         {/* Reply — if draft exists, scroll to draft card; else open composer at top */}
         {!replyOpen && !email.draft_message_id && (
-          <button
-            onClick={() => openPanel('reply')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
-          >
-            <Reply size={12} />
-            Reply
-          </button>
+          <>
+            <button
+              onClick={() => openPanel('reply')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
+            >
+              <Reply size={12} />
+              Reply
+            </button>
+            <button
+              onClick={() => openPanel('replyAll')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium ${tk.body} hover:bg-fq-light-accent hover:border-fq-accent/20 transition-colors`}
+            >
+              <ReplyAll size={12} />
+              Reply All
+            </button>
+          </>
         )}
         {email.draft_message_id && (
           <button

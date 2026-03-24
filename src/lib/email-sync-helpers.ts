@@ -83,7 +83,7 @@ export async function upsertEmail(
   folderId: string,
   supabase: ReturnType<typeof getServiceSupabase>,
   preloaded: PreloadedMatchData,
-  existingMap: Map<string, { project_id: string | null; match_confidence: string | null; category: string | null }>,
+  existingMap: Map<string, { project_id: string | null; match_confidence: string | null; category: string | null; dismissed: boolean | null }>,
   folderProjectMap: Map<string, string>,
   receiptsFolderId: string | null,
   vendorEmails: Set<string>,
@@ -162,7 +162,8 @@ export async function upsertEmail(
       conversation_id: msg.conversationId, folder_id: effectiveFolderId,
       project_id: projectId, match_confidence: confidence,
       is_meeting_summary: isMeetingSummary, category: null,
-      dismissed: projectId ? false : true,
+      // Preserve the user's dismissed state for existing emails; new emails default to visible
+      dismissed: existing?.dismissed ?? false,
     },
     { onConflict: 'message_id' },
   );
@@ -192,9 +193,10 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
 
   const NUMBER_PREFIX = /^\d+\s*-\s*/;
   for (const folder of allFolders) {
-    if (!NUMBER_PREFIX.test(folder.displayName)) continue;
-    const cleanName = folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase();
-    const project = projects.find(p => p.name.toLowerCase() === cleanName);
+    const cleanName = NUMBER_PREFIX.test(folder.displayName)
+      ? folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase()
+      : folder.displayName.trim().toLowerCase();
+    const project = projects.find(p => p.name?.toLowerCase() === cleanName);
     if (project) folderProjectMap.set(folder.id, project.id);
   }
 
@@ -203,11 +205,11 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
   }
 
   const hideRules: { type: string; value: string }[] = (rulesRes.data ?? [])
-    .filter(r => r.action === 'hide')
+    .filter(r => r.action === 'hide' && r.value != null)
     .map(r => ({ type: r.rule_type, value: (r.value as string).toLowerCase() }));
 
   const vendorEmails = new Set(
-    (vendorsRes.data ?? []).map(v => (v.email as string).toLowerCase()),
+    (vendorsRes.data ?? []).filter(v => v.email != null).map(v => (v.email as string).toLowerCase()),
   );
 
   const preloaded: PreloadedMatchData = {
@@ -248,10 +250,10 @@ export async function upsertBatch(
 
   const existingRes = await supabase
     .from('emails')
-    .select('message_id, project_id, match_confidence, category')
+    .select('message_id, project_id, match_confidence, category, dismissed')
     .in('message_id', pairs.map(p => p.msg.id));
 
-  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null; category: string | null }>();
+  const existingMap = new Map<string, { project_id: string | null; match_confidence: string | null; category: string | null; dismissed: boolean | null }>();
   for (const row of existingRes.data ?? []) {
     existingMap.set(row.message_id, row);
   }

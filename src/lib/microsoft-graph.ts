@@ -110,11 +110,16 @@ async function doTokenRefresh(userId: string, refreshToken: string): Promise<str
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params.toString(),
     });
-  } catch {
+  } catch (err) {
+    console.error('[doTokenRefresh] network error:', err);
     return null;
   }
 
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.error('[doTokenRefresh] refresh failed:', res.status, body);
+    return null;
+  }
 
   const tokens = await res.json();
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
@@ -129,6 +134,25 @@ async function doTokenRefresh(userId: string, refreshToken: string): Promise<str
     .eq('user_id', userId);
 
   return tokens.access_token;
+}
+
+/**
+ * Force a token refresh regardless of expiry time.
+ * Used when Graph API returns 401 (token revoked or expired early).
+ */
+async function forceTokenRefresh(userId: string): Promise<string | null> {
+  const supabase = getServiceSupabase();
+  const { data, error } = await supabase
+    .from('microsoft_tokens')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (error || !data) return null;
+  const token = data as MicrosoftToken;
+  if (!token.refresh_token) return null;
+
+  return doTokenRefresh(userId, token.refresh_token);
 }
 
 /**
@@ -202,14 +226,33 @@ export async function graphFetch(
   const token = await getValidToken(userId);
   if (!token) throw new Error('NOT_CONNECTED');
 
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
+  let res = await fetch(`${GRAPH_BASE}${path}`, {
     ...options,
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       ...options.headers,
     },
   });
+
+  // On 401, force a token refresh and retry once — the stored token may have
+  // been revoked or expired despite passing the 5-minute freshness check.
+  if (res.status === 401) {
+    console.warn('[graphFetch] 401 — forcing token refresh and retrying');
+    const freshToken = await forceTokenRefresh(userId);
+    if (!freshToken) throw new Error('NOT_CONNECTED');
+
+    res = await fetch(`${GRAPH_BASE}${path}`, {
+      ...options,
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${freshToken}`,
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -346,6 +389,7 @@ export async function sendReply(
   userId = 'default',
   cc: GraphRecipient[] = [],
   bcc: GraphRecipient[] = [],
+  replyAll = false,
 ): Promise<void> {
   const message: Record<string, unknown> = {
     body: { contentType: 'HTML', content: replyBodyHtml },
@@ -353,8 +397,9 @@ export async function sendReply(
   if (cc.length > 0)  message.ccRecipients  = cc;
   if (bcc.length > 0) message.bccRecipients = bcc;
 
+  const endpoint = replyAll ? 'replyAll' : 'reply';
   await graphFetch(
-    `/me/messages/${messageId}/reply`,
+    `/me/messages/${messageId}/${endpoint}`,
     {
       method: 'POST',
       body: JSON.stringify({ message }),
