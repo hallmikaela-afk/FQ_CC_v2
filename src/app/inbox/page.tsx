@@ -256,10 +256,21 @@ export default function InboxPage() {
     loadRules();
   }, [loadEmails, loadFolders, loadProjects, loadRules]);
 
-  /* ── One-time 90-day history sync (runs only on first ever load) ── */
+  /* ── 90-day history sync — re-runs if history is incomplete ── */
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (localStorage.getItem('inbox_initial_sync_done')) return;
+
+    const syncDone = localStorage.getItem('inbox_initial_sync_done');
+    if (syncDone) {
+      // inbox_sync_cursor = ISO date of the oldest email we've loaded.
+      // If it's older than 85 days we have full coverage — skip.
+      const cursor           = localStorage.getItem('inbox_sync_cursor');
+      const eightyFiveDaysAgo = new Date(Date.now() - 85 * 24 * 60 * 60_000).toISOString();
+      if (cursor && cursor < eightyFiveDaysAgo) return;
+      // Cursor is missing or too recent — history is incomplete, re-run.
+      localStorage.removeItem('inbox_initial_sync_done');
+      localStorage.removeItem('inbox_sync_cursor');
+    }
 
     let cancelled = false;
 
@@ -307,10 +318,19 @@ export default function InboxPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Populate projects.outlook_folder_id from Outlook once per session ── */
+  /* ── Populate outlook_folder_id then run one-time folder migration ── */
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    fetch('/api/projects/sync-outlook-folders', { method: 'POST' }).catch(() => {});
+    fetch('/api/projects/sync-outlook-folders', { method: 'POST' })
+      .then(() => {
+        // After folder IDs are populated, migrate existing emails once
+        if (localStorage.getItem('inbox_folder_migration_done')) return;
+        handleMigrateOutlookFolders().then(() => {
+          localStorage.setItem('inbox_folder_migration_done', 'true');
+        }).catch(() => {});
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ── Auto-refresh every 5 min using Page Visibility API ── */
