@@ -8,11 +8,15 @@ export interface Folder {
   parent_folder_id: string | null;
 }
 
+/** Virtual folder ID for dismissed emails (not a real Outlook folder) */
+export const DISMISSED_FOLDER_ID = '__dismissed__';
+
 interface Props {
   folders: Folder[];
   selectedFolder: string | null; // null = All Mail
   onSelectFolder: (folderId: string | null) => void;
   totalUnread: number;
+  dismissedCount?: number;
 }
 
 /* ── Folder icons keyed by Outlook display name ── */
@@ -66,6 +70,13 @@ function FolderIcon({ name }: { name: string }) {
         <path d="M7 7h6M7 10h6M7 13h4" />
       </svg>
     );
+  if (n === 'dismissed')
+    return (
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 10a7 7 0 1 1 14 0 7 7 0 0 1-14 0z" />
+        <path d="M8 8l4 4M12 8l-4 4" />
+      </svg>
+    );
   // Generic folder (used for client project subfolders)
   return (
     <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -111,7 +122,7 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-export default function FolderSidebar({ folders, selectedFolder, onSelectFolder, totalUnread }: Props) {
+export default function FolderSidebar({ folders, selectedFolder, onSelectFolder, totalUnread, dismissedCount = 0 }: Props) {
   // Separate inbox subfolders from top-level folders
   const inboxFolder  = folders.find(f => f.display_name.toLowerCase() === 'inbox');
   const inboxId      = inboxFolder?.folder_id ?? null;
@@ -205,6 +216,24 @@ export default function FolderSidebar({ folders, selectedFolder, onSelectFolder,
             No folders synced yet
           </p>
         )}
+      </div>
+
+      {/* ── Virtual folders ── */}
+      <div className="mt-auto border-t border-fq-border/60 px-3 py-3">
+        <button
+          onClick={() => onSelectFolder(DISMISSED_FOLDER_ID)}
+          className={rowCls(selectedFolder === DISMISSED_FOLDER_ID)}
+        >
+          <span className="text-fq-muted/55 shrink-0">
+            <FolderIcon name="dismissed" />
+          </span>
+          <span className="flex-1 truncate">Dismissed</span>
+          {dismissedCount > 0 && (
+            <span className="text-[10px] font-medium text-fq-muted/45 bg-fq-muted/10 rounded-full px-1.5 py-0.5 min-w-[18px] text-center shrink-0">
+              {dismissedCount > 99 ? '99+' : dismissedCount}
+            </span>
+          )}
+        </button>
       </div>
     </aside>
   );

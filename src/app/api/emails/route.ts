@@ -87,9 +87,15 @@ export async function GET(request: Request) {
   if (dateTo) query = query.lte('received_at', dateTo);
   if (projectId) query = query.eq('project_id', projectId);
 
-  // Never surface receipts or dismissed emails in the main inbox view
+  // Never surface receipts in the main inbox view
   query = query.or('category.is.null,category.neq.receipt');
-  query = query.or('dismissed.is.null,dismissed.eq.false');
+
+  // Dismissed filter: show dismissed emails only when explicitly requested
+  if (filter === 'dismissed') {
+    query = query.eq('dismissed', true);
+  } else {
+    query = query.or('dismissed.is.null,dismissed.eq.false');
+  }
 
   // Exclude Outlook draft emails that may have been synced before the skip-folder fix
   if (draftFolderIds.length > 0 && !folderId) {
@@ -204,7 +210,7 @@ async function syncEmails(
       .limit(1)
       .maybeSingle();
     dateFrom = newest?.received_at
-      ? new Date(new Date(newest.received_at).getTime() - 60 * 60_000).toISOString()
+      ? new Date(new Date(newest.received_at).getTime() - 48 * 60 * 60_000).toISOString()
       : new Date(Date.now() - 30 * 24 * 60 * 60_000).toISOString();
   }
 

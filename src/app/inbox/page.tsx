@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Search, X, Mail, ChevronDown, ChevronRight, Inbox } from 'lucide-react';
-import FolderSidebar, { type Folder } from '@/components/inbox/FolderSidebar';
+import FolderSidebar, { type Folder, DISMISSED_FOLDER_ID } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
 import EmailDetail from '@/components/inbox/EmailDetail';
 import ComposePanel from '@/components/inbox/ComposePanel';
@@ -131,6 +131,7 @@ export default function InboxPage() {
   const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
   const [draftFallbackText,  setDraftFallbackText]  = useState<string | null>(null);
   const [triageCollapsed,    setTriageCollapsed]    = useState(false);
+  const [dismissedCount,     setDismissedCount]     = useState(0);
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
@@ -172,10 +173,15 @@ export default function InboxPage() {
     setError(null);
 
     // ── Step 1: Show cached emails instantly (no Graph API, no spinner) ──
+    const isDismissedView = selectedFolder === DISMISSED_FOLDER_ID;
     let cachedCount = 0;
     try {
       const params = new URLSearchParams({ sync: 'false' });
-      if (selectedFolder) params.set('folder_id', selectedFolder);
+      if (isDismissedView) {
+        params.set('filter', 'dismissed');
+      } else if (selectedFolder) {
+        params.set('folder_id', selectedFolder);
+      }
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); setLoading(false); return; }
@@ -208,7 +214,11 @@ export default function InboxPage() {
     setSyncing(true);
     try {
       const params = new URLSearchParams();
-      if (selectedFolder) params.set('folder_id', selectedFolder);
+      if (isDismissedView) {
+        params.set('filter', 'dismissed');
+      } else if (selectedFolder) {
+        params.set('folder_id', selectedFolder);
+      }
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); return; }
@@ -241,6 +251,14 @@ export default function InboxPage() {
     } catch {}
   }, []);
 
+  const loadDismissedCount = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/emails?sync=false&filter=dismissed');
+      const data = await res.json();
+      setDismissedCount((data.emails ?? []).length);
+    } catch {}
+  }, []);
+
   const loadRules = useCallback(async () => {
     try {
       const res  = await fetch('/api/inbox-rules');
@@ -255,7 +273,8 @@ export default function InboxPage() {
     loadFolders();
     loadProjects();
     loadRules();
-  }, [loadEmails, loadFolders, loadProjects, loadRules]);
+    loadDismissedCount();
+  }, [loadEmails, loadFolders, loadProjects, loadRules, loadDismissedCount]);
 
   /* ── 90-day history sync — re-runs if history is incomplete ── */
   useEffect(() => {
@@ -400,13 +419,22 @@ export default function InboxPage() {
   }, [searchQuery]);
 
   /* ── Derived email list ── */
-  // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net
+  // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net.
+  // In dismissed view, skip client-side filtering — show everything the API returned.
+  const isDismissedView = selectedFolder === DISMISSED_FOLDER_ID;
   const visibleEmails = useMemo(
-    () => emails.filter((e) => !shouldFilterEmail(e, rules)),
-    [emails, rules],
+    () => isDismissedView ? emails : emails.filter((e) => !shouldFilterEmail(e, rules)),
+    [emails, rules, isDismissedView],
   );
 
   const filteredEmails = useMemo(() => {
+    // Dismissed view: show all dismissed emails sorted by date, skip tab filtering
+    if (isDismissedView) {
+      return [...visibleEmails].sort((a, b) =>
+        (b.received_at ?? '').localeCompare(a.received_at ?? ''),
+      );
+    }
+
     const byTab = visibleEmails.filter((e) => {
       switch (tabFilter) {
         case 'all':
@@ -434,7 +462,7 @@ export default function InboxPage() {
       );
     }
     return byTab;
-  }, [visibleEmails, tabFilter, projectFilter]);
+  }, [visibleEmails, tabFilter, projectFilter, isDismissedView]);
 
   const countFor = useCallback(
     (tab: TabFilter) => {
@@ -514,6 +542,7 @@ export default function InboxPage() {
   const handleDismissSuggested = (email: Email) => {
     // No project → auto-dismiss completely from main view
     patch(email.id, { project_id: null, match_confidence: null, dismissed: true });
+    setDismissedCount(c => c + 1);
   };
 
   const showToast = useCallback((message: string, undo: () => void) => {
@@ -606,7 +635,11 @@ export default function InboxPage() {
   const handleDismiss = useCallback(
     (email: Email) => {
       patch(email.id, { dismissed: true });
-      showToast('Email dismissed', () => patch(email.id, { dismissed: false }));
+      setDismissedCount(c => c + 1);
+      showToast('Email dismissed', () => {
+        patch(email.id, { dismissed: false });
+        setDismissedCount(c => Math.max(0, c - 1));
+      });
     },
     [patch, showToast],
   );
@@ -806,6 +839,7 @@ export default function InboxPage() {
           setTabFilter('all');
         }}
         totalUnread={totalUnread}
+        dismissedCount={dismissedCount}
       />
 
       {/* ── Email list panel ── */}
@@ -918,8 +952,8 @@ export default function InboxPage() {
           </div>
         )}
 
-        {/* Tab filter bar — hidden when searching */}
-        {!searchQuery && (
+        {/* Tab filter bar — hidden when searching or in dismissed view */}
+        {!searchQuery && !isDismissedView && (
           <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
             {[
               ...TAB_FILTERS,
