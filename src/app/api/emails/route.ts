@@ -20,11 +20,30 @@ import type { GraphMessage } from '@/lib/microsoft-graph';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
+// ─── One-time migration: un-dismiss non-receipt emails that were incorrectly
+//     auto-dismissed by the old `dismissed: projectId ? false : true` logic. ──
+let dismissMigrationDone = false;
+
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
 export async function GET(request: Request) {
   const supabase = getServiceSupabase();
   const url = new URL(request.url);
+
+  if (!dismissMigrationDone) {
+    dismissMigrationDone = true;
+    // Un-dismiss every non-receipt email so they appear in the inbox again.
+    // Receipts (category = 'receipt') stay dismissed intentionally.
+    supabase
+      .from('emails')
+      .update({ dismissed: false })
+      .eq('dismissed', true)
+      .or('category.is.null,category.neq.receipt')
+      .then(({ error }) => {
+        if (error) console.error('[emails] dismiss migration error:', error);
+        else console.log('[emails] dismiss migration complete');
+      });
+  }
 
   const folderId = url.searchParams.get('folder_id') ?? undefined;
   const skip = parseInt(url.searchParams.get('skip') ?? '0', 10);
