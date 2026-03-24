@@ -27,11 +27,13 @@ interface ReplyBody {
   /** Optional CC and BCC recipients. */
   cc?: GraphRecipient[];
   bcc?: GraphRecipient[];
+  /** When true, uses Graph replyAll endpoint to include all original recipients. */
+  reply_all?: boolean;
 }
 
 export async function POST(request: Request) {
   const body: ReplyBody = await request.json();
-  const { message_id, reply_html, reply_text, original_date = '', original_sender = '', original_body = '', cc = [], bcc = [] } = body;
+  const { message_id, reply_html, reply_text, original_date = '', original_sender = '', original_body = '', cc = [], bcc = [], reply_all = false } = body;
 
   if (!message_id || (!reply_html?.trim() && !reply_text?.trim())) {
     return NextResponse.json({ error: 'Missing message_id or reply body' }, { status: 400 });
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
   );
 
   try {
-    await sendReply(message_id, htmlBody, 'default', cc, bcc);
+    await sendReply(message_id, htmlBody, 'default', cc, bcc, reply_all);
     return NextResponse.json({ success: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

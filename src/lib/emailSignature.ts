@@ -34,9 +34,12 @@ export function buildReplyHtml(
   originalDate: string,
   originalSender: string,
   originalBody: string,
+  /** Pass a custom signature HTML (e.g. from the editable sig field). Defaults to the standard signature. */
+  signatureHtml?: string,
 ): string {
+  const sig = signatureHtml ?? emailSignatureHtml;
   const quote = `<div style="border-left: 2px solid #E8E4DF; padding-left: 12px; color: #6B6B6B; font-size: 13px; margin-top: 16px;"><strong>On ${originalDate}, ${originalSender} wrote:</strong><br>${originalBody}</div>`;
-  return wrapHtmlEmail(`${bodyHtml}<br><br>${emailSignatureHtml}<br><br>${quote}`);
+  return wrapHtmlEmail(`${bodyHtml}<br><br>${sig}<br><br>${quote}`);
 }
 
 /* ── Backward-compatibility aliases ── */

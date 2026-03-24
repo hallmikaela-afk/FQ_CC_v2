@@ -389,6 +389,7 @@ export async function sendReply(
   userId = 'default',
   cc: GraphRecipient[] = [],
   bcc: GraphRecipient[] = [],
+  replyAll = false,
 ): Promise<void> {
   const message: Record<string, unknown> = {
     body: { contentType: 'HTML', content: replyBodyHtml },
@@ -396,8 +397,9 @@ export async function sendReply(
   if (cc.length > 0)  message.ccRecipients  = cc;
   if (bcc.length > 0) message.bccRecipients = bcc;
 
+  const endpoint = replyAll ? 'replyAll' : 'reply';
   await graphFetch(
-    `/me/messages/${messageId}/reply`,
+    `/me/messages/${messageId}/${endpoint}`,
     {
       method: 'POST',
       body: JSON.stringify({ message }),
