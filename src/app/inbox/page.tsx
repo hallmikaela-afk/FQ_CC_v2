@@ -409,7 +409,7 @@ export default function InboxPage() {
     const byTab = visibleEmails.filter((e) => {
       switch (tabFilter) {
         case 'all':
-          return !!e.project_id && !e.dismissed;
+          return !e.dismissed;
         case 'active':
           return !!e.project_id && !e.resolved;
         case 'needs_response':
@@ -425,7 +425,7 @@ export default function InboxPage() {
         default:
           return false;
       }
-    }).filter((e) => tabFilter === 'untagged' || !projectFilter || e.project_id === projectFilter);
+    }).filter((e) => tabFilter === 'untagged' || tabFilter === 'all' || !projectFilter || e.project_id === projectFilter);
 
     if (tabFilter === 'all' || tabFilter === 'untagged') {
       return [...byTab].sort((a, b) =>
@@ -439,7 +439,7 @@ export default function InboxPage() {
     (tab: TabFilter) => {
       switch (tab) {
         case 'all':
-          return visibleEmails.filter((e) => !!e.project_id && !e.dismissed).length;
+          return visibleEmails.filter((e) => !e.dismissed).length;
         case 'active':
           return visibleEmails.filter((e) => !!e.project_id && !e.resolved).length;
         case 'needs_response':

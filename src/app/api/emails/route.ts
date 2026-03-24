@@ -34,15 +34,13 @@ export async function GET(request: Request) {
     dismissMigrationDone = true;
     // Un-dismiss every non-receipt email so they appear in the inbox again.
     // Receipts (category = 'receipt') stay dismissed intentionally.
-    supabase
+    const { error: migErr } = await supabase
       .from('emails')
       .update({ dismissed: false })
       .eq('dismissed', true)
-      .or('category.is.null,category.neq.receipt')
-      .then(({ error }) => {
-        if (error) console.error('[emails] dismiss migration error:', error);
-        else console.log('[emails] dismiss migration complete');
-      });
+      .or('category.is.null,category.neq.receipt');
+    if (migErr) console.error('[emails] dismiss migration error:', migErr);
+    else console.log('[emails] dismiss migration complete');
   }
 
   const folderId = url.searchParams.get('folder_id') ?? undefined;
