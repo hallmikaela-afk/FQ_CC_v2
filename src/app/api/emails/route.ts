@@ -49,8 +49,17 @@ export async function GET(request: Request) {
       if (err instanceof Error && err.message === 'NOT_CONNECTED') {
         return NextResponse.json({ error: 'NOT_CONNECTED' }, { status: 401 });
       }
-      // Other Graph errors: log but still return cached data
-      syncError = 'Email sync failed — check connection';
+      // Surface a meaningful error to the client
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg.includes('GRAPH_ERROR_401')) {
+        syncError = 'Microsoft authentication expired — please reconnect your account';
+      } else if (errMsg.includes('GRAPH_ERROR_429')) {
+        syncError = 'Microsoft rate limit hit — will retry shortly';
+      } else if (errMsg.includes('GRAPH_ERROR_5')) {
+        syncError = 'Microsoft servers temporarily unavailable';
+      } else {
+        syncError = 'Email sync failed — check connection';
+      }
       console.error('[emails] Graph sync error:', err);
     }
   }
