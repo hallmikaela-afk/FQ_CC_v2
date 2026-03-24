@@ -193,8 +193,9 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
 
   const NUMBER_PREFIX = /^\d+\s*-\s*/;
   for (const folder of allFolders) {
-    if (!NUMBER_PREFIX.test(folder.displayName)) continue;
-    const cleanName = folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase();
+    const cleanName = NUMBER_PREFIX.test(folder.displayName)
+      ? folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase()
+      : folder.displayName.trim().toLowerCase();
     const project = projects.find(p => p.name.toLowerCase() === cleanName);
     if (project) folderProjectMap.set(folder.id, project.id);
   }
