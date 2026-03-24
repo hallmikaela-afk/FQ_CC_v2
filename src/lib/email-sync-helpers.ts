@@ -196,7 +196,7 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
     const cleanName = NUMBER_PREFIX.test(folder.displayName)
       ? folder.displayName.replace(NUMBER_PREFIX, '').trim().toLowerCase()
       : folder.displayName.trim().toLowerCase();
-    const project = projects.find(p => p.name.toLowerCase() === cleanName);
+    const project = projects.find(p => p.name?.toLowerCase() === cleanName);
     if (project) folderProjectMap.set(folder.id, project.id);
   }
 
@@ -205,11 +205,11 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
   }
 
   const hideRules: { type: string; value: string }[] = (rulesRes.data ?? [])
-    .filter(r => r.action === 'hide')
+    .filter(r => r.action === 'hide' && r.value != null)
     .map(r => ({ type: r.rule_type, value: (r.value as string).toLowerCase() }));
 
   const vendorEmails = new Set(
-    (vendorsRes.data ?? []).map(v => (v.email as string).toLowerCase()),
+    (vendorsRes.data ?? []).filter(v => v.email != null).map(v => (v.email as string).toLowerCase()),
   );
 
   const preloaded: PreloadedMatchData = {
