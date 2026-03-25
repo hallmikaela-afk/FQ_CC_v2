@@ -1999,18 +1999,27 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           </button>
         )}
 
-        {/* Mark as read */}
-        {!email.is_read && (
-          <button
-            onClick={() => onPatch(email.id, { is_read: true })}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[12px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors"
-          >
-            <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M5 10l3 3 7-7" />
-            </svg>
-            Mark Read
-          </button>
-        )}
+        {/* Mark as read / unread */}
+        <button
+          onClick={() => onPatch(email.id, { is_read: !email.is_read })}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-sage/30 bg-fq-sage-light/30 font-body text-[12px] font-medium text-fq-sage hover:bg-fq-sage-light/60 transition-colors"
+        >
+          {email.is_read ? (
+            <>
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="10" cy="10" r="4" fill="currentColor" />
+              </svg>
+              Mark Unread
+            </>
+          ) : (
+            <>
+              <svg width="12" height="12" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 10l3 3 7-7" />
+              </svg>
+              Mark Read
+            </>
+          )}
+        </button>
 
         {/* Divider */}
         <div className="w-px h-5 bg-fq-border mx-0.5 shrink-0" />

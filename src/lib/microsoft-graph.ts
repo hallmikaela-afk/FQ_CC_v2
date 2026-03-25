@@ -378,6 +378,20 @@ export async function markAsRead(messageId: string, userId = 'default'): Promise
 }
 
 /**
+ * Mark a message as unread.
+ */
+export async function markAsUnread(messageId: string, userId = 'default'): Promise<void> {
+  await graphFetch(
+    `/me/messages/${messageId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ isRead: false }),
+    },
+    userId,
+  );
+}
+
+/**
  * Permanently delete a message from Outlook.
  */
 export async function deleteMessage(messageId: string, userId = 'default'): Promise<void> {

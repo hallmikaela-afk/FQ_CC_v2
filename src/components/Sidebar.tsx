@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useProjects } from '@/lib/hooks';
+import { useProjects, useSidebarCounts } from '@/lib/hooks';
 
 const navItems = [
   {
@@ -44,7 +44,7 @@ const navItems = [
   {
     label: 'Tasks',
     href: '/tasks',
-    badge: 217,
+    badgeKey: 'tasksOverdue' as const,
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="14" height="14" rx="2" />
@@ -55,7 +55,7 @@ const navItems = [
   {
     label: 'Inbox',
     href: '/inbox',
-    badge: 2,
+    badgeKey: 'inboxUnread' as const,
     icon: (
       <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="4" width="14" height="12" rx="2" />
@@ -93,6 +93,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [projectsOpen, setProjectsOpen] = useState(false);
   const { projects } = useProjects();
+  const sidebarCounts = useSidebarCounts();
   const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'))
     .map(p => ({ id: p.slug || p.id, name: p.name, color: p.color }));
 
@@ -148,19 +149,25 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   <span className={isActive ? 'text-fq-dark' : 'text-fq-muted'}>
                     {item.icon}
                   </span>
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1">{item.label}</span>
-                      {item.badge != null && item.badge > 0 && (
-                        <span className="bg-fq-accent text-white text-[11px] font-medium px-2 py-0.5 rounded-full min-w-[24px] text-center">
-                          {item.badge}
-                        </span>
-                      )}
-                    </>
-                  )}
-                  {collapsed && item.badge != null && item.badge > 0 && (
-                    <span className="absolute top-1 right-1 w-2 h-2 bg-fq-accent rounded-full" />
-                  )}
+                  {!collapsed && (() => {
+                    const badge = item.badgeKey ? sidebarCounts[item.badgeKey] : 0;
+                    return (
+                      <>
+                        <span className="flex-1">{item.label}</span>
+                        {badge > 0 && (
+                          <span className="bg-fq-accent text-white text-[11px] font-medium px-2 py-0.5 rounded-full min-w-[24px] text-center">
+                            {badge}
+                          </span>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {collapsed && (() => {
+                    const badge = item.badgeKey ? sidebarCounts[item.badgeKey] : 0;
+                    return badge > 0 ? (
+                      <span className="absolute top-1 right-1 w-2 h-2 bg-fq-accent rounded-full" />
+                    ) : null;
+                  })()}
                 </Link>
                 {isProjects && !collapsed && (
                   <button
