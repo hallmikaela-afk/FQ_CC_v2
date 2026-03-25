@@ -19,9 +19,9 @@ export async function GET() {
     supabase
       .from('emails')
       .select('id', { count: 'exact', head: true })
-      .eq('is_read', false)
-      .eq('dismissed', false)
-      .or('category.is.null,category.neq.receipt'),
+      .eq('needs_followup', true)
+      .eq('resolved', false)
+      .eq('dismissed', false),
     supabase
       .from('tasks')
       .select('id', { count: 'exact', head: true })
@@ -30,7 +30,7 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    inboxUnread: emailRes.count ?? 0,
+    inboxFollowup: emailRes.count ?? 0,
     tasksOverdue: taskRes.count ?? 0,
   });
 }

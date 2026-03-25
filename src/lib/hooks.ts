@@ -159,7 +159,7 @@ export function useTemplateTasks() {
 }
 
 export function useSidebarCounts() {
-  const [counts, setCounts] = useState({ inboxUnread: 0, tasksOverdue: 0 });
+  const [counts, setCounts] = useState({ inboxFollowup: 0, tasksOverdue: 0 });
 
   useEffect(() => {
     let cancelled = false;
