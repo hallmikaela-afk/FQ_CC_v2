@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       match_confidence: project_id ? 'exact' : null,
       needs_followup,
       followup_due_date: followup_due_date ?? null,
+      dismissed: false,
     })
     .eq('id', email_id);
 

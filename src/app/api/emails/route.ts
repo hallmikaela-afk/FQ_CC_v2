@@ -9,7 +9,7 @@
 
 import { NextResponse } from 'next/server';
 import { getServiceSupabase } from '@/lib/supabase';
-import { markAsRead, deleteMessage } from '@/lib/microsoft-graph';
+import { markAsRead, markAsUnread, deleteMessage } from '@/lib/microsoft-graph';
 import {
   FOLDER_BATCH,
   buildSyncContext, upsertBatch,
@@ -144,15 +144,19 @@ export async function PATCH(request: Request) {
 
   if (!id) return NextResponse.json({ error: 'Missing email id' }, { status: 400 });
 
-  // If marking as read, also mark in Graph
-  if (updates.is_read === true) {
+  // If changing read status, sync to Graph
+  if (updates.is_read === true || updates.is_read === false) {
     const { data: emailRow } = await supabase
       .from('emails')
       .select('message_id')
       .eq('id', id)
       .single();
     if (emailRow?.message_id) {
-      markAsRead(emailRow.message_id).catch(() => {}); // fire-and-forget
+      if (updates.is_read) {
+        markAsRead(emailRow.message_id).catch(() => {}); // fire-and-forget
+      } else {
+        markAsUnread(emailRow.message_id).catch(() => {}); // fire-and-forget
+      }
     }
   }
 
