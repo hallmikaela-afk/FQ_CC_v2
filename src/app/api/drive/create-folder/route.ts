@@ -34,9 +34,9 @@ export async function POST(request: Request) {
   }
 
   // Create the subfolder in Drive inside the internal folder
-  let newFolder: { id: string; name: string; webViewLink: string };
+  let newFolderId: string;
   try {
-    newFolder = await createFolder(folderName.trim(), driveRow.internal_folder_id);
+    newFolderId = await createFolder(folderName.trim(), driveRow.internal_folder_id);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'NOT_CONNECTED') {
@@ -44,6 +44,11 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: 'Failed to create folder.', detail: message }, { status: 500 });
   }
+  const newFolder = {
+    id: newFolderId,
+    name: folderName.trim(),
+    webViewLink: `https://drive.google.com/drive/folders/${newFolderId}`,
+  };
 
   // Update subfolder_ids in the DB
   const currentSubfolderIds = (driveRow.subfolder_ids as Record<string, string>) ?? {};
