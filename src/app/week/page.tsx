@@ -112,11 +112,16 @@ export default function WeekPage() {
 
   const pushToNextWeek = async (task: SprintTask) => {
     const nextWeek = offsetWeek(task.sprint_week, 1);
-    setTasks(prev => prev.filter(t => t.id !== task.id));
     await fetch('/api/sprint-tasks', {
-      method: 'PATCH',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: task.id, sprint_week: nextWeek }),
+      body: JSON.stringify({
+        title: task.title,
+        bucket: task.bucket,
+        tag: task.tag,
+        sprint_week: nextWeek,
+        sort_order: task.sort_order,
+      }),
     });
   };
 
