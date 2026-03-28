@@ -206,12 +206,60 @@ function EmailBody({ html, plaintext }: { html: string | null; plaintext: string
       <iframe
         ref={iframeRef}
         srcDoc={srcDoc}
-        sandbox="allow-same-origin"
+        sandbox="allow-same-origin allow-popups"
         onLoad={handleLoad}
         className="w-full rounded-xl border border-fq-border bg-fq-card"
         style={{ height: iframeHeight, border: 'none' }}
         title="Email body"
       />
+    </div>
+  );
+}
+
+/* ── Attachment list ── */
+function AttachmentList({ messageId }: { messageId: string }) {
+  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; contentType: string; size: number }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}`)
+      .then((r) => r.json())
+      .then((data) => setAttachments(data.attachments ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [messageId]);
+
+  if (loading || attachments.length === 0) return null;
+
+  function fmtSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return (
+    <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
+      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40">
+        <span className="font-body text-[11.5px] font-medium text-fq-dark/70">
+          {attachments.length} attachment{attachments.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+      <div className="p-3 flex flex-wrap gap-2">
+        {attachments.map((att) => (
+          <a
+            key={att.id}
+            href={`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`}
+            download={att.name}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group"
+          >
+            <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
+            <div className="min-w-0">
+              <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[180px]">{att.name}</p>
+              <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
+            </div>
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1905,6 +1953,11 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
             ✨ Generate AI Draft
           </button>
         ) : null}
+
+        {/* Attachments */}
+        {email.has_attachments && email.message_id && (
+          <AttachmentList messageId={email.message_id} />
+        )}
 
         {/* Email body */}
         <EmailBody html={email.body} plaintext={email.body_preview} />

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Reply, PenLine, Clock, Check, X } from 'lucide-react';
+import { Reply, PenLine, Clock, Check, X, Trash2 } from 'lucide-react';
 
 /* ── Shared types (also used by page + EmailDetail) ── */
 export interface EmailProject {
@@ -33,6 +33,7 @@ export interface Email {
   resolved: boolean;
   draft_message_id: string | null;
   category: string | null;
+  has_attachments?: boolean;
   projects: EmailProject | null;
 }
 
@@ -59,6 +60,7 @@ interface Props {
   onNeedsResponse: (email: Email) => void;
   onDraftResponse: (email: Email) => Promise<void>;
   onDismiss: (email: Email) => void;
+  onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
 }
 
@@ -214,6 +216,7 @@ export default function EmailCard({
   onNeedsResponse,
   onDraftResponse,
   onDismiss,
+  onDelete,
   onReassign,
 }: Props) {
   const proj        = email.projects;
@@ -223,6 +226,7 @@ export default function EmailCard({
 
   const [draftLoading,  setDraftLoading]  = useState(false);
   const [reassignOpen,  setReassignOpen]  = useState(false);
+  const [deleting,      setDeleting]      = useState(false);
   const reassignContainerRef = useRef<HTMLDivElement>(null);
 
   /* ── Close dropdown on outside click ── */
@@ -251,7 +255,9 @@ export default function EmailCard({
       onClick={onSelect}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}
       className={`group relative rounded-xl mb-2 transition-all duration-150 border cursor-pointer overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-fq-accent/40 ${
-        isSelected
+        deleting
+          ? 'opacity-40 scale-[0.98] pointer-events-none'
+          : isSelected
           ? 'bg-fq-light-accent border-fq-accent/35 shadow-sm'
           : 'bg-fq-card border-fq-border hover:border-fq-accent/20 hover:shadow-sm'
       }`}
@@ -543,6 +549,22 @@ export default function EmailCard({
               <X size={12} />
             </button>
           </Tip>
+
+          {/* 6. Delete — hard delete from DB */}
+          {onDelete && (
+            <Tip label="Delete">
+              <button
+                onClick={() => {
+                  setDeleting(true);
+                  setTimeout(() => onDelete(email), 350);
+                }}
+                disabled={deleting}
+                className="w-6 h-6 flex items-center justify-center rounded-md text-fq-muted/55 hover:bg-red-100 hover:text-red-600 transition-colors disabled:opacity-40"
+              >
+                <Trash2 size={12} />
+              </button>
+            </Tip>
+          )}
 
         </div>
       </div>

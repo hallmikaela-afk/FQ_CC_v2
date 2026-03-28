@@ -186,7 +186,13 @@ export default function InboxPage() {
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); setLoading(false); return; }
-      const cached = data.emails ?? [];
+      // Deduplicate by message_id (safety net for any DB duplicates)
+      const seen = new Set<string>();
+      const cached = (data.emails ?? []).filter((e: Email) => {
+        if (seen.has(e.message_id)) return false;
+        seen.add(e.message_id);
+        return true;
+      });
       cachedCount = cached.length;
       setEmails(cached);
       // Only keep the blocking spinner if cache is truly empty (first-ever load)
@@ -223,7 +229,13 @@ export default function InboxPage() {
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); return; }
-      setEmails(data.emails ?? []);
+      const seenSync = new Set<string>();
+      const synced = (data.emails ?? []).filter((e: Email) => {
+        if (seenSync.has(e.message_id)) return false;
+        seenSync.add(e.message_id);
+        return true;
+      });
+      setEmails(synced);
       lastSyncTimeRef.current = Date.now();
       setError(null);
       // Only update the "last synced" timestamp when sync actually succeeded
@@ -517,7 +529,9 @@ export default function InboxPage() {
   );
 
   const totalUnread = visibleEmails.filter((e) => !e.is_read && !!e.project_id && !e.resolved).length;
-  const selected    = selectedId ? emails.find((e) => e.id === selectedId) ?? null : null;
+  const selected    = selectedId
+    ? (emails.find((e) => e.id === selectedId) ?? searchResults?.find((e) => e.id === selectedId) ?? null)
+    : null;
 
   /* ── Email actions ── */
   const patch = useCallback(async (id: string, updates: Record<string, unknown>) => {
@@ -656,6 +670,25 @@ export default function InboxPage() {
       });
     },
     [patch, showToast],
+  );
+
+  const handleDeleteEmail = useCallback(
+    (email: Email) => {
+      // Optimistically remove from list
+      setEmails((prev) => prev.filter((e) => e.id !== email.id));
+      setSearchResults((prev) => prev ? prev.filter((e) => e.id !== email.id) : prev);
+      if (selectedId === email.id) setSelectedId(null);
+      fetch('/api/emails', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: email.id, delete_from_outlook: false }),
+      }).catch(() => {});
+      showToast('Email deleted', () => {
+        // Can't easily undo a hard delete; just reload
+        loadEmails();
+      });
+    },
+    [selectedId, showToast, loadEmails],
   );
 
   const handleReply = useCallback(
@@ -1065,6 +1098,7 @@ export default function InboxPage() {
                   onNeedsResponse={handleNeedsResponse}
                   onDraftResponse={handleDraftResponse}
                   onDismiss={handleDismiss}
+                  onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
                 />
               ))}
@@ -1150,6 +1184,7 @@ export default function InboxPage() {
                           onNeedsResponse={handleNeedsResponse}
                           onDraftResponse={handleDraftResponse}
                           onDismiss={handleDismiss}
+                  onDelete={handleDeleteEmail}
                           onReassign={handleReassign}
                         />
                       ))}
@@ -1175,6 +1210,7 @@ export default function InboxPage() {
                   onNeedsResponse={handleNeedsResponse}
                   onDraftResponse={handleDraftResponse}
                   onDismiss={handleDismiss}
+                  onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
                 />
               ))}
