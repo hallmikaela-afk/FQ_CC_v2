@@ -73,6 +73,19 @@ export async function POST(req: NextRequest) {
         textParts.push(content.items.map((item: any) => item.str).join(' '));
       }
       rows = parseTextAsRows(textParts.join('\n'));
+    } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(buffer, { type: 'buffer' });
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const sheetRows: Record<string, string>[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        rows = rows.concat(sheetRows.map(r =>
+          Object.fromEntries(Object.entries(r).map(([k, v]) => [k, String(v)]))
+        ));
+      }
+    } else if (name.endsWith('.csv')) {
+      const text = buffer.toString('utf-8');
+      rows = parseTextAsRows(text);
     } else {
       return NextResponse.json({ error: 'Unsupported file type' }, { status: 400 });
     }

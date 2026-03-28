@@ -646,7 +646,7 @@ export default function AssistantPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={fileUploading}
               className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon} hover:text-fq-accent mb-0.5 disabled:opacity-40`}
-              title="Attach files (images, PDF, DOCX)"
+              title="Attach files (images, PDF, DOCX, Excel, CSV)"
             >
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 7l-6.5 6.5a2.12 2.12 0 11-3-3L12 4a3.5 3.5 0 115 5l-6.5 6.5a5 5 0 01-7-7L10 2" />
@@ -656,7 +656,7 @@ export default function AssistantPage() {
               ref={fileInputRef}
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.doc"
+              accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.doc,.xlsx,.xls,.csv"
               className="hidden"
               onChange={handleFileChange}
             />
