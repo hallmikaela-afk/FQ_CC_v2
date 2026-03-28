@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import DriveFilePicker, { type DrivePickerFile } from '@/components/drive/DriveFilePicker';
 
 interface Project {
   id: string;
@@ -53,6 +54,9 @@ export default function UploadModal({ onClose, defaultProjectId, defaultProjectN
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [sourceTab, setSourceTab] = useState<'computer' | 'drive'>('computer');
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const [driveFile, setDriveFile] = useState<DrivePickerFile | null>(null);
 
   // Fetch projects for the selector (only if not pre-filled)
   useEffect(() => {
@@ -81,8 +85,41 @@ export default function UploadModal({ onClose, defaultProjectId, defaultProjectN
   };
 
   const handleUpload = async () => {
-    if (!file) { setError('Please select a file.'); return; }
     if (!projectId) { setError('Please select a project.'); return; }
+
+    // Drive file linking
+    if (sourceTab === 'drive') {
+      if (!driveFile) { setError('Please select a file from Drive.'); return; }
+      setError(null);
+      setUploading(true);
+      try {
+        const res = await fetch('/api/project-files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            driveFileId: driveFile.id,
+            driveFileName: driveFile.name,
+            driveFileMimeType: driveFile.mimeType,
+            driveFileUrl: driveFile.webViewLink,
+            driveFileSize: driveFile.size ? parseInt(driveFile.size, 10) : 0,
+            projectId,
+            notes: notes.trim() || null,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) { setError(json.error || 'Failed to link Drive file'); return; }
+        setSuccess(true);
+        onUploaded?.();
+        setTimeout(onClose, 1200);
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
+    if (!file) { setError('Please select a file.'); return; }
 
     setError(null);
     setUploading(true);
@@ -153,70 +190,78 @@ export default function UploadModal({ onClose, defaultProjectId, defaultProjectN
             />
           </div>
 
-          {/* Google Drive destination — coming soon */}
+          {/* Source tabs: From Computer / From Drive */}
           <div>
-            <div className="flex items-center gap-2 mb-1.5">
-              <label className="font-body text-[12px] font-medium text-fq-dark">Save to Google Drive</label>
-              <span className="font-body text-[10px] font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full">Coming soon</span>
+            <div className="flex gap-1 mb-3 p-1 bg-fq-bg rounded-lg border border-fq-border w-fit">
+              {(['computer', 'drive'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setSourceTab(tab)}
+                  className={`font-body text-[12px] font-medium px-3 py-1.5 rounded-md transition-colors ${
+                    sourceTab === tab
+                      ? 'bg-fq-card text-fq-dark shadow-sm border border-fq-border'
+                      : 'text-fq-muted hover:text-fq-dark'
+                  }`}
+                >
+                  {tab === 'computer' ? 'From Computer' : 'From Drive'}
+                </button>
+              ))}
             </div>
-            {/* Folder picker preview — disabled until Drive is connected */}
-            <div className="border border-fq-border rounded-lg overflow-hidden opacity-50 pointer-events-none select-none">
-              {/* Breadcrumb bar */}
-              <div className="flex items-center gap-1 px-3 py-2 bg-fq-light-accent border-b border-fq-border">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="text-[#4285F4] shrink-0">
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="font-body text-[11px] text-fq-muted">My Drive</span>
-                <span className="font-body text-[11px] text-fq-muted/50">›</span>
-                <span className="font-body text-[11px] text-fq-muted">
-                  {defaultProjectName || 'Client Name'}
-                </span>
-                <span className="font-body text-[11px] text-fq-muted/50">›</span>
-                <span className="font-body text-[11px] text-fq-dark font-medium">Choose folder…</span>
-              </div>
-              {/* Simulated folder list */}
-              <div className="divide-y divide-fq-border">
-                {['Contracts & Proposals', 'Vendor Files', 'Photos & Inspiration', 'Emails & Correspondence', 'Timelines & Runsheets'].map(folder => (
-                  <div key={folder} className="flex items-center gap-2.5 px-3 py-2 bg-fq-bg">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
-                    <span className="font-body text-[12px] text-fq-muted">{folder}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <p className="font-body text-[10px] text-fq-muted/60 mt-1.5">Connect your Google Drive in Settings to choose a destination folder for each upload.</p>
-          </div>
 
-          {/* File drop zone */}
-          <div>
-            <label className="block font-body text-[12px] font-medium text-fq-dark mb-1.5">File</label>
-            <input ref={inputRef} type="file" onChange={handleInput} className="hidden" />
-            {file ? (
-              <div className="flex items-center gap-3 px-4 py-3 bg-fq-light-accent border border-fq-accent/30 rounded-xl">
-                <span className="text-xl shrink-0">{getIcon(file.name)}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-body text-[13px] text-fq-dark truncate">{file.name}</p>
-                  <p className="font-body text-[11px] text-fq-muted">{formatBytes(file.size)}</p>
-                </div>
-                <button onClick={() => setFile(null)} className="text-fq-muted/50 hover:text-fq-alert transition-colors text-[12px] shrink-0">✕</button>
-              </div>
-            ) : (
-              <div
-                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => inputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-                  dragOver ? 'border-fq-accent bg-fq-light-accent' : 'border-fq-border hover:border-fq-muted'
-                }`}
-              >
-                <p className="font-body text-[13px] text-fq-muted mb-1">Drop any file here, or click to browse</p>
-                <p className="font-body text-[11px] text-fq-muted/60">
-                  CSV · Excel · Word · PDF · Email · Photos · Screenshots · any format
-                </p>
-              </div>
+            {sourceTab === 'computer' && (
+              <>
+                <input ref={inputRef} type="file" onChange={handleInput} className="hidden" />
+                {file ? (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-fq-light-accent border border-fq-accent/30 rounded-xl">
+                    <span className="text-xl shrink-0">{getIcon(file.name)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-body text-[13px] text-fq-dark truncate">{file.name}</p>
+                      <p className="font-body text-[11px] text-fq-muted">{formatBytes(file.size)}</p>
+                    </div>
+                    <button onClick={() => setFile(null)} className="text-fq-muted/50 hover:text-fq-alert transition-colors text-[12px] shrink-0">✕</button>
+                  </div>
+                ) : (
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    onClick={() => inputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+                      dragOver ? 'border-fq-accent bg-fq-light-accent' : 'border-fq-border hover:border-fq-muted'
+                    }`}
+                  >
+                    <p className="font-body text-[13px] text-fq-muted mb-1">Drop any file here, or click to browse</p>
+                    <p className="font-body text-[11px] text-fq-muted/60">
+                      CSV · Excel · Word · PDF · Email · Photos · Screenshots · any format
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {sourceTab === 'drive' && (
+              <>
+                {driveFile ? (
+                  <div className="flex items-center gap-3 px-4 py-3 bg-fq-light-accent border border-fq-accent/30 rounded-xl">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent shrink-0">
+                      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-body text-[13px] text-fq-dark truncate">{driveFile.name}</p>
+                      <p className="font-body text-[11px] text-fq-muted">Google Drive</p>
+                    </div>
+                    <button onClick={() => setDriveFile(null)} className="text-fq-muted/50 hover:text-fq-alert transition-colors text-[12px] shrink-0">✕</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setDrivePickerOpen(true)}
+                    className="w-full border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors border-fq-border hover:border-fq-muted"
+                  >
+                    <p className="font-body text-[13px] text-fq-muted mb-1">Click to browse Google Drive</p>
+                    <p className="font-body text-[11px] text-fq-muted/60">Picks a file from the project's Drive folders</p>
+                  </button>
+                )}
+              </>
             )}
           </div>
 
@@ -234,13 +279,22 @@ export default function UploadModal({ onClose, defaultProjectId, defaultProjectN
           </button>
           <button
             onClick={handleUpload}
-            disabled={uploading || !file || !projectId}
+            disabled={uploading || (sourceTab === 'computer' ? !file : !driveFile) || !projectId}
             className="font-body text-[13px] font-medium bg-fq-accent text-white px-5 py-2 rounded-lg hover:bg-fq-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {uploading ? 'Uploading…' : 'Upload File'}
+            {uploading ? 'Saving…' : sourceTab === 'drive' ? 'Link Drive File' : 'Upload File'}
           </button>
         </div>
       </div>
+
+      {drivePickerOpen && (
+        <DriveFilePicker
+          projectId={projectId || null}
+          title="Select from Drive"
+          onClose={() => setDrivePickerOpen(false)}
+          onSelect={(f: DrivePickerFile) => { setDriveFile(f); setDrivePickerOpen(false); }}
+        />
+      )}
     </div>
   );
 }

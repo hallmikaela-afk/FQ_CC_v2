@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useProjects, useSidebarCounts } from '@/lib/hooks';
@@ -92,10 +92,18 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [driveConnected, setDriveConnected] = useState<boolean | null>(null);
   const { projects } = useProjects();
   const sidebarCounts = useSidebarCounts();
   const activeProjects = projects.filter(p => p.status === 'active' && (p.type === 'client' || p.type === 'shoot'))
     .map(p => ({ id: p.slug || p.id, name: p.name, color: p.color }));
+
+  useEffect(() => {
+    fetch('/api/auth/google/status')
+      .then(r => r.json())
+      .then(d => setDriveConnected(d.connected ?? false))
+      .catch(() => setDriveConnected(false));
+  }, []);
 
   return (
     <aside className={`fixed left-0 top-0 h-screen ${collapsed ? 'w-[60px]' : 'w-[220px]'} bg-fq-bg border-r border-fq-border flex flex-col z-50 transition-all duration-300 overflow-hidden`}>
@@ -214,6 +222,23 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           );
         })}
       </nav>
+
+      {/* Drive connection status */}
+      {!collapsed && driveConnected !== null && (
+        <div className="px-5 py-3 border-t border-fq-border mt-auto shrink-0">
+          {driveConnected ? (
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-fq-sage shrink-0" />
+              <span className="font-body text-[11px] text-fq-muted">Drive connected</span>
+            </div>
+          ) : (
+            <a href="/api/auth/google/login" className="flex items-center gap-2 hover:text-fq-dark transition-colors group">
+              <span className="w-1.5 h-1.5 rounded-full bg-fq-amber shrink-0" />
+              <span className="font-body text-[11px] text-fq-muted group-hover:text-fq-dark">Connect Drive</span>
+            </a>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

@@ -10,6 +10,7 @@ import UploadModal from '@/components/UploadModal';
 import ComposePanel from '@/components/inbox/ComposePanel';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
 import type { Project, Vendor, CallNote, Task, SubTask, TeamMember } from '@/data/seed';
+import ProjectDriveSection from '@/components/drive/ProjectDriveSection';
 
 // Module-level team lookup — set by the main component after data loads
 let getTeamMember: (id: string) => TeamMember | undefined = () => undefined;
@@ -2010,107 +2011,7 @@ function TaskListSection({ tasks: initialTasks, projectColor, assignedTo, projec
   );
 }
 
-/* ─────────────── Drive Card ─────────────── */
-function DriveCard({ projectId }: { projectId: string }) {
-  const [status, setStatus] = useState<'loading' | 'not_provisioned' | 'provisioned' | 'not_connected' | 'provisioning'>('loading');
-  const [driveData, setDriveData] = useState<{ internalFolderUrl: string; clientFolderUrl: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchFolders = useCallback(async () => {
-    setStatus('loading');
-    setError(null);
-    try {
-      const res = await fetch(`/api/drive/provision?projectId=${projectId}`);
-      if (res.status === 401) { setStatus('not_connected'); return; }
-      const data = await res.json();
-      if (data.provisioned) {
-        setDriveData({ internalFolderUrl: data.internalFolderUrl, clientFolderUrl: data.clientFolderUrl });
-        setStatus('provisioned');
-      } else {
-        // Check if Drive is connected at all
-        const statusRes = await fetch('/api/auth/google/status');
-        const statusData = await statusRes.json();
-        setStatus(statusData.connected ? 'not_provisioned' : 'not_connected');
-      }
-    } catch {
-      setStatus('not_connected');
-    }
-  }, [projectId]);
-
-  useEffect(() => { fetchFolders(); }, [fetchFolders]);
-
-  const provisionDrive = async () => {
-    setStatus('provisioning');
-    setError(null);
-    try {
-      const res = await fetch('/api/drive/provision', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setDriveData({ internalFolderUrl: data.internalFolderUrl, clientFolderUrl: data.clientFolderUrl });
-        setStatus('provisioned');
-      } else {
-        setError(data.error ?? 'Failed to provision Drive folders.');
-        setStatus('not_provisioned');
-      }
-    } catch {
-      setError('Failed to provision Drive folders.');
-      setStatus('not_provisioned');
-    }
-  };
-
-  return (
-    <div className="bg-fq-card border border-fq-border rounded-xl p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-heading text-[13px] font-semibold text-fq-dark tracking-wide uppercase">Google Drive</h3>
-        {status === 'provisioned' && (
-          <a href="https://drive.google.com" target="_blank" rel="noopener noreferrer" className="font-body text-[11px] text-fq-muted hover:text-fq-accent transition-colors">Open Drive ↗</a>
-        )}
-      </div>
-
-      {status === 'loading' && (
-        <p className="font-body text-[13px] text-fq-muted">Checking Drive connection...</p>
-      )}
-
-      {status === 'not_connected' && (
-        <div className="space-y-2">
-          <p className="font-body text-[13px] text-fq-muted">Google Drive is not connected.</p>
-          <a href="/api/auth/google/login" className="inline-block font-body text-[12px] font-medium bg-fq-dark text-white px-3 py-1.5 rounded-lg hover:bg-fq-accent transition-colors">Connect Google Drive</a>
-        </div>
-      )}
-
-      {status === 'not_provisioned' && (
-        <div className="space-y-2">
-          {error && <p className="font-body text-[12px] text-red-500">{error}</p>}
-          <p className="font-body text-[13px] text-fq-muted">No Drive folders set up for this project.</p>
-          <button onClick={provisionDrive} className="font-body text-[12px] font-medium bg-fq-dark text-white px-3 py-1.5 rounded-lg hover:bg-fq-accent transition-colors">Set up Drive Folders</button>
-        </div>
-      )}
-
-      {status === 'provisioning' && (
-        <p className="font-body text-[13px] text-fq-muted">Creating Drive folders...</p>
-      )}
-
-      {status === 'provisioned' && driveData && (
-        <div className="space-y-2">
-          <a href={driveData.internalFolderUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-body text-[13px] text-fq-dark hover:text-fq-accent transition-colors group">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-fq-accent shrink-0"><path d="M2 3.5h10M2 7h10M2 10.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-            Internal Folder
-            <span className="text-fq-muted text-[11px] group-hover:text-fq-accent">↗</span>
-          </a>
-          <a href={driveData.clientFolderUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-body text-[13px] text-fq-dark hover:text-fq-accent transition-colors group">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="text-fq-muted shrink-0"><path d="M2 3.5h10M2 7h10M2 10.5h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-            Client Shared Folder
-            <span className="text-fq-muted text-[11px] group-hover:text-fq-accent">↗</span>
-          </a>
-        </div>
-      )}
-    </div>
-  );
-}
+/* DriveCard replaced by imported ProjectDriveSection component */
 
 /* ─────────────── Main Page ─────────────── */
 export default function ProjectDetailPage() {
@@ -2193,7 +2094,7 @@ export default function ProjectDetailPage() {
       </div>
 
       <div className="mb-8">
-        <DriveCard projectId={project.id} />
+        <ProjectDriveSection projectId={project.id} />
       </div>
 
       {showUploadModal && (
