@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { projects as seedProjects, team as seedTeam } from '@/data/seed';
+import { getISOWeek } from '@/lib/week';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,14 +21,6 @@ function tryGetSupabase() {
   }
 }
 
-function currentWeekStr() {
-  // Returns YYYY-Www (ISO week) used as sprint_week key
-  const now = new Date();
-  const jan4 = new Date(now.getFullYear(), 0, 4);
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
-  const week = Math.ceil((dayOfYear + jan4.getDay()) / 7);
-  return `${now.getFullYear()}-W${String(week).padStart(2, '0')}`;
-}
 
 async function buildContext(): Promise<string> {
   const today = new Date().toISOString().split('T')[0];
@@ -271,7 +264,7 @@ export async function POST(req: NextRequest) {
             if (supabase) {
               await supabase.from('sprint_tasks').insert({
                 title: action.title, bucket: action.bucket, tag: action.tag || 'action',
-                done: false, sprint_week: currentWeekStr(), sort_order: 99,
+                done: false, sprint_week: getISOWeek(), sort_order: 99,
               });
               tasks_changed = true; tasks_count++; changeTypes.add('created');
             }

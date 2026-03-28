@@ -64,6 +64,7 @@ export default function WeekPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Add form state
   const [newTitle, setNewTitle] = useState('');
@@ -112,7 +113,7 @@ export default function WeekPage() {
 
   const pushToNextWeek = async (task: SprintTask) => {
     const nextWeek = offsetWeek(task.sprint_week, 1);
-    await fetch('/api/sprint-tasks', {
+    const res = await fetch('/api/sprint-tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -123,6 +124,10 @@ export default function WeekPage() {
         sort_order: task.sort_order,
       }),
     });
+    if (res.ok) {
+      setToast('Copied to next week');
+      setTimeout(() => setToast(null), 2500);
+    }
   };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
@@ -159,6 +164,13 @@ export default function WeekPage() {
 
   return (
     <div className="p-8">
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-fq-dark text-white text-sm font-body px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in">
+          <svg className="w-4 h-4 text-fq-accent flex-shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>
+          {toast}
+        </div>
+      )}
     <div className="flex gap-6 items-start max-w-5xl mx-auto">
     <div className="flex-1 min-w-0">
       {/* Header */}
