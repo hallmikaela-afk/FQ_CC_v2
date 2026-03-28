@@ -17,6 +17,12 @@ interface Attachment {
   name: string;
   type: string;
   size: string;
+  // Images (sent to Claude vision)
+  previewUrl?: string;   // data URL shown in UI
+  base64?: string;       // pure base64 for API
+  mediaType?: string;    // 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  // Documents (text extracted server-side)
+  parsedText?: string;
 }
 
 interface ToolUse {
@@ -68,37 +74,32 @@ interface ChatMessage {
 interface SavedChat {
   id: string;
   title: string;
-  messages: ChatMessage[];
+  messages?: ChatMessage[];
   createdAt: string;
   updatedAt: string;
 }
 
+interface PendingFile {
+  name: string;
+  fileType: string;
+  size: string;
+  parsedText: string;
+  // Images only:
+  previewUrl?: string;
+  base64?: string;
+  mediaType?: string;
+}
+
 const MAX_HISTORY = 25;
-const STORAGE_KEY = 'fq-assistant-history';
 
-/* ── localStorage helpers ── */
-function loadHistory(): SavedChat[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
+function generateTitle(firstMessage: string): string {
+  return firstMessage.length > 50 ? firstMessage.slice(0, 50) + '...' : firstMessage;
 }
 
-function saveHistory(chats: SavedChat[]) {
-  if (typeof window === 'undefined') return;
-  // Keep only the most recent MAX_HISTORY chats
-  const trimmed = chats.slice(0, MAX_HISTORY);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
-}
-
-function generateTitle(messages: ChatMessage[]): string {
-  const firstUserMsg = messages.find(m => m.role === 'user');
-  if (!firstUserMsg) return 'New chat';
-  const text = firstUserMsg.content;
-  return text.length > 50 ? text.slice(0, 50) + '...' : text;
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatHistoryDate(dateStr: string): string {
@@ -290,51 +291,27 @@ export default function AssistantPage() {
   const [taskStates, setTaskStates] = useState<Record<string, boolean>>({});
   const [history, setHistory] = useState<SavedChat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [fileUploading, setFileUploading] = useState(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sessionCreatingRef = useRef(false);
 
-  // Load history from localStorage on mount
+  // Load history from Supabase on mount
   useEffect(() => {
-    setHistory(loadHistory());
+    fetch(`/api/chat/sessions?context=assistant&limit=${MAX_HISTORY}`)
+      .then(r => r.ok ? r.json() : [])
+      .then((sessions: any[]) => {
+        setHistory(sessions.map(s => ({
+          id: s.id,
+          title: s.title || 'New chat',
+          createdAt: s.created_at,
+          updatedAt: s.updated_at,
+        })));
+      })
+      .catch(() => {/* Supabase not available */});
   }, []);
-
-  // Auto-save current chat to history whenever messages change
-  useEffect(() => {
-    if (messages.length === 0) return;
-
-    setHistory(prev => {
-      let updated: SavedChat[];
-      const now = new Date().toISOString();
-
-      if (activeChatId) {
-        // Update existing chat
-        updated = prev.map(chat =>
-          chat.id === activeChatId
-            ? { ...chat, messages, title: generateTitle(messages), updatedAt: now }
-            : chat
-        );
-      } else {
-        // Create new chat entry
-        const newId = `chat-${Date.now()}`;
-        const newChat: SavedChat = {
-          id: newId,
-          title: generateTitle(messages),
-          messages,
-          createdAt: now,
-          updatedAt: now,
-        };
-        setActiveChatId(newId);
-        updated = [newChat, ...prev];
-      }
-
-      // Sort by most recent and trim
-      updated.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      updated = updated.slice(0, MAX_HISTORY);
-      saveHistory(updated);
-      return updated;
-    });
-  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scrollToBottom = useCallback(() => {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
@@ -358,33 +335,92 @@ export default function AssistantPage() {
 
   const isTaskCompleted = (task: InlineTask) => taskStates[task.id] ?? task.completed;
 
+  const ensureSession = async (firstMessageText: string): Promise<string | null> => {
+    if (activeChatId) return activeChatId;
+    if (sessionCreatingRef.current) return null;
+    sessionCreatingRef.current = true;
+    try {
+      const res = await fetch('/api/chat/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context: 'assistant', title: generateTitle(firstMessageText) }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      setActiveChatId(data.id);
+      setHistory(prev => [{
+        id: data.id, title: data.title || firstMessageText.slice(0, 50),
+        createdAt: data.created_at, updatedAt: data.updated_at,
+      }, ...prev.slice(0, MAX_HISTORY - 1)]);
+      return data.id;
+    } catch {
+      return null;
+    } finally {
+      sessionCreatingRef.current = false;
+    }
+  };
+
+  const saveMessageToSession = async (sid: string, msg: ChatMessage) => {
+    await fetch(`/api/chat/sessions/${sid}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: msg.role,
+        content: msg.content,
+        metadata: {
+          timestamp: msg.timestamp,
+          tasks_changed: (msg as any).tasks_changed,
+          tasks_count: (msg as any).tasks_count,
+          change_type: (msg as any).change_type,
+          attachments: msg.attachments,
+        },
+      }),
+    }).catch(() => {/* non-fatal */});
+  };
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text && pendingFiles.length === 0) return;
 
+    const docFiles = pendingFiles.filter(f => !f.base64);
+    const imgFiles = pendingFiles.filter(f => f.base64 && f.mediaType);
+    // Display text: user's typed input (clean bubble, no raw file content)
+    const displayContent = text || pendingFiles.map(f => f.name).join(', ');
+    // API content for current message: prepend parsed doc text
+    const fileContext = docFiles.map(f => `[Attached: ${f.name}]\n${f.parsedText}`).join('\n\n');
+    const apiContent = fileContext ? `${fileContext}\n\n${text}` : text;
+
+    const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
-      content: text,
-      timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+      content: displayContent,
+      timestamp: now,
+      attachments: pendingFiles.map(f => ({ name: f.name, type: f.fileType, size: f.size, previewUrl: f.previewUrl })),
     };
 
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setPendingFiles([]);
     setIsTyping(true);
 
-    // Build conversation history for API
-    const allMessages = [...messages, userMsg];
-    const apiMessages = allMessages.map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const sid = await ensureSession(text || pendingFiles[0]?.name || 'Attached file');
+    if (sid) await saveMessageToSession(sid, userMsg);
+
+    // History uses stored display content; current message uses augmented API content
+    const apiMessages = [
+      ...messages.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: apiContent },
+    ];
 
     try {
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          imageAttachments: imgFiles.map(f => ({ base64: f.base64, mediaType: f.mediaType, name: f.name })),
+        }),
       });
 
       if (!res.ok) throw new Error('API error');
@@ -393,13 +429,16 @@ export default function AssistantPage() {
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: data.content || data.error || 'Sorry, something went wrong.',
+        content: (data.content != null && data.content !== '') ? data.content : (data.error || 'Sorry, something went wrong.'),
         timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         toolUses: getSimulatedTools(text),
       };
       setMessages(prev => [...prev, aiMsg]);
+      if (sid) {
+        await saveMessageToSession(sid, aiMsg);
+        setHistory(prev => prev.map(c => c.id === sid ? { ...c, updatedAt: new Date().toISOString() } : c));
+      }
     } catch {
-      // Fallback to simulated response if API not configured
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
@@ -408,9 +447,54 @@ export default function AssistantPage() {
         toolUses: getSimulatedTools(text),
       };
       setMessages(prev => [...prev, aiMsg]);
+      if (sid) await saveMessageToSession(sid, aiMsg);
     }
 
     setIsTyping(false);
+  };
+
+  const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    setFileUploading(true);
+    for (const file of files) {
+      const size = formatFileSize(file.size);
+      if (IMAGE_TYPES.includes(file.type)) {
+        // Images: read as base64 for Claude vision
+        const dataUrl = await new Promise<string>(resolve => {
+          const reader = new FileReader();
+          reader.onload = ev => resolve(ev.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+        setPendingFiles(prev => [...prev, {
+          name: file.name,
+          fileType: file.type,
+          size,
+          parsedText: '',
+          previewUrl: dataUrl,
+          base64: dataUrl.split(',')[1],
+          mediaType: file.type,
+        }]);
+      } else {
+        // Documents: parse text server-side
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/parse-file', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            const parsedText = (data.rows || [])
+              .map((row: Record<string, string>) => Object.values(row).join(' | '))
+              .join('\n');
+            setPendingFiles(prev => [...prev, { name: file.name, fileType: file.type, size, parsedText }]);
+          }
+        } catch { /* skip failed file */ }
+      }
+    }
+    setFileUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -454,24 +538,35 @@ export default function AssistantPage() {
     inputRef.current?.focus();
   };
 
-  const handleLoadChat = (chat: SavedChat) => {
-    setMessages(chat.messages);
+  const handleLoadChat = async (chat: SavedChat) => {
+    setMessages([]);
     setActiveChatId(chat.id);
     setTaskStates({});
+    try {
+      const res = await fetch(`/api/chat/sessions/${chat.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const loaded: ChatMessage[] = (data.messages || []).map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        timestamp: m.metadata?.timestamp ||
+          new Date(m.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
+        attachments: m.metadata?.attachments,
+      }));
+      setMessages(loaded);
+    } catch { /* non-fatal — leave empty */ }
   };
 
-  const handleDeleteChat = (chatId: string, e: React.MouseEvent) => {
+  const handleDeleteChat = async (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setHistory(prev => {
-      const updated = prev.filter(c => c.id !== chatId);
-      saveHistory(updated);
-      return updated;
-    });
+    setHistory(prev => prev.filter(c => c.id !== chatId));
     if (activeChatId === chatId) {
       setMessages([]);
       setActiveChatId(null);
       setTaskStates({});
     }
+    await fetch(`/api/chat/sessions/${chatId}`, { method: 'DELETE' }).catch(() => {});
   };
 
   const filteredMentions = mentionableProjects.filter(p =>
@@ -503,18 +598,71 @@ export default function AssistantPage() {
             </div>
           )}
 
+          {/* Pending file badges / image thumbnails */}
+          {pendingFiles.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {pendingFiles.map((f, i) => (
+                f.previewUrl ? (
+                  // Image thumbnail
+                  <div key={i} className="relative group">
+                    <img
+                      src={f.previewUrl}
+                      alt={f.name}
+                      className="w-16 h-16 object-cover rounded-lg border border-fq-border"
+                    />
+                    <button
+                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-fq-dark text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Remove image"
+                    >
+                      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M3 3l6 6M9 3l-6 6"/>
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  // Document badge
+                  <div key={i} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-fq-light-accent border border-fq-border">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-fq-card text-fq-muted">
+                      {f.name.split('.').pop()?.toUpperCase() || 'FILE'}
+                    </span>
+                    <span className={`font-body text-[12px] ${t.heading} max-w-[120px] truncate`}>{f.name}</span>
+                    <span className={`font-body text-[10px] ${t.light}`}>{f.size}</span>
+                    <button
+                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      className={`${t.icon} hover:text-fq-dark transition-colors`}
+                      aria-label="Remove file"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M3 3l6 6M9 3l-6 6"/>
+                      </svg>
+                    </button>
+                  </div>
+                )
+              ))}
+            </div>
+          )}
+
           <div className="flex items-end gap-2 bg-fq-bg rounded-2xl border border-fq-border px-4 py-2 focus-within:border-fq-accent/40 transition-colors">
             {/* File upload */}
             <button
               onClick={() => fileInputRef.current?.click()}
-              className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon} hover:text-fq-accent mb-0.5`}
-              title="Attach file"
+              disabled={fileUploading}
+              className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon} hover:text-fq-accent mb-0.5 disabled:opacity-40`}
+              title="Attach files (images, PDF, DOCX, Excel, CSV)"
             >
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 7l-6.5 6.5a2.12 2.12 0 11-3-3L12 4a3.5 3.5 0 115 5l-6.5 6.5a5 5 0 01-7-7L10 2" />
               </svg>
             </button>
-            <input ref={fileInputRef} type="file" className="hidden" />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.doc,.xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
 
             {/* Text input */}
             <textarea
@@ -530,8 +678,8 @@ export default function AssistantPage() {
             {/* Send */}
             <button
               onClick={handleSend}
-              disabled={!input.trim() || isTyping}
-              className={`p-2 rounded-xl transition-all duration-200 mb-0.5 ${input.trim() && !isTyping ? 'bg-fq-accent text-white hover:bg-fq-accent/90' : 'bg-fq-light-accent text-fq-muted/30'}`}
+              disabled={(!input.trim() && pendingFiles.length === 0) || isTyping}
+              className={`p-2 rounded-xl transition-all duration-200 mb-0.5 ${(input.trim() || pendingFiles.length > 0) && !isTyping ? 'bg-fq-accent text-white hover:bg-fq-accent/90' : 'bg-fq-light-accent text-fq-muted/30'}`}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M14 2L7 9" />
@@ -680,7 +828,18 @@ export default function AssistantPage() {
                     <div className={`${msg.role === 'user' ? 'max-w-[85%]' : 'max-w-[90%] flex-1'}`}>
                       {msg.attachments && msg.attachments.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2 justify-end">
-                          {msg.attachments.map((att, i) => <AttachmentBadge key={i} att={att} />)}
+                          {msg.attachments.map((att, i) =>
+                            att.previewUrl ? (
+                              <img
+                                key={i}
+                                src={att.previewUrl}
+                                alt={att.name}
+                                className="max-w-[260px] max-h-[260px] rounded-xl object-cover border border-fq-border"
+                              />
+                            ) : (
+                              <AttachmentBadge key={i} att={att} />
+                            )
+                          )}
                         </div>
                       )}
 

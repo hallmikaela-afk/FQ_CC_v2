@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { projects as seedProjects, team as seedTeam } from '@/data/seed';
+import { getISOWeek } from '@/lib/week';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,14 +21,6 @@ function tryGetSupabase() {
   }
 }
 
-function currentWeekStr() {
-  // Returns YYYY-Www (ISO week) used as sprint_week key
-  const now = new Date();
-  const jan4 = new Date(now.getFullYear(), 0, 4);
-  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
-  const week = Math.ceil((dayOfYear + jan4.getDay()) / 7);
-  return `${now.getFullYear()}-W${String(week).padStart(2, '0')}`;
-}
 
 async function buildContext(): Promise<string> {
   const today = new Date().toISOString().split('T')[0];
@@ -140,13 +133,15 @@ async function buildContext(): Promise<string> {
 
   context += `\n\nACTIONS — Always respond with valid JSON only. Use the "actions" array for any database writes. Multiple actions allowed.\n`;
   context += `Response format: {"response":"Your reply","actions":[...]} — or just {"response":"..."} when no DB action needed.\n\n`;
+  context += `IMPORTANT: When a user asks to create a task or add something to their list but does NOT specify whether it should go in the project planner, the weekly sprint, or both — always ask first: "Should I add this to the project task list, this week's sprint, or both?" Do not create the task until the destination is confirmed.\n\n`;
   context += `PLANNER TASK ACTIONS (use PROJECT_ID / TASK_ID values listed above):\n`;
   context += `  Create:   {"type":"create_planner_task","project_id":"...","text":"...","subtasks":[{"text":"..."}]}\n`;
   context += `  Update:   {"type":"update_planner_task","task_id":"...","updates":{"text":"...","due_date":"YYYY-MM-DD","category":"..."}}\n`;
   context += `  Complete: {"type":"update_planner_task","task_id":"...","updates":{"completed":true}}\n`;
   context += `  Reopen:   {"type":"update_planner_task","task_id":"...","updates":{"completed":false}}\n\n`;
   context += `SPRINT TASK ACTIONS (use SPRINT_ID values listed above):\n`;
-  context += `  Create:   {"type":"create_sprint_task","title":"...","bucket":"one of: ${BUCKETS.join(' | ')}","tag":"action|decision|creative|ops|marketing|build|client|check"}\n`;
+  context += `  Create:   {"type":"create_sprint_task","title":"...","bucket":"one of: ${BUCKETS.join(' | ')}","tag":"action|decision|creative|ops|marketing|build|client|check|research|book_vendor|other"}\n`;
+  context += `  Note: Do NOT append the project name to sprint task titles — the bucket already identifies the project.\n`;
   context += `  Update:   {"type":"update_sprint_task","task_id":"...","updates":{"title":"...","bucket":"...","tag":"..."}}\n`;
   context += `  Complete: {"type":"update_sprint_task","task_id":"...","updates":{"done":true}}\n`;
   context += `  Reopen:   {"type":"update_sprint_task","task_id":"...","updates":{"done":false}}\n`;
@@ -165,7 +160,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { messages } = await req.json();
+    const { messages, imageAttachments } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: 'messages array required' }, { status: 400 });
@@ -173,30 +168,68 @@ export async function POST(req: NextRequest) {
 
     const context = await buildContext();
 
+    // For the last user message, attach any images as vision content blocks
+    const apiMessages = messages.map((m: any, idx: number) => {
+      if (
+        m.role === 'user' &&
+        idx === messages.length - 1 &&
+        Array.isArray(imageAttachments) &&
+        imageAttachments.length > 0
+      ) {
+        const parts: any[] = imageAttachments.map((img: any) => ({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+        }));
+        parts.push({ type: 'text', text: m.content });
+        return { role: m.role, content: parts };
+      }
+      return { role: m.role, content: m.content };
+    });
+
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       system: context,
-      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
+      messages: apiMessages,
     });
 
     const rawText = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
 
-    let content = rawText;
+    // Extract all top-level JSON objects from the response (handles text around JSON gracefully)
+    function extractAllJSON(text: string): any[] {
+      const results: any[] = [];
+      const stripped = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      let depth = 0, start = -1;
+      for (let i = 0; i < stripped.length; i++) {
+        if (stripped[i] === '{') { if (depth === 0) start = i; depth++; }
+        else if (stripped[i] === '}') {
+          depth--;
+          if (depth === 0 && start >= 0) {
+            try { results.push(JSON.parse(stripped.slice(start, i + 1))); } catch { /* skip malformed */ }
+            start = -1;
+          }
+        }
+      }
+      return results;
+    }
+
+    let content = '';
     let tasks_changed = false;
     let tasks_count = 0;
     let change_type: 'created' | 'updated' | 'completed' | 'mixed' | null = null;
+    const changeTypes = new Set<string>();
 
-    try {
-      const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const parsed = JSON.parse(cleaned);
-      content = parsed.response || rawText;
+    const objects = extractAllJSON(rawText);
 
-      if (parsed.actions && Array.isArray(parsed.actions)) {
-        const supabase = tryGetSupabase();
-        const changeTypes = new Set<string>();
+    if (objects.length > 0) {
+      const supabase = tryGetSupabase();
 
-        for (const action of parsed.actions) {
+      for (const parsed of objects) {
+        if (parsed.response != null) content = parsed.response;
+
+        const actions = parsed.actions && Array.isArray(parsed.actions) ? parsed.actions : [];
+
+        for (const action of actions) {
           // --- Planner: create ---
           if (action.type === 'create_planner_task' && action.project_id && action.text) {
             if (supabase) {
@@ -221,13 +254,9 @@ export async function POST(req: NextRequest) {
           if (action.type === 'update_planner_task' && action.task_id && action.updates) {
             if (supabase) {
               const { error } = await supabase.from('tasks').update(action.updates).eq('id', action.task_id);
-              if (!error) {
-                tasks_changed = true; tasks_count++;
-                changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
-              }
+              if (!error) { tasks_changed = true; tasks_count++; changeTypes.add(action.updates.completed === true ? 'completed' : 'updated'); }
             } else {
-              tasks_changed = true; tasks_count++;
-              changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
+              tasks_changed = true; tasks_count++; changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
             }
           }
 
@@ -236,7 +265,7 @@ export async function POST(req: NextRequest) {
             if (supabase) {
               await supabase.from('sprint_tasks').insert({
                 title: action.title, bucket: action.bucket, tag: action.tag || 'action',
-                done: false, sprint_week: currentWeekStr(), sort_order: 99,
+                done: false, sprint_week: getISOWeek(), sort_order: 99,
               });
               tasks_changed = true; tasks_count++; changeTypes.add('created');
             }
@@ -246,23 +275,28 @@ export async function POST(req: NextRequest) {
           if (action.type === 'update_sprint_task' && action.task_id && action.updates) {
             if (supabase) {
               const { error } = await supabase.from('sprint_tasks').update(action.updates).eq('id', action.task_id);
-              if (!error) {
-                tasks_changed = true; tasks_count++;
-                changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
-              }
+              if (!error) { tasks_changed = true; tasks_count++; changeTypes.add(action.updates.done === true ? 'completed' : 'updated'); }
             } else {
-              tasks_changed = true; tasks_count++;
-              changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
+              tasks_changed = true; tasks_count++; changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
             }
           }
         }
-
-        if (changeTypes.size > 1) change_type = 'mixed';
-        else if (changeTypes.size === 1) change_type = [...changeTypes][0] as 'created' | 'updated' | 'completed' | 'mixed';
       }
-    } catch {
+    } else {
+      // No JSON found — return raw text as-is (e.g. markdown response)
       content = rawText;
     }
+
+    // If AI returned empty response but actions ran, generate a brief confirmation
+    if (!content && tasks_changed) {
+      const verb = changeTypes.has('created') ? `Added ${tasks_count} task${tasks_count > 1 ? 's' : ''}` :
+                   changeTypes.has('completed') ? `Completed ${tasks_count} task${tasks_count > 1 ? 's' : ''}` :
+                   `Updated ${tasks_count} task${tasks_count > 1 ? 's' : ''}`;
+      content = verb + '.';
+    }
+
+    if (changeTypes.size > 1) change_type = 'mixed';
+    else if (changeTypes.size === 1) change_type = [...changeTypes][0] as 'created' | 'updated' | 'completed' | 'mixed';
 
     return NextResponse.json({ role: 'assistant', content, tasks_changed, tasks_count, change_type });
   } catch (err: any) {

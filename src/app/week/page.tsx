@@ -27,25 +27,31 @@ const BUCKETS = [
 ];
 
 const TAG_STYLES: Record<string, string> = {
-  action:    'bg-fq-blue-light text-fq-blue',
-  decision:  'bg-fq-amber-light text-fq-amber',
-  creative:  'bg-fq-plum-light text-fq-plum',
-  ops:       'bg-fq-bg text-fq-muted border border-fq-border',
-  marketing: 'bg-fq-rose-light text-fq-rose',
-  build:     'bg-fq-sage-light text-fq-sage',
-  client:    'bg-fq-teal-light text-fq-teal',
-  check:     'bg-fq-amber-light text-fq-amber',
+  action:       'bg-fq-blue-light text-fq-blue',
+  decision:     'bg-fq-amber-light text-fq-amber',
+  creative:     'bg-fq-plum-light text-fq-plum',
+  ops:          'bg-fq-bg text-fq-muted border border-fq-border',
+  marketing:    'bg-fq-rose-light text-fq-rose',
+  build:        'bg-fq-sage-light text-fq-sage',
+  client:       'bg-fq-teal-light text-fq-teal',
+  check:        'bg-fq-amber-light text-fq-amber',
+  research:     'bg-fq-light-accent text-fq-accent',
+  book_vendor:  'bg-fq-sage-light text-fq-sage',
+  other:        'bg-fq-bg text-fq-muted border border-fq-border',
 };
 
 const TAG_LABELS: Record<string, string> = {
-  action:    'email / outreach',
-  decision:  'decision',
-  creative:  'creative',
-  ops:       'ops',
-  marketing: 'marketing',
-  build:     'build',
-  client:    'client work',
-  check:     'check',
+  action:       'email / outreach',
+  decision:     'decision',
+  creative:     'creative',
+  ops:          'ops',
+  marketing:    'marketing',
+  build:        'build',
+  client:       'client work',
+  check:        'check',
+  research:     'research',
+  book_vendor:  'book vendor',
+  other:        'other',
 };
 
 export default function WeekPage() {
@@ -60,6 +66,7 @@ export default function WeekPage() {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // Add form state
   const [newTitle, setNewTitle] = useState('');
@@ -106,6 +113,25 @@ export default function WeekPage() {
     await fetch(`/api/sprint-tasks?id=${id}`, { method: 'DELETE' });
   };
 
+  const pushToNextWeek = async (task: SprintTask) => {
+    const nextWeek = offsetWeek(task.sprint_week, 1);
+    const res = await fetch('/api/sprint-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: task.title,
+        bucket: task.bucket,
+        tag: task.tag,
+        sprint_week: nextWeek,
+        sort_order: task.sort_order,
+      }),
+    });
+    if (res.ok) {
+      setToast('Copied to next week');
+      setTimeout(() => setToast(null), 2500);
+    }
+  };
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
@@ -140,6 +166,13 @@ export default function WeekPage() {
 
   return (
     <div className="p-8">
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-fq-dark text-white text-sm font-body px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-fade-in">
+          <svg className="w-4 h-4 text-fq-accent flex-shrink-0" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"/></svg>
+          {toast}
+        </div>
+      )}
     <div className="flex gap-6 items-start max-w-5xl mx-auto">
     <div className="flex-1 min-w-0">
       {/* Header */}
@@ -312,6 +345,17 @@ export default function WeekPage() {
                       <span className={`flex-1 font-body text-sm text-fq-dark ${task.done ? 'line-through' : ''}`}>
                         {task.title}
                       </span>
+                      {/* Push to next week (hover) */}
+                      <button
+                        onClick={() => pushToNextWeek(task)}
+                        className={`flex-shrink-0 w-5 h-5 text-fq-muted hover:text-fq-accent transition-all ${hoveredId === task.id ? 'opacity-100' : 'opacity-0'}`}
+                        aria-label="Push to next week"
+                        title="Push to next week"
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 10h10M11 6l4 4-4 4" />
+                        </svg>
+                      </button>
                       {/* Delete button (hover) */}
                       <button
                         onClick={() => deleteTask(task.id)}

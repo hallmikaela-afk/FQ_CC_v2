@@ -8,6 +8,17 @@ interface Message {
   tasks_changed?: boolean;
   tasks_count?: number;
   change_type?: 'created' | 'updated' | 'completed' | 'mixed' | null;
+  attachments?: { name: string; type: string; size: string; previewUrl?: string }[];
+}
+
+interface PendingFile {
+  name: string;
+  fileType: string;
+  size: string;
+  parsedText: string;
+  previewUrl?: string;
+  base64?: string;
+  mediaType?: string;
 }
 
 const INITIAL_MESSAGE: Message = {
@@ -68,12 +79,22 @@ function formatMessage(text: string) {
   });
 }
 
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
+function formatSize(bytes: number) {
+  return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)}KB` : `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 export default function FloatingChat() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [fileUploading, setFileUploading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -81,41 +102,147 @@ export default function FloatingChat() {
     }
   }, [messages, open]);
 
-  const handleClose = () => {
-    setOpen(false);
+  // Load the most recent floating session when the chat opens for the first time
+  useEffect(() => {
+    if (!open || sessionId !== null) return;
+    fetch('/api/chat/sessions?context=floating&limit=1')
+      .then(r => r.ok ? r.json() : [])
+      .then(async (sessions: any[]) => {
+        if (sessions.length === 0) return;
+        const s = sessions[0];
+        const res = await fetch(`/api/chat/sessions/${s.id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const loaded: Message[] = (data.messages || []).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          ...m.metadata,
+        }));
+        if (loaded.length > 0) {
+          setSessionId(s.id);
+          setMessages(loaded);
+        }
+      })
+      .catch(() => {/* Supabase not configured — stay with initial message */});
+  }, [open, sessionId]);
+
+  const startNewConversation = () => {
+    setSessionId(null);
     setMessages([INITIAL_MESSAGE]);
     setInput('');
+    setPendingFiles([]);
+  };
+
+  const saveMessage = async (sid: string, msg: Message) => {
+    const { tasks_changed, tasks_count, change_type, attachments } = msg;
+    await fetch(`/api/chat/sessions/${sid}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: msg.role,
+        content: msg.content,
+        metadata: { tasks_changed, tasks_count, change_type, attachments: attachments?.map(a => ({ name: a.name, type: a.type, size: a.size })) },
+      }),
+    }).catch(() => {/* non-fatal */});
+  };
+
+  const ensureSession = async (): Promise<string> => {
+    if (sessionId) return sessionId;
+    const res = await fetch('/api/chat/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: 'floating' }),
+    });
+    if (!res.ok) throw new Error('Failed to create session');
+    const data = await res.json();
+    setSessionId(data.id);
+    return data.id;
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setFileUploading(true);
+    for (const file of files) {
+      const size = formatSize(file.size);
+      if (IMAGE_TYPES.includes(file.type)) {
+        const dataUrl = await new Promise<string>(resolve => {
+          const reader = new FileReader();
+          reader.onload = ev => resolve(ev.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+        setPendingFiles(prev => [...prev, {
+          name: file.name, fileType: file.type, size, parsedText: '',
+          previewUrl: dataUrl, base64: dataUrl.split(',')[1], mediaType: file.type,
+        }]);
+      } else {
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/parse-file', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            const parsedText = (data.rows || []).map((r: Record<string, string>) => Object.values(r).join(' | ')).join('\n');
+            setPendingFiles(prev => [...prev, { name: file.name, fileType: file.type, size, parsedText }]);
+          }
+        } catch { /* skip */ }
+      }
+    }
+    setFileUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const send = async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if ((!text && pendingFiles.length === 0) || loading) return;
 
-    const userMsg: Message = { role: 'user', content: text };
+    const docFiles = pendingFiles.filter(f => !f.base64);
+    const imgFiles = pendingFiles.filter(f => f.base64 && f.mediaType);
+    // For display: show typed text (or a placeholder if files only)
+    const displayContent = text || pendingFiles.map(f => f.name).join(', ');
+    // For the API: prepend parsed doc text to the current message only
+    const fileContext = docFiles.map(f => `[Attached: ${f.name}]\n${f.parsedText}`).join('\n\n');
+    const apiContent = fileContext ? `${fileContext}\n\n${text}` : text;
+
+    const userMsg: Message = {
+      role: 'user',
+      content: displayContent,
+      attachments: pendingFiles.map(f => ({ name: f.name, type: f.fileType, size: f.size, previewUrl: f.previewUrl })),
+    };
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
     setInput('');
+    setPendingFiles([]);
     setLoading(true);
 
     try {
+      const sid = await ensureSession().catch(() => null);
+      if (sid) await saveMessage(sid, userMsg);
+
+      // Build API history: all prior messages use stored content; current message uses augmented content
+      const apiHistory = [
+        ...messages.map(m => ({ role: m.role, content: m.content })),
+        { role: 'user' as const, content: apiContent },
+      ];
+
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: nextMessages.map(m => ({ role: m.role, content: m.content })),
+          messages: apiHistory,
+          imageAttachments: imgFiles.map(f => ({ base64: f.base64, mediaType: f.mediaType, name: f.name })),
         }),
       });
       const data = await res.json();
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.content || data.error || 'No response.',
-          tasks_changed: data.tasks_changed,
-          tasks_count: data.tasks_count,
-          change_type: data.change_type,
-        },
-      ]);
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: data.content || data.error || 'No response.',
+        tasks_changed: data.tasks_changed,
+        tasks_count: data.tasks_count,
+        change_type: data.change_type,
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      if (sid) await saveMessage(sid, assistantMsg);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
     } finally {
@@ -147,6 +274,17 @@ export default function FloatingChat() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-fq-border shrink-0">
           <h2 className="font-heading text-[14px] text-fq-dark">Fox &amp; Quinn Assistant</h2>
           <div className="flex items-center gap-2">
+            {/* New conversation */}
+            <button
+              onClick={startNewConversation}
+              title="New conversation"
+              className="text-fq-muted hover:text-fq-dark transition-colors"
+              aria-label="New conversation"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M8 3v10M3 8h10"/>
+              </svg>
+            </button>
             {/* Expand to full assistant page */}
             <a
               href="/assistant"
@@ -159,7 +297,7 @@ export default function FloatingChat() {
               </svg>
             </a>
             <button
-              onClick={handleClose}
+              onClick={() => setOpen(false)}
               className="text-fq-muted hover:text-fq-dark transition-colors"
               aria-label="Close chat"
             >
@@ -174,6 +312,25 @@ export default function FloatingChat() {
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
           {messages.map((msg, i) => (
             <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+              {/* Image attachments shown above the bubble */}
+              {msg.attachments && msg.attachments.some(a => a.previewUrl) && (
+                <div className="flex flex-wrap gap-1.5 mb-1 justify-end">
+                  {msg.attachments.filter(a => a.previewUrl).map((a, j) => (
+                    <img key={j} src={a.previewUrl} alt={a.name} className="w-20 h-20 object-cover rounded-lg border border-fq-border" />
+                  ))}
+                </div>
+              )}
+              {/* Document badges */}
+              {msg.attachments && msg.attachments.some(a => !a.previewUrl) && (
+                <div className="flex flex-wrap gap-1.5 mb-1 justify-end">
+                  {msg.attachments.filter(a => !a.previewUrl).map((a, j) => (
+                    <span key={j} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-fq-light-accent border border-fq-border font-body text-[11px] text-fq-muted">
+                      <span className="font-bold text-[10px]">{a.name.split('.').pop()?.toUpperCase()}</span>
+                      <span className="max-w-[80px] truncate">{a.name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div
                 className={`max-w-[85%] px-3 py-2 rounded-xl font-body text-[13px] leading-relaxed ${
                   msg.role === 'user'
@@ -201,32 +358,79 @@ export default function FloatingChat() {
         </div>
 
         {/* Input */}
-        <div className="shrink-0 border-t border-fq-border px-3 py-3 flex items-end gap-2">
-          <textarea
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask anything or create a task..."
-            rows={1}
-            className="flex-1 resize-none bg-fq-bg border border-fq-border rounded-lg px-3 py-2 font-body text-sm text-fq-dark placeholder:text-fq-muted focus:outline-none focus:border-fq-accent leading-relaxed"
-            style={{ maxHeight: '96px' }}
-          />
-          <button
-            onClick={send}
-            disabled={!input.trim() || loading}
-            className="shrink-0 w-8 h-8 rounded-lg bg-fq-dark text-white flex items-center justify-center hover:opacity-80 disabled:opacity-30 transition-opacity"
-            aria-label="Send"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 7H2M7 2l5 5-5 5" />
-            </svg>
-          </button>
+        <div className="shrink-0 border-t border-fq-border px-3 py-3 flex flex-col gap-2">
+          {/* Pending file previews */}
+          {pendingFiles.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {pendingFiles.map((f, i) => (
+                f.previewUrl ? (
+                  <div key={i} className="relative group">
+                    <img src={f.previewUrl} alt={f.name} className="w-12 h-12 object-cover rounded-lg border border-fq-border" />
+                    <button
+                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-fq-dark text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <svg width="7" height="7" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+                    </button>
+                  </div>
+                ) : (
+                  <div key={i} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-fq-light-accent border border-fq-border">
+                    <span className="font-body text-[10px] font-bold text-fq-muted">{f.name.split('.').pop()?.toUpperCase()}</span>
+                    <span className="font-body text-[11px] text-fq-dark max-w-[80px] truncate">{f.name}</span>
+                    <button onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))} className="text-fq-muted hover:text-fq-dark">
+                      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M3 3l6 6M9 3l-6 6"/></svg>
+                    </button>
+                  </div>
+                )
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            {/* Attach button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={fileUploading}
+              title="Attach file"
+              className="shrink-0 text-fq-muted hover:text-fq-accent transition-colors disabled:opacity-40 mb-1.5"
+            >
+              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 7l-6.5 6.5a2.12 2.12 0 11-3-3L12 4a3.5 3.5 0 115 5l-6.5 6.5a5 5 0 01-7-7L10 2" />
+              </svg>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.doc,.xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <textarea
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask anything or attach a file..."
+              rows={1}
+              className="flex-1 resize-none bg-fq-bg border border-fq-border rounded-lg px-3 py-2 font-body text-sm text-fq-dark placeholder:text-fq-muted focus:outline-none focus:border-fq-accent leading-relaxed"
+              style={{ maxHeight: '96px' }}
+            />
+            <button
+              onClick={send}
+              disabled={(!input.trim() && pendingFiles.length === 0) || loading}
+              className="shrink-0 w-8 h-8 rounded-lg bg-fq-dark text-white flex items-center justify-center hover:opacity-80 disabled:opacity-30 transition-opacity"
+              aria-label="Send"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 7H2M7 2l5 5-5 5" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Trigger button */}
       <button
-        onClick={() => open ? handleClose() : setOpen(true)}
+        onClick={() => setOpen(prev => !prev)}
         className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-fq-dark text-white shadow-lg flex items-center justify-center hover:bg-fq-dark/90 transition-all"
         aria-label={open ? 'Close assistant' : 'Open assistant'}
       >

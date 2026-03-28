@@ -193,3 +193,22 @@ export interface TemplateTaskRow {
   is_active: boolean;
   created_at: string;
 }
+
+export interface ChatSessionRow {
+  id: string;
+  context: 'assistant' | 'floating' | 'week';
+  project_id: string | null;
+  page_context: string | null;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatMessageRow {
+  id: string;
+  session_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  metadata: Record<string, any>;
+  created_at: string;
+}
