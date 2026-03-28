@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { listFilesInFolder } from '@/lib/google-drive';
 import { getServiceSupabase } from '@/lib/supabase';
+import { resolveProjectId } from '@/lib/resolve-project';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,13 +15,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
   }
 
+  const pid = (await resolveProjectId(projectId)) ?? projectId;
   const supabase = getServiceSupabase();
-
-  // Resolve slug → UUID
-  const { data: projectRow } = await supabase
-    .from('projects').select('id')
-    .or(`id.eq.${projectId},slug.eq.${projectId}`).single();
-  const pid = projectRow?.id ?? projectId;
 
   const { data, error } = await supabase
     .from('drive_folders')

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { provisionProjectFolders, listSubfoldersInFolder } from '@/lib/google-drive';
 import { getServiceSupabase } from '@/lib/supabase';
+import { resolveProjectId } from '@/lib/resolve-project';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,20 +14,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
   }
 
+  const pid = await resolveProjectId(projectId);
   const supabase = getServiceSupabase();
-
-  // Resolve slug → UUID (project page uses slug as id)
-  const { data: projectRow } = await supabase
-    .from('projects')
-    .select('id')
-    .or(`id.eq.${projectId},slug.eq.${projectId}`)
-    .single();
-  const pid = projectRow?.id ?? projectId;
 
   const { data, error } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', pid)
+    .eq('project_id', pid ?? projectId)
     .single();
 
   if (error || !data) {
@@ -60,11 +54,15 @@ export async function POST(request: Request) {
 
   const supabase = getServiceSupabase();
 
-  // Resolve slug → UUID (project page uses slug as id)
+  const resolvedId = await resolveProjectId(projectId);
+  if (!resolvedId) {
+    return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+  }
+
   const { data: project, error: projectError } = await supabase
     .from('projects')
     .select('id, name')
-    .or(`id.eq.${projectId},slug.eq.${projectId}`)
+    .eq('id', resolvedId)
     .single();
 
   if (projectError || !project) {
