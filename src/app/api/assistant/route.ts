@@ -146,7 +146,8 @@ async function buildContext(): Promise<string> {
   context += `  Complete: {"type":"update_sprint_task","task_id":"...","updates":{"done":true}}\n`;
   context += `  Reopen:   {"type":"update_sprint_task","task_id":"...","updates":{"done":false}}\n`;
 
-  context += `\nRESEARCH LINKS: When listing vendors or companies, format as: - [Company Name](https://url) - Brief description. Only link to real, well-known sites. Always use markdown links [text](url).`;
+  context += `\nRESEARCH LINKS: When listing vendors or companies, format as: - [Company Name](https://url) - Brief description. Only link to real, well-known sites. Always use markdown links [text](url).\n`;
+  context += `\nWEB SEARCH: You have access to a web_search tool. Use it whenever Mikaela asks about venues, vendors, pricing, contact info, current events, or anything that benefits from live information. Search proactively — don't tell her you can't look something up.`;
 
   return context;
 }
@@ -188,12 +189,17 @@ export async function POST(req: NextRequest) {
 
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
+      max_tokens: 4096,
       system: context,
       messages: apiMessages,
+      tools: [{ type: 'web_search_20250305' } as any],
     });
 
-    const rawText = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
+    // Collect all text blocks — web search responses interleave tool_use/tool_result with text
+    const rawText = response.content
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text)
+      .join('\n\n');
 
     // Extract all top-level JSON objects from the response (handles text around JSON gracefully)
     function extractAllJSON(text: string): any[] {

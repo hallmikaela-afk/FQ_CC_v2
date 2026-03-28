@@ -81,7 +81,8 @@ async function buildContext(week: string): Promise<string> {
   ctx += `  Complete: {"response":"...","action":"update_planner_task","task_id":"TASK_ID","updates":{"completed":true}}\n`;
   ctx += `  Reopen:   {"response":"...","action":"update_planner_task","task_id":"TASK_ID","updates":{"completed":false}}\n\n`;
   ctx += `Sprint buckets: ${BUCKETS.join(', ')}. If bucket unclear, ask. Keep responses short (1-2 sentences max unless listing).\n`;
-  ctx += `IMPORTANT: When creating sprint task titles, do NOT append the project name to the title (e.g. use "Finalize design direction" not "Finalize design direction — Menorca Editorial"). The task is already filed under the correct project bucket.`;
+  ctx += `IMPORTANT: When creating sprint task titles, do NOT append the project name to the title (e.g. use "Finalize design direction" not "Finalize design direction — Menorca Editorial"). The task is already filed under the correct project bucket.\n`;
+  ctx += `WEB SEARCH: You have access to a web_search tool. Use it whenever Mikaela asks about vendors, venues, pricing, contacts, or anything that benefits from live information. Search proactively — don't say you can't look something up.`;
 
   return ctx;
 }
@@ -116,12 +117,17 @@ export async function POST(req: NextRequest) {
 
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
+    max_tokens: 4096,
     system,
     messages: apiMessages,
+    tools: [{ type: 'web_search_20250305' } as any],
   });
 
-  const raw = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
+  // Collect all text blocks — web search responses interleave tool_use/tool_result with text
+  const raw = response.content
+    .filter((c: any) => c.type === 'text')
+    .map((c: any) => c.text)
+    .join('\n\n');
 
   // Extract all JSON objects from the response (Claude may return multiple for batch actions)
   function extractAllJSON(text: string): any[] {
