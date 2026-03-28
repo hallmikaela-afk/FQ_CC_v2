@@ -35,6 +35,8 @@ const TAG_STYLES: Record<string, string> = {
   build:     'bg-fq-sage-light text-fq-sage',
   client:    'bg-fq-teal-light text-fq-teal',
   check:     'bg-fq-amber-light text-fq-amber',
+  research:  'bg-fq-light-accent text-fq-accent',
+  other:     'bg-fq-bg text-fq-muted border border-fq-border',
 };
 
 const TAG_LABELS: Record<string, string> = {
@@ -46,6 +48,8 @@ const TAG_LABELS: Record<string, string> = {
   build:     'build',
   client:    'client work',
   check:     'check',
+  research:  'research',
+  other:     'other',
 };
 
 export default function WeekPage() {
@@ -104,6 +108,16 @@ export default function WeekPage() {
   const deleteTask = async (id: string) => {
     setTasks(prev => prev.filter(t => t.id !== id));
     await fetch(`/api/sprint-tasks?id=${id}`, { method: 'DELETE' });
+  };
+
+  const pushToNextWeek = async (task: SprintTask) => {
+    const nextWeek = offsetWeek(task.sprint_week, 1);
+    setTasks(prev => prev.filter(t => t.id !== task.id));
+    await fetch('/api/sprint-tasks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: task.id, sprint_week: nextWeek }),
+    });
   };
 
   const handleAddSubmit = async (e: React.FormEvent) => {
@@ -312,6 +326,17 @@ export default function WeekPage() {
                       <span className={`flex-1 font-body text-sm text-fq-dark ${task.done ? 'line-through' : ''}`}>
                         {task.title}
                       </span>
+                      {/* Push to next week (hover) */}
+                      <button
+                        onClick={() => pushToNextWeek(task)}
+                        className={`flex-shrink-0 w-5 h-5 text-fq-muted hover:text-fq-accent transition-all ${hoveredId === task.id ? 'opacity-100' : 'opacity-0'}`}
+                        aria-label="Push to next week"
+                        title="Push to next week"
+                      >
+                        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 10h10M11 6l4 4-4 4" />
+                        </svg>
+                      </button>
                       {/* Delete button (hover) */}
                       <button
                         onClick={() => deleteTask(task.id)}

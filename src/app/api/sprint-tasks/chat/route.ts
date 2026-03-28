@@ -71,7 +71,7 @@ async function buildContext(week: string): Promise<string> {
   ctx += `\n\nACTIONS — Always respond with valid JSON only (no plain text outside JSON).\n`;
   ctx += `Response format: {"response":"Your reply","action":"action_type",...fields} or {"response":"..."} for no action.\n\n`;
   ctx += `SPRINT TASK ACTIONS (use SPRINT_ID from list above):\n`;
-  ctx += `  Create:   {"response":"...","action":"add_sprint_task","title":"...","bucket":"...","tag":"action|decision|creative|ops|marketing|build|client|check"}\n`;
+  ctx += `  Create:   {"response":"...","action":"add_sprint_task","title":"...","bucket":"...","tag":"action|decision|creative|ops|marketing|build|client|check|research|other"}\n`;
   ctx += `  Update:   {"response":"...","action":"update_sprint_task","task_id":"SPRINT_ID","updates":{"title":"...","bucket":"...","tag":"..."}}\n`;
   ctx += `  Complete: {"response":"...","action":"update_sprint_task","task_id":"SPRINT_ID","updates":{"done":true}}\n`;
   ctx += `  Reopen:   {"response":"...","action":"update_sprint_task","task_id":"SPRINT_ID","updates":{"done":false}}\n\n`;
