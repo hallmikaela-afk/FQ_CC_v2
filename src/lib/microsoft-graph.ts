@@ -48,6 +48,7 @@ export interface GraphMessage {
     };
   } | null;
   toRecipients: Array<{ emailAddress: { name: string; address: string } }> | null;
+  hasAttachments?: boolean;
 }
 
 export interface GraphFolder {
@@ -165,12 +166,8 @@ export async function storeTokens(
   expiresIn: number,
   scope: string,
 ): Promise<void> {
-  console.log('[storeTokens] starting for userId:', userId);
-
   const supabase = getServiceSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-
-  console.log('[storeTokens] upserting to microsoft_tokens, expires_at:', expiresAt);
 
   const { data, error } = await supabase
     .from('microsoft_tokens')
@@ -201,7 +198,6 @@ export async function storeTokens(
     );
   }
 
-  console.log('[storeTokens] success, saved row:', data[0]);
 }
 
 /**
@@ -295,7 +291,7 @@ export async function fetchMessages(
     $skip: String(skip),
     $orderby: 'receivedDateTime desc',
     $select:
-      'id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from,toRecipients',
+      'id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from,toRecipients,hasAttachments',
   });
   if (filters.length) params.set('$filter', filters.join(' and '));
 
@@ -459,4 +455,35 @@ export async function moveMessage(
     },
     userId,
   );
+}
+
+/**
+ * Fetch attachment metadata for a message.
+ */
+export async function fetchAttachments(
+  messageId: string,
+  userId = 'default',
+): Promise<Array<{ id: string; name: string; contentType: string; size: number }>> {
+  const data = (await graphFetch(
+    `/me/messages/${messageId}/attachments?$select=id,name,contentType,size`,
+    {},
+    userId,
+  )) as { value: Array<{ id: string; name: string; contentType: string; size: number }> };
+  return data.value ?? [];
+}
+
+/**
+ * Fetch raw attachment content as a Buffer.
+ */
+export async function fetchAttachmentContent(
+  messageId: string,
+  attachmentId: string,
+  userId = 'default',
+): Promise<{ contentBytes: string; contentType: string; name: string }> {
+  const data = (await graphFetch(
+    `/me/messages/${messageId}/attachments/${attachmentId}`,
+    {},
+    userId,
+  )) as { contentBytes: string; contentType: string; name: string };
+  return data;
 }

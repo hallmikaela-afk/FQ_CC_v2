@@ -107,6 +107,7 @@ export async function upsertEmail(
         conversation_id: msg.conversationId, folder_id: folderId,
         project_id: null, match_confidence: null,
         is_meeting_summary: isMeetingSummary, category: 'receipt', dismissed: true,
+        has_attachments: msg.hasAttachments ?? false,
       },
       { onConflict: 'message_id' },
     );
@@ -164,6 +165,7 @@ export async function upsertEmail(
       is_meeting_summary: isMeetingSummary, category: null,
       // Preserve the user's dismissed state for existing emails; new emails default to visible
       dismissed: existing?.dismissed ?? false,
+      has_attachments: msg.hasAttachments ?? false,
     },
     { onConflict: 'message_id' },
   );
