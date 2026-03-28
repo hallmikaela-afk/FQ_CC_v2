@@ -36,6 +36,7 @@ function fmtDate(iso: string) {
 
 export default function DriveFilePicker({ projectId, onSelect, onClose, title = 'Pick from Drive' }: Props) {
   const [status, setStatus] = useState<Status>('loading');
+  const [provisioning, setProvisioning] = useState(false);
   const [effectiveProjectId, setEffectiveProjectId] = useState<string | null>(projectId);
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [activeTab, setActiveTab] = useState<'internal' | 'client'>('internal');
@@ -168,8 +169,28 @@ export default function DriveFilePicker({ projectId, onSelect, onClose, title = 
           )}
 
           {status === 'not_provisioned' && (
-            <div className="flex-1 flex items-center justify-center p-8">
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
               <p className="font-body text-[13px] text-fq-muted text-center">Drive folders are not set up for this project yet.</p>
+              <button
+                onClick={async () => {
+                  if (!effectiveProjectId || provisioning) return;
+                  setProvisioning(true);
+                  try {
+                    const res = await fetch('/api/drive/provision', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ projectId: effectiveProjectId }),
+                    });
+                    const data = await res.json();
+                    if (data.success) setStatus('ready');
+                  } catch {}
+                  setProvisioning(false);
+                }}
+                disabled={provisioning}
+                className="font-body text-[12px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors disabled:opacity-50"
+              >
+                {provisioning ? 'Setting up...' : 'Set Up Drive Folders'}
+              </button>
             </div>
           )}
 

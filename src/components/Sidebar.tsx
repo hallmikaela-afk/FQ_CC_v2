@@ -310,7 +310,13 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   {driveSectionOpen && (
                     <div className="ml-5 space-y-0.5">
                       {driveProjects.length === 0 && (
-                        <p className="font-body text-[11px] text-fq-muted/50 px-2 py-1">No folders set up yet</p>
+                        <p className="font-body text-[11px] text-fq-muted/50 px-2 py-1 leading-relaxed">
+                          No folders set up yet.{' '}
+                          <Link href="/projects" className="text-fq-accent hover:underline">
+                            Open a project
+                          </Link>
+                          {' '}→ Drive tab to set up.
+                        </p>
                       )}
                       {driveProjects.map(proj => (
                         <button
