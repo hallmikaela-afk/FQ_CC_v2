@@ -19,11 +19,13 @@ let getTeamMember: (id: string) => TeamMember | undefined = () => undefined;
 function EditableField({
   value,
   onChange,
+  onPaste,
   className = '',
   placeholder = 'Click to edit...',
 }: {
   value: string;
   onChange: (v: string) => void;
+  onPaste?: (e: React.ClipboardEvent<HTMLInputElement>) => void;
   className?: string;
   placeholder?: string;
 }) {
@@ -42,6 +44,7 @@ function EditableField({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => { onChange(draft); setEditing(false); }}
+        onPaste={onPaste}
         onKeyDown={(e) => {
           if (e.key === 'Enter') { onChange(draft); setEditing(false); }
           if (e.key === 'Escape') { setDraft(value); setEditing(false); }
@@ -156,8 +159,33 @@ function HeaderCard({ project }: { project: Project }) {
           <div className="space-y-1.5">
             <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }} className={`font-body text-[13px] font-medium ${t.body} block w-full`} placeholder="Venue name..." />
             <EditableField value={venueLocation} onChange={(v) => { setVenueLocation(v); patchProject({ venue_location: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="City, State..." />
-            <EditableField value={venueStreet} onChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="Street address..." />
+            <EditableField
+              value={venueStreet}
+              onChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }}
+              onPaste={(e) => {
+                const text = e.clipboardData.getData('text');
+                const lines = text.split('\n').map((l: string) => l.trim()).filter(Boolean);
+                if (lines.length > 1) {
+                  e.preventDefault();
+                  setVenueStreet(lines[0]);
+                  setVenueCityStateZip(lines.slice(1).join(', '));
+                  patchProject({ venue_street: lines[0], venue_city_state_zip: lines.slice(1).join(', ') });
+                }
+              }}
+              className={`font-body text-[13px] ${t.light} block w-full`}
+              placeholder="Street address (paste full address here)..."
+            />
             <EditableField value={venueCityStateZip} onChange={(v) => { setVenueCityStateZip(v); patchProject({ venue_city_state_zip: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="City, State ZIP..." />
+            {(venueStreet || venueCityStateZip) && (
+              <a
+                href={`https://maps.google.com/?q=${encodeURIComponent([venueStreet, venueCityStateZip].filter(Boolean).join(', '))}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`font-body text-[11px] ${t.light} hover:text-fq-accent transition-colors`}
+              >
+                Open in Maps ↗
+              </a>
+            )}
           </div>
         </div>
 
