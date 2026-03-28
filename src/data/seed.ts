@@ -66,6 +66,10 @@ export interface Project {
   service_tier?: string;
   client1_name?: string;
   client2_name?: string;
+  client1_email?: string;
+  client2_email?: string;
+  client1_phone?: string;
+  client2_phone?: string;
   venue_name?: string;
   venue_location?: string;
   venue_street?: string;

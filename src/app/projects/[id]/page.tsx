@@ -69,14 +69,22 @@ function HeaderCard({ project }: { project: Project }) {
     : 0;
 
   const [concept, setConcept] = useState(project.concept || '');
-  const [venueName, setVenueName] = useState(
-    (project.venue_name || project.location || '') +
-    (project.venue_location ? `, ${project.venue_location}` : '')
-  );
+  const [venueName, setVenueName] = useState(project.venue_name || project.location || '');
+  const [venueLocation, setVenueLocation] = useState(project.venue_location || '');
+  const [venueStreet, setVenueStreet] = useState(project.venue_street || '');
+  const [venueCityStateZip, setVenueCityStateZip] = useState(project.venue_city_state_zip || '');
   const [guestCount, setGuestCount] = useState(project.guest_count?.toString() || '');
   const [budget, setBudget] = useState(project.estimated_budget || '');
   const [serviceTier, setServiceTier] = useState(project.service_tier || '');
   const [status, setStatus] = useState(project.status);
+  const [client1Name, setClient1Name] = useState(project.client1_name || '');
+  const [client2Name, setClient2Name] = useState(project.client2_name || '');
+  const [client1Email, setClient1Email] = useState(project.client1_email || '');
+  const [client2Email, setClient2Email] = useState(project.client2_email || '');
+  const [client1Phone, setClient1Phone] = useState(project.client1_phone || '');
+  const [client2Phone, setClient2Phone] = useState(project.client2_phone || '');
+  const [clientStreet, setClientStreet] = useState(project.client_street || '');
+  const [clientCityStateZip, setClientCityStateZip] = useState(project.client_city_state_zip || '');
 
   const patchProject = (updates: Record<string, unknown>) => {
     fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: project.id, ...updates }) });
@@ -87,6 +95,7 @@ function HeaderCard({ project }: { project: Project }) {
     body: 'text-fq-muted/90',
     light: 'text-fq-muted/70',
     icon: 'text-fq-muted/60',
+    label: 'font-body text-[11px] text-fq-muted/60 uppercase tracking-wide',
   };
 
   return (
@@ -128,17 +137,53 @@ function HeaderCard({ project }: { project: Project }) {
 
       <div className="border-t border-fq-border my-4" />
 
+      {/* Quick stats row */}
       <div className="flex items-center gap-6 mb-4 flex-wrap">
-        <div className="flex items-center gap-1.5">
-          <span className={`${t.icon} text-[13px]`}>◉</span>
-          <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }} className={`font-body text-[13px] ${t.body}`} placeholder="Venue name..." />
-        </div>
         <div className="flex items-center gap-1.5">
           <span className={`${t.icon} text-[13px]`}>♗</span>
           <EditableField value={guestCount ? `${guestCount} guests` : ''} onChange={(v) => { const n = v.replace(/[^0-9]/g, ''); setGuestCount(n); patchProject({ guest_count: n ? parseInt(n) : null }); }} className={`font-body text-[13px] ${t.body}`} placeholder="Guest count..." />
         </div>
         <EditableField value={budget ? `${budget} budget` : ''} onChange={(v) => { const b = v.replace(' budget', ''); setBudget(b); patchProject({ estimated_budget: b }); }} className={`font-body text-[13px] ${t.body}`} placeholder="Budget..." />
         <EditableField value={serviceTier} onChange={(v) => { setServiceTier(v); patchProject({ service_tier: v }); }} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2.5 py-0.5 rounded-full" placeholder="Service tier..." />
+      </div>
+
+      {/* Venue + Client details */}
+      <div className="grid grid-cols-2 gap-6 mb-4">
+        {/* Venue */}
+        <div>
+          <p className={`${t.label} mb-2`}>Venue</p>
+          <div className="space-y-1.5">
+            <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }} className={`font-body text-[13px] font-medium ${t.body} block w-full`} placeholder="Venue name..." />
+            <EditableField value={venueLocation} onChange={(v) => { setVenueLocation(v); patchProject({ venue_location: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="City, State..." />
+            <EditableField value={venueStreet} onChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="Street address..." />
+            <EditableField value={venueCityStateZip} onChange={(v) => { setVenueCityStateZip(v); patchProject({ venue_city_state_zip: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="City, State ZIP..." />
+          </div>
+        </div>
+
+        {/* Clients */}
+        <div>
+          <p className={`${t.label} mb-2`}>Clients</p>
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <EditableField value={client1Name} onChange={(v) => { setClient1Name(v); patchProject({ client1_name: v }); }} className={`font-body text-[13px] font-medium ${t.body} block w-full`} placeholder="Client 1 name..." />
+              <div className="flex gap-3">
+                <EditableField value={client1Email} onChange={(v) => { setClient1Email(v); patchProject({ client1_email: v }); }} className={`font-body text-[12px] ${t.light} flex-1`} placeholder="Email..." />
+                <EditableField value={client1Phone} onChange={(v) => { setClient1Phone(v); patchProject({ client1_phone: v }); }} className={`font-body text-[12px] ${t.light} flex-1`} placeholder="Phone..." />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <EditableField value={client2Name} onChange={(v) => { setClient2Name(v); patchProject({ client2_name: v }); }} className={`font-body text-[13px] font-medium ${t.body} block w-full`} placeholder="Client 2 name..." />
+              <div className="flex gap-3">
+                <EditableField value={client2Email} onChange={(v) => { setClient2Email(v); patchProject({ client2_email: v }); }} className={`font-body text-[12px] ${t.light} flex-1`} placeholder="Email..." />
+                <EditableField value={client2Phone} onChange={(v) => { setClient2Phone(v); patchProject({ client2_phone: v }); }} className={`font-body text-[12px] ${t.light} flex-1`} placeholder="Phone..." />
+              </div>
+            </div>
+            <div className="space-y-1 pt-1 border-t border-fq-border">
+              <EditableField value={clientStreet} onChange={(v) => { setClientStreet(v); patchProject({ client_street: v }); }} className={`font-body text-[12px] ${t.light} block w-full`} placeholder="Client street address..." />
+              <EditableField value={clientCityStateZip} onChange={(v) => { setClientCityStateZip(v); patchProject({ client_city_state_zip: v }); }} className={`font-body text-[12px] ${t.light} block w-full`} placeholder="City, State ZIP..." />
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center gap-4">
