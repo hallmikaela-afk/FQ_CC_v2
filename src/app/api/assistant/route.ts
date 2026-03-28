@@ -140,6 +140,7 @@ async function buildContext(): Promise<string> {
 
   context += `\n\nACTIONS — Always respond with valid JSON only. Use the "actions" array for any database writes. Multiple actions allowed.\n`;
   context += `Response format: {"response":"Your reply","actions":[...]} — or just {"response":"..."} when no DB action needed.\n\n`;
+  context += `IMPORTANT: When a user asks to create a task or add something to their list but does NOT specify whether it should go in the project planner, the weekly sprint, or both — always ask first: "Should I add this to the project task list, this week's sprint, or both?" Do not create the task until the destination is confirmed.\n\n`;
   context += `PLANNER TASK ACTIONS (use PROJECT_ID / TASK_ID values listed above):\n`;
   context += `  Create:   {"type":"create_planner_task","project_id":"...","text":"...","subtasks":[{"text":"..."}]}\n`;
   context += `  Update:   {"type":"update_planner_task","task_id":"...","updates":{"text":"...","due_date":"YYYY-MM-DD","category":"..."}}\n`;
@@ -200,21 +201,41 @@ export async function POST(req: NextRequest) {
 
     const rawText = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
 
-    let content = rawText;
+    // Extract all top-level JSON objects from the response (handles text around JSON gracefully)
+    function extractAllJSON(text: string): any[] {
+      const results: any[] = [];
+      const stripped = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      let depth = 0, start = -1;
+      for (let i = 0; i < stripped.length; i++) {
+        if (stripped[i] === '{') { if (depth === 0) start = i; depth++; }
+        else if (stripped[i] === '}') {
+          depth--;
+          if (depth === 0 && start >= 0) {
+            try { results.push(JSON.parse(stripped.slice(start, i + 1))); } catch { /* skip malformed */ }
+            start = -1;
+          }
+        }
+      }
+      return results;
+    }
+
+    let content = '';
     let tasks_changed = false;
     let tasks_count = 0;
     let change_type: 'created' | 'updated' | 'completed' | 'mixed' | null = null;
+    const changeTypes = new Set<string>();
 
-    try {
-      const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const parsed = JSON.parse(cleaned);
-      content = parsed.response != null ? parsed.response : rawText;
+    const objects = extractAllJSON(rawText);
 
-      if (parsed.actions && Array.isArray(parsed.actions)) {
-        const supabase = tryGetSupabase();
-        const changeTypes = new Set<string>();
+    if (objects.length > 0) {
+      const supabase = tryGetSupabase();
 
-        for (const action of parsed.actions) {
+      for (const parsed of objects) {
+        if (parsed.response != null) content = parsed.response;
+
+        const actions = parsed.actions && Array.isArray(parsed.actions) ? parsed.actions : [];
+
+        for (const action of actions) {
           // --- Planner: create ---
           if (action.type === 'create_planner_task' && action.project_id && action.text) {
             if (supabase) {
@@ -239,13 +260,9 @@ export async function POST(req: NextRequest) {
           if (action.type === 'update_planner_task' && action.task_id && action.updates) {
             if (supabase) {
               const { error } = await supabase.from('tasks').update(action.updates).eq('id', action.task_id);
-              if (!error) {
-                tasks_changed = true; tasks_count++;
-                changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
-              }
+              if (!error) { tasks_changed = true; tasks_count++; changeTypes.add(action.updates.completed === true ? 'completed' : 'updated'); }
             } else {
-              tasks_changed = true; tasks_count++;
-              changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
+              tasks_changed = true; tasks_count++; changeTypes.add(action.updates.completed === true ? 'completed' : 'updated');
             }
           }
 
@@ -264,23 +281,28 @@ export async function POST(req: NextRequest) {
           if (action.type === 'update_sprint_task' && action.task_id && action.updates) {
             if (supabase) {
               const { error } = await supabase.from('sprint_tasks').update(action.updates).eq('id', action.task_id);
-              if (!error) {
-                tasks_changed = true; tasks_count++;
-                changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
-              }
+              if (!error) { tasks_changed = true; tasks_count++; changeTypes.add(action.updates.done === true ? 'completed' : 'updated'); }
             } else {
-              tasks_changed = true; tasks_count++;
-              changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
+              tasks_changed = true; tasks_count++; changeTypes.add(action.updates.done === true ? 'completed' : 'updated');
             }
           }
         }
-
-        if (changeTypes.size > 1) change_type = 'mixed';
-        else if (changeTypes.size === 1) change_type = [...changeTypes][0] as 'created' | 'updated' | 'completed' | 'mixed';
       }
-    } catch {
+    } else {
+      // No JSON found — return raw text as-is (e.g. markdown response)
       content = rawText;
     }
+
+    // If AI returned empty response but actions ran, generate a brief confirmation
+    if (!content && tasks_changed) {
+      const verb = changeTypes.has('created') ? `Added ${tasks_count} task${tasks_count > 1 ? 's' : ''}` :
+                   changeTypes.has('completed') ? `Completed ${tasks_count} task${tasks_count > 1 ? 's' : ''}` :
+                   `Updated ${tasks_count} task${tasks_count > 1 ? 's' : ''}`;
+      content = verb + '.';
+    }
+
+    if (changeTypes.size > 1) change_type = 'mixed';
+    else if (changeTypes.size === 1) change_type = [...changeTypes][0] as 'created' | 'updated' | 'completed' | 'mixed';
 
     return NextResponse.json({ role: 'assistant', content, tasks_changed, tasks_count, change_type });
   } catch (err: any) {

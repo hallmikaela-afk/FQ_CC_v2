@@ -429,7 +429,7 @@ export default function AssistantPage() {
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: data.content || data.error || 'Sorry, something went wrong.',
+        content: (data.content != null && data.content !== '') ? data.content : (data.error || 'Sorry, something went wrong.'),
         timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         toolUses: getSimulatedTools(text),
       };

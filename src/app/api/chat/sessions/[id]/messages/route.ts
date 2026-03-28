@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const { role, content, metadata } = await req.json();
-    if (!role || !content) return NextResponse.json({ error: 'role and content required' }, { status: 400 });
+    if (!role || content == null) return NextResponse.json({ error: 'role and content required' }, { status: 400 });
 
     const supabase = getServiceSupabase();
 
