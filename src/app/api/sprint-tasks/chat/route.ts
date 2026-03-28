@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     max_tokens: 4096,
     system,
     messages: apiMessages,
-    tools: [{ type: 'web_search_20250305' } as any],
+    tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
   });
 
   // Collect all text blocks — web search responses interleave tool_use/tool_result with text
