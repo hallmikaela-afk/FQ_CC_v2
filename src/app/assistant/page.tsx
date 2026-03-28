@@ -382,19 +382,20 @@ export default function AssistantPage() {
     const text = input.trim();
     if (!text && pendingFiles.length === 0) return;
 
-    // Documents → prepend extracted text; images → passed separately to API
     const docFiles = pendingFiles.filter(f => !f.base64);
     const imgFiles = pendingFiles.filter(f => f.base64 && f.mediaType);
+    // Display text: user's typed input (clean bubble, no raw file content)
+    const displayContent = text || pendingFiles.map(f => f.name).join(', ');
+    // API content for current message: prepend parsed doc text
     const fileContext = docFiles.map(f => `[Attached: ${f.name}]\n${f.parsedText}`).join('\n\n');
-    const fullContent = fileContext ? `${fileContext}\n\n${text}` : text;
+    const apiContent = fileContext ? `${fileContext}\n\n${text}` : text;
 
     const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: 'user',
-      content: fullContent,
+      content: displayContent,
       timestamp: now,
-      // Store previewUrl so images render in the chat; omit base64 to keep message state lean
       attachments: pendingFiles.map(f => ({ name: f.name, type: f.fileType, size: f.size, previewUrl: f.previewUrl })),
     };
 
@@ -406,9 +407,11 @@ export default function AssistantPage() {
     const sid = await ensureSession(text || pendingFiles[0]?.name || 'Attached file');
     if (sid) await saveMessageToSession(sid, userMsg);
 
-    // Build conversation history for API
-    const allMessages = [...messages, userMsg];
-    const apiMessages = allMessages.map(m => ({ role: m.role, content: m.content }));
+    // History uses stored display content; current message uses augmented API content
+    const apiMessages = [
+      ...messages.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: apiContent },
+    ];
 
     try {
       const res = await fetch('/api/assistant', {

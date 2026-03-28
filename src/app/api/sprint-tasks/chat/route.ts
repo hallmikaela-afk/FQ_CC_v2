@@ -86,7 +86,7 @@ async function buildContext(week: string): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, week } = await req.json();
+  const { messages, week, imageAttachments } = await req.json();
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY not configured' }, { status: 500 });
@@ -95,11 +95,29 @@ export async function POST(req: NextRequest) {
   const system = await buildContext(week || '');
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+  // Attach any images to the last user message as vision content blocks
+  const apiMessages = (messages as any[]).map((m: any, idx: number) => {
+    if (
+      m.role === 'user' &&
+      idx === messages.length - 1 &&
+      Array.isArray(imageAttachments) &&
+      imageAttachments.length > 0
+    ) {
+      const parts: any[] = imageAttachments.map((img: any) => ({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+      }));
+      parts.push({ type: 'text', text: m.content });
+      return { role: m.role, content: parts };
+    }
+    return { role: m.role, content: m.content };
+  });
+
   const response = await client.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 1024,
     system,
-    messages,
+    messages: apiMessages,
   });
 
   const raw = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';
