@@ -14,10 +14,19 @@ export async function GET(request: Request) {
   }
 
   const supabase = getServiceSupabase();
+
+  // Resolve slug → UUID (project page uses slug as id)
+  const { data: projectRow } = await supabase
+    .from('projects')
+    .select('id')
+    .or(`id.eq.${projectId},slug.eq.${projectId}`)
+    .single();
+  const pid = projectRow?.id ?? projectId;
+
   const { data, error } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', pid)
     .single();
 
   if (error || !data) {
@@ -49,22 +58,22 @@ export async function POST(request: Request) {
 
   const supabase = getServiceSupabase();
 
-  // Look up the project name
+  // Resolve slug → UUID (project page uses slug as id)
   const { data: project, error: projectError } = await supabase
     .from('projects')
     .select('id, name')
-    .eq('id', projectId)
+    .or(`id.eq.${projectId},slug.eq.${projectId}`)
     .single();
 
   if (projectError || !project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
 
-  // Check if already provisioned
+  // Check if already provisioned (use resolved UUID)
   const { data: existing } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', project.id)
     .single();
 
   if (existing) {
@@ -93,7 +102,7 @@ export async function POST(request: Request) {
 
   // Save to Supabase
   const { error: insertError } = await supabase.from('drive_folders').insert({
-    project_id: projectId,
+    project_id: project.id,
     root_folder_id: folders.rootFolderId,
     root_folder_url: folders.rootFolderUrl,
     internal_folder_id: folders.internalFolderId,

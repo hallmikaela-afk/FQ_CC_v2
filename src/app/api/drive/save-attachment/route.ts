@@ -26,12 +26,17 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get Drive folder IDs for this project
+  // Get Drive folder IDs for this project (resolve slug → UUID first)
   const supabase = getServiceSupabase();
+  const { data: projectRow } = await supabase
+    .from('projects').select('id')
+    .or(`id.eq.${projectId},slug.eq.${projectId}`).single();
+  const pid = projectRow?.id ?? projectId;
+
   const { data: driveFolders, error: folderError } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', pid)
     .single();
 
   if (folderError || !driveFolders) {

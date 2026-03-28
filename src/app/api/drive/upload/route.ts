@@ -22,10 +22,17 @@ export async function POST(request: Request) {
   }
 
   const supabase = getServiceSupabase();
+
+  // Resolve slug → UUID
+  const { data: projectRow } = await supabase
+    .from('projects').select('id')
+    .or(`id.eq.${projectId},slug.eq.${projectId}`).single();
+  const pid = projectRow?.id ?? projectId;
+
   const { data, error } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', pid)
     .single();
 
   if (error || !data) {
