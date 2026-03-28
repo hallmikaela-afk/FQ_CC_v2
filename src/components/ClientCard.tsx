@@ -55,7 +55,7 @@ function EditableField({
   );
 }
 
-/* ── Editable address box (two lines in one copyable block) ── */
+/* ── Editable address box — paste full address, Enter splits lines ── */
 function EditableAddressBox({
   icon,
   street,
@@ -64,6 +64,7 @@ function EditableAddressBox({
   onCityStateZipChange,
   streetPlaceholder = 'Street address...',
   cityPlaceholder = 'City, State ZIP...',
+  showMapLink = false,
 }: {
   icon: ReactNode;
   street: string;
@@ -72,19 +73,20 @@ function EditableAddressBox({
   onCityStateZipChange: (v: string) => void;
   streetPlaceholder?: string;
   cityPlaceholder?: string;
+  showMapLink?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draftStreet, setDraftStreet] = useState(street);
-  const [draftCity, setDraftCity] = useState(cityStateZip);
-  const streetRef = useRef<HTMLInputElement>(null);
+  const [draft, setDraft] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (editing) streetRef.current?.focus();
+    if (editing) textareaRef.current?.focus();
   }, [editing]);
 
   const save = () => {
-    onStreetChange(draftStreet);
-    onCityStateZipChange(draftCity);
+    const lines = draft.split('\n').map(l => l.trim()).filter(Boolean);
+    onStreetChange(lines[0] || '');
+    onCityStateZipChange(lines.slice(1).join(', ') || '');
     setEditing(false);
   };
 
@@ -94,44 +96,52 @@ function EditableAddressBox({
     return (
       <div className="flex items-start gap-2">
         <span className={`${t.icon} w-4 text-center text-[12px] mt-0.5 shrink-0`}>{icon}</span>
-        <div className="flex-1 min-w-0 space-y-0.5">
-          <input
-            ref={streetRef}
-            value={draftStreet}
-            onChange={(e) => setDraftStreet(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[13px] text-fq-dark`}
-            placeholder={streetPlaceholder}
-          />
-          <input
-            value={draftCity}
-            onChange={(e) => setDraftCity(e.target.value)}
-            onBlur={save}
-            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-            className={`bg-transparent border-b border-fq-accent/40 outline-none w-full py-0 font-body text-[12px] text-fq-dark`}
-            placeholder={cityPlaceholder}
-          />
-        </div>
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setEditing(false); } }}
+          rows={2}
+          className="flex-1 bg-transparent border-b border-fq-accent/40 outline-none font-body text-[13px] text-fq-dark resize-none leading-relaxed"
+          placeholder={`${streetPlaceholder}\n${cityPlaceholder}`}
+        />
       </div>
     );
   }
 
   const hasContent = street || cityStateZip;
+  const mapsUrl = hasContent
+    ? `https://maps.google.com/?q=${encodeURIComponent([street, cityStateZip].filter(Boolean).join(', '))}`
+    : null;
 
   return (
-    <div
-      className="flex items-start gap-2 cursor-text group"
-      onClick={() => { setDraftStreet(street); setDraftCity(cityStateZip); setEditing(true); }}
-    >
+    <div className="flex items-start gap-2 group/addr">
       <span className={`${t.icon} w-4 text-center text-[12px] mt-0.5 shrink-0`}>{icon}</span>
-      <div className="flex-1 min-w-0 group-hover:border-b group-hover:border-fq-border/60 transition-colors">
-        {hasContent ? (
-          <>
-            <p className={`font-body text-[13px] ${t.body} leading-snug`}>{street}</p>
-            <p className={`font-body text-[12px] ${t.light} leading-snug`}>{cityStateZip}</p>
-          </>
-        ) : (
-          <p className="font-body text-[12px] text-fq-border italic">{streetPlaceholder}</p>
+      <div className="flex-1 min-w-0">
+        <div
+          className="cursor-text group-hover/addr:border-b group-hover/addr:border-fq-border/60 transition-colors"
+          onClick={() => { setDraft([street, cityStateZip].filter(Boolean).join('\n')); setEditing(true); }}
+        >
+          {hasContent ? (
+            <>
+              <p className={`font-body text-[13px] ${t.body} leading-snug`}>{street}</p>
+              <p className={`font-body text-[12px] ${t.light} leading-snug`}>{cityStateZip}</p>
+            </>
+          ) : (
+            <p className="font-body text-[12px] text-fq-border italic">{streetPlaceholder}</p>
+          )}
+        </div>
+        {showMapLink && mapsUrl && (
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className={`font-body text-[10px] ${t.light} hover:text-fq-accent transition-colors`}
+          >
+            Open in Maps ↗
+          </a>
         )}
       </div>
     </div>
@@ -570,7 +580,8 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
             <EditableAddressBox icon={<span>&nbsp;</span>} street={venueStreet} cityStateZip={venueCityStateZip}
               onStreetChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }}
               onCityStateZipChange={(v) => { setVenueCityStateZip(v); patchProject({ venue_city_state_zip: v }); }}
-              streetPlaceholder="Venue street address..." cityPlaceholder="City, State ZIP..." />
+              streetPlaceholder="Venue street address..." cityPlaceholder="City, State ZIP..."
+              showMapLink />
           )}
 
           {isFieldVisible('guests', 'first') && (

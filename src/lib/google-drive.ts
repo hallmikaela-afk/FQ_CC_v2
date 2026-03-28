@@ -225,7 +225,7 @@ async function driveFetch(
 
 // ─── Folder helpers ───────────────────────────────────────────────────────────
 
-async function createFolder(name: string, parentId?: string): Promise<string> {
+export async function createFolder(name: string, parentId?: string): Promise<string> {
   const metadata: Record<string, unknown> = {
     name,
     mimeType: 'application/vnd.google-apps.folder',
@@ -331,6 +331,27 @@ export async function listFilesInFolder(folderId: string): Promise<DriveFile[]> 
 
   const data = await res.json();
   return (data.files ?? []) as DriveFile[];
+}
+
+/**
+ * Lists immediate subfolders inside a Drive folder.
+ */
+export async function listSubfoldersInFolder(folderId: string): Promise<{ id: string; name: string }[]> {
+  const params = new URLSearchParams({
+    q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    fields: 'files(id,name)',
+    orderBy: 'name',
+    pageSize: '100',
+  });
+
+  const res = await driveFetch(`/files?${params}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Failed to list subfolders: ${res.status} ${body}`);
+  }
+
+  const data = await res.json();
+  return (data.files ?? []) as { id: string; name: string }[];
 }
 
 // ─── File upload ───────────────────────────────────────────────────────────────

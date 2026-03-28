@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { uploadFileToDrive } from '@/lib/google-drive';
 import { getServiceSupabase } from '@/lib/supabase';
+import { resolveProjectId } from '@/lib/resolve-project';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,11 +22,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'file and projectId are required' }, { status: 400 });
   }
 
+  const pid = (await resolveProjectId(projectId)) ?? projectId;
   const supabase = getServiceSupabase();
+
   const { data, error } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', pid)
     .single();
 
   if (error || !data) {

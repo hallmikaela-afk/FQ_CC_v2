@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { fetchChildFolders, createChildFolder } from '@/lib/microsoft-graph';
+import { provisionProjectFolders } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,10 @@ export async function PATCH(req: NextRequest) {
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-  const { data, error } = await supabase.from('projects').update(updates).eq('id', id).select().single();
+  // The frontend uses slug as the project id — match by slug if not a UUID
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const query = supabase.from('projects').update(updates);
+  const { data, error } = await (isUUID ? query.eq('id', id) : query.eq('slug', id)).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Update assignments if provided
@@ -108,5 +112,24 @@ export async function POST(req: NextRequest) {
     // Outlook not connected or Graph error — project still created successfully
   }
 
-  return NextResponse.json({ ...project, outlook_folder_created: outlookFolderCreated }, { status: 201 });
+  // ── Create matching Google Drive folder structure (best-effort, non-blocking) ─
+  let driveFolderCreated = false;
+  try {
+    const folders = await provisionProjectFolders(project.name);
+    await supabase.from('drive_folders').insert({
+      project_id: project.id,
+      root_folder_id: folders.rootFolderId,
+      root_folder_url: folders.rootFolderUrl,
+      internal_folder_id: folders.internalFolderId,
+      internal_folder_url: folders.internalFolderUrl,
+      client_folder_id: folders.clientFolderId,
+      client_folder_url: folders.clientFolderUrl,
+      subfolder_ids: folders.subfolderIds,
+    });
+    driveFolderCreated = true;
+  } catch {
+    // Drive not connected or API error — project still created successfully
+  }
+
+  return NextResponse.json({ ...project, outlook_folder_created: outlookFolderCreated, drive_folder_created: driveFolderCreated }, { status: 201 });
 }
