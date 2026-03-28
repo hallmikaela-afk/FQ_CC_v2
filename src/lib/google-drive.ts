@@ -225,7 +225,7 @@ async function driveFetch(
 
 // ─── Folder helpers ───────────────────────────────────────────────────────────
 
-async function createFolder(name: string, parentId?: string): Promise<string> {
+export async function createFolder(name: string, parentId?: string): Promise<string> {
   const metadata: Record<string, unknown> = {
     name,
     mimeType: 'application/vnd.google-apps.folder',

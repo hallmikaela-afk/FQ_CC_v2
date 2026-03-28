@@ -91,6 +91,7 @@ interface DriveProjectFolder {
   slug: string | null;
   internalFolderUrl: string;
   clientFolderUrl: string;
+  subfolderIds: Record<string, string>;
 }
 
 interface SidebarProps {
@@ -137,6 +138,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 slug: p.id,
                 internalFolderUrl: data.internalFolderUrl,
                 clientFolderUrl: data.clientFolderUrl,
+                subfolderIds: data.subfolderIds ?? {},
               });
             }
           } catch {}
@@ -355,6 +357,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           projectId={flyoutProject.id}
           internalFolderUrl={flyoutProject.internalFolderUrl}
           clientFolderUrl={flyoutProject.clientFolderUrl}
+          subfolderIds={flyoutProject.subfolderIds}
           anchorTop={flyoutTop}
           sidebarWidth={sidebarWidth}
           onClose={() => setFlyoutProject(null)}

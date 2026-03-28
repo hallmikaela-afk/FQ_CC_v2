@@ -36,7 +36,18 @@ export async function GET(request: Request) {
   });
 }
 
-// POST { projectId, linkFolderId? } — create folder tree OR link an existing Drive folder
+// DELETE ?projectId=xxx — unlink Drive folders (removes DB record, does NOT delete from Drive)
+export async function DELETE(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const projectId = searchParams.get('projectId');
+  if (!projectId) return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
+
+  const pid = (await resolveProjectId(projectId)) ?? projectId;
+  const supabase = getServiceSupabase();
+  const { error } = await supabase.from('drive_folders').delete().eq('project_id', pid);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true });
+}
 // If linkFolderId is provided, the existing Drive folder is linked directly (no new folders created).
 // The folder's immediate subfolders are scanned and stored as subfolder_ids.
 export async function POST(request: Request) {
