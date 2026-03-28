@@ -3,22 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DriveFileIcon } from './DriveFileIcon';
 
-const FQ_SUBFOLDERS = [
-  'Budgets',
-  'Client Questionnaires',
-  'Design Boards & Mockups',
-  'Design Invoices & Contracts',
-  'Floorplans',
-  'Paper Goods',
-  'Photos',
-  'Planning Checklists',
-  'Processional',
-  'RSVP Summaries',
-  'Timelines',
-  'Vendor Contracts & Proposals',
-  'Venue Documents',
-] as const;
-
 interface DriveFile {
   id: string;
   name: string;
@@ -28,16 +12,28 @@ interface DriveFile {
 }
 
 type Status = 'loading' | 'not_connected' | 'not_provisioned' | 'provisioned' | 'provisioning';
+type SetupMode = 'choose' | 'link' | 'create';
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function extractFolderId(url: string): string | null {
+  // Handles URLs like: https://drive.google.com/drive/folders/FOLDER_ID
+  // or bare folder IDs
+  const match = url.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (match) return match[1];
+  // Bare ID (no slashes)
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(url.trim())) return url.trim();
+  return null;
+}
+
 export default function ProjectDriveTab({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<Status>('loading');
-  const [driveData, setDriveData] = useState<{ internalFolderUrl: string; clientFolderUrl: string } | null>(null);
+  const [driveData, setDriveData] = useState<{ internalFolderUrl: string; rootFolderUrl?: string } | null>(null);
+  const [subfolders, setSubfolders] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [selectedFolder, setSelectedFolder] = useState<string>(FQ_SUBFOLDERS[0]);
+  const [selectedFolder, setSelectedFolder] = useState<string>('');
   const [fileCache, setFileCache] = useState<Record<string, DriveFile[]>>({});
   const [countCache, setCountCache] = useState<Record<string, number>>({});
   const [folderLoading, setFolderLoading] = useState(false);
@@ -45,6 +41,26 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Setup flow state
+  const [setupMode, setSetupMode] = useState<SetupMode>('choose');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  const applyProvisionData = (prov: {
+    internalFolderUrl?: string;
+    rootFolderUrl?: string;
+    subfolderIds?: Record<string, string>;
+  }) => {
+    setDriveData({
+      internalFolderUrl: prov.internalFolderUrl ?? '',
+      rootFolderUrl: prov.rootFolderUrl,
+    });
+    const folders = Object.keys(prov.subfolderIds ?? {});
+    setSubfolders(folders);
+    if (folders.length > 0) setSelectedFolder(folders[0]);
+    setStatus('provisioned');
+  };
 
   const fetchStatus = useCallback(async () => {
     setStatus('loading');
@@ -58,14 +74,15 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
       if (!stat.connected) {
         setStatus('not_connected');
       } else if (prov.provisioned) {
-        setDriveData({ internalFolderUrl: prov.internalFolderUrl, clientFolderUrl: prov.clientFolderUrl });
-        setStatus('provisioned');
+        applyProvisionData(prov);
       } else {
         setStatus('not_provisioned');
+        setSetupMode('choose');
       }
     } catch {
       setStatus('not_connected');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
@@ -84,7 +101,7 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
   }, [fileCache, projectId]);
 
   useEffect(() => {
-    if (status === 'provisioned') loadFolder(selectedFolder);
+    if (status === 'provisioned' && selectedFolder) loadFolder(selectedFolder);
   }, [status, selectedFolder, loadFolder]);
 
   const handleFolderClick = (folder: string) => {
@@ -92,7 +109,7 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
     loadFolder(folder);
   };
 
-  const provision = async () => {
+  const provisionCreate = async () => {
     setStatus('provisioning');
     setError(null);
     try {
@@ -103,8 +120,7 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
       });
       const data = await res.json();
       if (data.success) {
-        setDriveData({ internalFolderUrl: data.internalFolderUrl, clientFolderUrl: data.clientFolderUrl });
-        setStatus('provisioned');
+        applyProvisionData(data);
       } else {
         setError(data.error ?? 'Failed to set up Drive folders.');
         setStatus('not_provisioned');
@@ -115,7 +131,35 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
     }
   };
 
+  const provisionLink = async () => {
+    setLinkError(null);
+    const folderId = extractFolderId(linkUrl.trim());
+    if (!folderId) {
+      setLinkError('Paste a valid Google Drive folder URL or folder ID.');
+      return;
+    }
+    setStatus('provisioning');
+    try {
+      const res = await fetch('/api/drive/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId, linkFolderId: folderId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        applyProvisionData(data);
+      } else {
+        setError(data.error ?? 'Failed to link folder.');
+        setStatus('not_provisioned');
+      }
+    } catch {
+      setError('Failed to link folder.');
+      setStatus('not_provisioned');
+    }
+  };
+
   const uploadFile = async (file: File) => {
+    if (!selectedFolder) return;
     setUploading(true);
     setUploadMsg(null);
     const formData = new FormData();
@@ -144,12 +188,10 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
 
   if (status === 'loading') {
     return (
-      <div className="p-8">
-        <div className="space-y-2">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-8 bg-fq-border/20 rounded animate-pulse" />
-          ))}
-        </div>
+      <div className="p-8 space-y-2">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="h-8 bg-fq-border/20 rounded animate-pulse" />
+        ))}
       </div>
     );
   }
@@ -160,21 +202,8 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
         <p className="font-body text-[13px] text-fq-muted">Google Drive is not connected.</p>
         <a href="/api/auth/google/login"
           className="font-body text-[12px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors">
-          Connect Google Drive to use this feature
+          Connect Google Drive
         </a>
-      </div>
-    );
-  }
-
-  if (status === 'not_provisioned') {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 gap-3">
-        {error && <p className="font-body text-[12px] text-red-500">{error}</p>}
-        <p className="font-body text-[13px] text-fq-muted">No Drive folders have been set up for this project yet.</p>
-        <button onClick={provision}
-          className="font-body text-[12px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors">
-          Set Up Drive Folders
-        </button>
       </div>
     );
   }
@@ -182,7 +211,72 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
   if (status === 'provisioning') {
     return (
       <div className="flex items-center justify-center py-20">
-        <p className="font-body text-[12px] text-fq-muted/60">Creating folder structure in Drive...</p>
+        <p className="font-body text-[12px] text-fq-muted/60">Setting up Drive connection...</p>
+      </div>
+    );
+  }
+
+  if (status === 'not_provisioned') {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-5 max-w-md mx-auto">
+        {error && <p className="font-body text-[12px] text-red-500">{error}</p>}
+
+        {setupMode === 'choose' && (
+          <>
+            <p className="font-body text-[13px] text-fq-muted text-center">
+              Connect a Google Drive folder to this project.
+            </p>
+            <div className="flex flex-col gap-3 w-full max-w-xs">
+              <button
+                onClick={() => setSetupMode('link')}
+                className="font-body text-[13px] font-medium border border-fq-border bg-fq-card text-fq-dark px-5 py-3 rounded-xl hover:bg-fq-light-accent transition-colors text-left"
+              >
+                <span className="block text-[12px] text-fq-muted font-normal mb-0.5">Use existing</span>
+                Link an existing Drive folder
+              </button>
+              <button
+                onClick={provisionCreate}
+                className="font-body text-[13px] font-medium border border-fq-border bg-fq-card text-fq-dark px-5 py-3 rounded-xl hover:bg-fq-light-accent transition-colors text-left"
+              >
+                <span className="block text-[12px] text-fq-muted font-normal mb-0.5">Start fresh</span>
+                Create new folder structure
+              </button>
+            </div>
+          </>
+        )}
+
+        {setupMode === 'link' && (
+          <>
+            <div className="w-full max-w-sm">
+              <p className="font-body text-[13px] text-fq-muted mb-3 text-center">
+                Paste the Google Drive folder URL or folder ID.
+              </p>
+              <input
+                type="text"
+                value={linkUrl}
+                onChange={e => { setLinkUrl(e.target.value); setLinkError(null); }}
+                placeholder="https://drive.google.com/drive/folders/..."
+                className="w-full font-body text-[12.5px] text-fq-dark bg-white border border-fq-border rounded-lg px-3 py-2.5 outline-none focus:border-fq-accent/40 placeholder:text-fq-muted/40 mb-2"
+              />
+              {linkError && <p className="font-body text-[11px] text-red-400 mb-2">{linkError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setSetupMode('choose'); setLinkUrl(''); setLinkError(null); }}
+                  className="font-body text-[12px] text-fq-muted hover:text-fq-dark transition-colors px-3 py-2"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={provisionLink}
+                  disabled={!linkUrl.trim()}
+                  className="flex-1 font-body text-[12.5px] font-medium bg-fq-dark text-white px-4 py-2 rounded-lg hover:bg-fq-accent transition-colors disabled:opacity-40"
+                >
+                  Link Folder
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -191,16 +285,12 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top links */}
-      {driveData && (
+      {/* Top link */}
+      {driveData?.rootFolderUrl && (
         <div className="flex items-center gap-6 mb-5">
-          <a href={driveData.internalFolderUrl} target="_blank" rel="noopener noreferrer"
+          <a href={driveData.rootFolderUrl} target="_blank" rel="noopener noreferrer"
             className="font-body text-[12px] text-fq-muted hover:text-fq-accent transition-colors">
-            Open Internal Folder ↗
-          </a>
-          <a href={driveData.clientFolderUrl} target="_blank" rel="noopener noreferrer"
-            className="font-body text-[12px] text-fq-muted hover:text-fq-accent transition-colors">
-            Open Client Shared Folder ↗
+            Open in Drive ↗
           </a>
         </div>
       )}
@@ -209,7 +299,12 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
       <div className="flex gap-0 border border-fq-border rounded-xl overflow-hidden flex-1">
         {/* Left: subfolder list */}
         <div className="w-[240px] shrink-0 border-r border-fq-border bg-fq-bg overflow-y-auto">
-          {FQ_SUBFOLDERS.map(folder => {
+          {subfolders.length === 0 && (
+            <p className="px-4 py-4 font-body text-[11.5px] text-fq-muted/50">
+              No subfolders found in this folder.
+            </p>
+          )}
+          {subfolders.map(folder => {
             const isSelected = folder === selectedFolder;
             const count = countCache[folder];
             return (
@@ -236,9 +331,10 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
 
         {/* Right: file list */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Right header */}
           <div className="flex items-center justify-between px-5 py-3 border-b border-fq-border">
-            <span className="font-body text-[12.5px] font-medium text-fq-dark">{selectedFolder}</span>
+            <span className="font-body text-[12.5px] font-medium text-fq-dark">
+              {selectedFolder || 'Select a folder'}
+            </span>
             <div className="flex items-center gap-3">
               {uploadMsg && (
                 <span className={`font-body text-[11px] ${uploadMsg.includes('✓') ? 'text-fq-sage' : 'text-red-400'}`}>
@@ -247,16 +343,17 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
               )}
               <input ref={fileInputRef} type="file" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) uploadFile(f); e.target.value = ''; }} />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="font-body text-[11.5px] font-medium text-fq-muted hover:text-fq-dark border border-fq-border rounded-lg px-3 py-1.5 hover:bg-fq-light-accent/40 transition-colors"
-              >
-                {uploading ? 'Uploading...' : 'Upload'}
-              </button>
+              {selectedFolder && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="font-body text-[11.5px] font-medium text-fq-muted hover:text-fq-dark border border-fq-border rounded-lg px-3 py-1.5 hover:bg-fq-light-accent/40 transition-colors"
+                >
+                  {uploading ? 'Uploading...' : 'Upload'}
+                </button>
+              )}
             </div>
           </div>
 
-          {/* File list */}
           <div
             className={`flex-1 overflow-y-auto relative ${dragOver ? 'bg-fq-light-accent' : ''}`}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -265,16 +362,24 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
               e.preventDefault();
               setDragOver(false);
               const f = e.dataTransfer.files[0];
-              if (f) uploadFile(f);
+              if (f && selectedFolder) uploadFile(f);
             }}
           >
             {dragOver && (
               <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                <span className="font-body text-[13px] text-fq-accent">Drop to upload to {selectedFolder}</span>
+                <span className="font-body text-[13px] text-fq-accent">
+                  Drop to upload{selectedFolder ? ` to ${selectedFolder}` : ''}
+                </span>
               </div>
             )}
 
-            {folderLoading && !currentFiles && (
+            {!selectedFolder && (
+              <div className="flex items-center justify-center h-full py-16">
+                <p className="font-body text-[12.5px] text-fq-muted/55">Select a folder on the left</p>
+              </div>
+            )}
+
+            {selectedFolder && folderLoading && !currentFiles && (
               <div className="p-5 space-y-2">
                 {[1, 2, 3].map(i => (
                   <div key={i} className="h-10 bg-fq-border/15 rounded animate-pulse" />
@@ -282,7 +387,7 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
               </div>
             )}
 
-            {!folderLoading && currentFiles && currentFiles.length === 0 && (
+            {selectedFolder && !folderLoading && currentFiles && currentFiles.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full py-16 gap-2">
                 <p className="font-body text-[12.5px] text-fq-muted/55">No files in this folder yet</p>
                 <button
@@ -296,7 +401,6 @@ export default function ProjectDriveTab({ projectId }: { projectId: string }) {
 
             {currentFiles && currentFiles.length > 0 && (
               <div>
-                {/* Subtle drop zone bar at top when files exist */}
                 <div
                   className="flex items-center gap-2 px-5 py-2 border-b border-fq-border/30 cursor-pointer hover:bg-fq-light-accent/30 transition-colors group"
                   onClick={() => fileInputRef.current?.click()}

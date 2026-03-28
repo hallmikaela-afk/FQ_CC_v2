@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { provisionProjectFolders } from '@/lib/google-drive';
+import { provisionProjectFolders, listSubfoldersInFolder } from '@/lib/google-drive';
 import { getServiceSupabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -14,10 +14,19 @@ export async function GET(request: Request) {
   }
 
   const supabase = getServiceSupabase();
+
+  // Resolve slug → UUID (project page uses slug as id)
+  const { data: projectRow } = await supabase
+    .from('projects')
+    .select('id')
+    .or(`id.eq.${projectId},slug.eq.${projectId}`)
+    .single();
+  const pid = projectRow?.id ?? projectId;
+
   const { data, error } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', pid)
     .single();
 
   if (error || !data) {
@@ -33,38 +42,40 @@ export async function GET(request: Request) {
   });
 }
 
-// POST { projectId } — create folder tree and save to drive_folders
+// POST { projectId, linkFolderId? } — create folder tree OR link an existing Drive folder
+// If linkFolderId is provided, the existing Drive folder is linked directly (no new folders created).
+// The folder's immediate subfolders are scanned and stored as subfolder_ids.
 export async function POST(request: Request) {
-  let body: { projectId?: string };
+  let body: { projectId?: string; linkFolderId?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { projectId } = body;
+  const { projectId, linkFolderId } = body;
   if (!projectId) {
     return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
   }
 
   const supabase = getServiceSupabase();
 
-  // Look up the project name
+  // Resolve slug → UUID (project page uses slug as id)
   const { data: project, error: projectError } = await supabase
     .from('projects')
     .select('id, name')
-    .eq('id', projectId)
+    .or(`id.eq.${projectId},slug.eq.${projectId}`)
     .single();
 
   if (projectError || !project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
 
-  // Check if already provisioned
+  // Check if already provisioned (use resolved UUID)
   const { data: existing } = await supabase
     .from('drive_folders')
     .select('*')
-    .eq('project_id', projectId)
+    .eq('project_id', project.id)
     .single();
 
   if (existing) {
@@ -78,7 +89,51 @@ export async function POST(request: Request) {
     });
   }
 
-  // Provision folders in Drive
+  // ── Link existing folder mode ─────────────────────────────────────────────
+  if (linkFolderId) {
+    const folderUrl = `https://drive.google.com/drive/folders/${linkFolderId}`;
+
+    // Scan subfolders inside the linked folder
+    let subfolderIds: Record<string, string> = {};
+    try {
+      const subs = await listSubfoldersInFolder(linkFolderId);
+      // Build a map of { subfolder_name: subfolder_id } for whatever subfolders exist
+      subs.forEach(s => { subfolderIds[s.name] = s.id; });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message === 'NOT_CONNECTED') {
+        return NextResponse.json({ error: 'Google Drive is not connected.' }, { status: 401 });
+      }
+      // Non-fatal — save with empty subfolder map
+    }
+
+    const { error: insertError } = await supabase.from('drive_folders').insert({
+      project_id: project.id,
+      root_folder_id: linkFolderId,
+      root_folder_url: folderUrl,
+      internal_folder_id: linkFolderId,
+      internal_folder_url: folderUrl,
+      client_folder_id: linkFolderId,
+      client_folder_url: folderUrl,
+      subfolder_ids: subfolderIds,
+    });
+
+    if (insertError) {
+      console.error('[drive/provision] link insert failed:', insertError);
+      return NextResponse.json({ error: 'Failed to save folder link to database.' }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      linked: true,
+      rootFolderUrl: folderUrl,
+      internalFolderUrl: folderUrl,
+      clientFolderUrl: folderUrl,
+      subfolderIds,
+    });
+  }
+
+  // ── Create new folder structure ───────────────────────────────────────────
   let folders;
   try {
     folders = await provisionProjectFolders(project.name);
@@ -91,9 +146,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to create Drive folders.', detail: message }, { status: 500 });
   }
 
-  // Save to Supabase
   const { error: insertError } = await supabase.from('drive_folders').insert({
-    project_id: projectId,
+    project_id: project.id,
     root_folder_id: folders.rootFolderId,
     root_folder_url: folders.rootFolderUrl,
     internal_folder_id: folders.internalFolderId,
