@@ -1,4 +1,3 @@
-/// <reference types="node" />
 import { NextResponse } from 'next/server';
 import { graphFetch } from '@/lib/microsoft-graph';
 import { uploadFileToDrive } from '@/lib/google-drive';
@@ -46,17 +45,12 @@ export async function POST(request: Request) {
   }
 
   // Fetch attachment content from Microsoft Graph
+  // graphFetch already throws on non-OK responses (GRAPH_ERROR_${status}) and parses JSON
   let attachmentData: { name?: string; contentBytes?: string; contentType?: string };
   try {
-    const graphRes: Response = await graphFetch(`/me/messages/${messageId}/attachments/${attachmentId}`);
-    if (!graphRes.ok) {
-      console.error('[drive/save-attachment] Graph fetch failed:', graphRes.status);
-      return NextResponse.json(
-        { error: `Failed to fetch attachment from Outlook (${graphRes.status})` },
-        { status: 502 },
-      );
-    }
-    attachmentData = await graphRes.json();
+    attachmentData = (await graphFetch(
+      `/me/messages/${messageId}/attachments/${attachmentId}`,
+    )) as { name?: string; contentBytes?: string; contentType?: string };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === 'NOT_CONNECTED') {
