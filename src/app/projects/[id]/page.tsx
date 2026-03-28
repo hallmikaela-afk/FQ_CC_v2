@@ -10,7 +10,7 @@ import UploadModal from '@/components/UploadModal';
 import ComposePanel from '@/components/inbox/ComposePanel';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
 import type { Project, Vendor, CallNote, Task, SubTask, TeamMember } from '@/data/seed';
-import ProjectDriveSection from '@/components/drive/ProjectDriveSection';
+import ProjectDriveTab from '@/components/drive/ProjectDriveTab';
 
 // Module-level team lookup — set by the main component after data loads
 let getTeamMember: (id: string) => TeamMember | undefined = () => undefined;
@@ -2022,6 +2022,7 @@ export default function ProjectDetailPage() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [filesKey, setFilesKey] = useState(0);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<'overview' | 'drive'>('overview');
 
   // Update the module-level lookup so sub-components can use it
   getTeamMember = teamLookup;
@@ -2076,26 +2077,49 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_440px] gap-5 mb-8">
-        <HeaderCard project={project} />
-        <NextCallAgenda items={project.next_call_agenda || []} projectId={project.id} />
+      {/* Section tab navigation */}
+      <div className="flex border-b border-fq-border mb-6 -mx-1">
+        {(['overview', 'drive'] as const).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setActiveSection(tab)}
+            className={`px-4 py-2.5 font-body text-[13px] font-medium transition-colors border-b-2 ${
+              activeSection === tab
+                ? 'text-fq-dark border-fq-accent'
+                : 'text-fq-muted border-transparent hover:text-fq-dark'
+            }`}
+          >
+            {tab === 'overview' ? 'Overview' : 'Drive'}
+          </button>
+        ))}
       </div>
 
-      <div className="mb-8"><VendorContacts vendors={project.vendors || []} projectId={project.id} /></div>
+      {activeSection === 'overview' && (
+        <>
+          <div className="grid grid-cols-[1fr_440px] gap-5 mb-8">
+            <HeaderCard project={project} />
+            <NextCallAgenda items={project.next_call_agenda || []} projectId={project.id} />
+          </div>
 
-      <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
+          <div className="mb-8"><VendorContacts vendors={project.vendors || []} projectId={project.id} /></div>
 
-      <div className="mb-8">
-        <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
-      </div>
+          <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
 
-      <div className="mb-8">
-        <ProjectFileUpload key={filesKey} projectId={project.id} onUploadClick={() => setShowUploadModal(true)} />
-      </div>
+          <div className="mb-8">
+            <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
+          </div>
 
-      <div className="mb-8">
-        <ProjectDriveSection projectId={project.id} />
-      </div>
+          <div className="mb-8">
+            <ProjectFileUpload key={filesKey} projectId={project.id} onUploadClick={() => setShowUploadModal(true)} />
+          </div>
+        </>
+      )}
+
+      {activeSection === 'drive' && (
+        <div className="mb-8" style={{ minHeight: 600 }}>
+          <ProjectDriveTab projectId={project.id} />
+        </div>
+      )}
 
       {showUploadModal && (
         <UploadModal
