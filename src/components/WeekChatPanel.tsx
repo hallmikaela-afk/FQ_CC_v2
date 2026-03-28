@@ -77,12 +77,63 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Load or create the session for this week on mount
+  useEffect(() => {
+    const pageContext = `week:${week}`;
+    fetch(`/api/chat/sessions?context=week&page_context=${encodeURIComponent(pageContext)}&limit=1`)
+      .then(r => r.ok ? r.json() : [])
+      .then(async (sessions: any[]) => {
+        if (sessions.length === 0) return; // will be created on first message
+        const s = sessions[0];
+        const res = await fetch(`/api/chat/sessions/${s.id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const loaded: Message[] = (data.messages || []).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          ...m.metadata,
+        }));
+        if (loaded.length > 0) {
+          setSessionId(s.id);
+          setMessages(loaded);
+        }
+      })
+      .catch(() => {/* non-fatal */});
+  }, [week]);
+
+  const saveMessage = async (sid: string, msg: Message) => {
+    const { tasks_changed, tasks_count, change_type } = msg;
+    await fetch(`/api/chat/sessions/${sid}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: msg.role,
+        content: msg.content,
+        metadata: { tasks_changed, tasks_count, change_type },
+      }),
+    }).catch(() => {/* non-fatal */});
+  };
+
+  const ensureSession = async (): Promise<string> => {
+    if (sessionId) return sessionId;
+    const res = await fetch('/api/chat/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: 'week', page_context: `week:${week}`, title: `Week ${week}` }),
+    });
+    if (!res.ok) throw new Error('Failed to create session');
+    const data = await res.json();
+    setSessionId(data.id);
+    return data.id;
+  };
 
   const send = async () => {
     const text = input.trim();
@@ -95,6 +146,9 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
     setLoading(true);
 
     try {
+      const sid = await ensureSession().catch(() => null);
+      if (sid) await saveMessage(sid, userMsg);
+
       const res = await fetch('/api/sprint-tasks/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -104,16 +158,15 @@ export default function WeekChatPanel({ week, onTaskAdded }: Props) {
         }),
       });
       const data = await res.json();
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.content,
-          tasks_changed: data.tasks_changed,
-          tasks_count: data.tasks_count,
-          change_type: data.change_type,
-        },
-      ]);
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: data.content,
+        tasks_changed: data.tasks_changed,
+        tasks_count: data.tasks_count,
+        change_type: data.change_type,
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      if (sid) await saveMessage(sid, assistantMsg);
       if (data.task_added || data.tasks_changed) {
         onTaskAdded();
       }

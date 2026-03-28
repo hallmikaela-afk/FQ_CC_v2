@@ -190,7 +190,7 @@ export async function POST(req: NextRequest) {
     try {
       const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
       const parsed = JSON.parse(cleaned);
-      content = parsed.response || rawText;
+      content = parsed.response != null ? parsed.response : rawText;
 
       if (parsed.actions && Array.isArray(parsed.actions)) {
         const supabase = tryGetSupabase();

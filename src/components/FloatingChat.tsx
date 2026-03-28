@@ -73,6 +73,7 @@ export default function FloatingChat() {
   const [messages, setMessages] = useState<Message[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,10 +82,60 @@ export default function FloatingChat() {
     }
   }, [messages, open]);
 
-  const handleClose = () => {
-    setOpen(false);
+  // Load the most recent floating session when the chat opens for the first time
+  useEffect(() => {
+    if (!open || sessionId !== null) return;
+    fetch('/api/chat/sessions?context=floating&limit=1')
+      .then(r => r.ok ? r.json() : [])
+      .then(async (sessions: any[]) => {
+        if (sessions.length === 0) return;
+        const s = sessions[0];
+        const res = await fetch(`/api/chat/sessions/${s.id}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const loaded: Message[] = (data.messages || []).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          ...m.metadata,
+        }));
+        if (loaded.length > 0) {
+          setSessionId(s.id);
+          setMessages(loaded);
+        }
+      })
+      .catch(() => {/* Supabase not configured — stay with initial message */});
+  }, [open, sessionId]);
+
+  const startNewConversation = () => {
+    setSessionId(null);
     setMessages([INITIAL_MESSAGE]);
     setInput('');
+  };
+
+  const saveMessage = async (sid: string, msg: Message) => {
+    const { tasks_changed, tasks_count, change_type, ...rest } = msg;
+    await fetch(`/api/chat/sessions/${sid}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        role: msg.role,
+        content: msg.content,
+        metadata: { tasks_changed, tasks_count, change_type },
+      }),
+    }).catch(() => {/* non-fatal */});
+  };
+
+  const ensureSession = async (): Promise<string> => {
+    if (sessionId) return sessionId;
+    const res = await fetch('/api/chat/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: 'floating' }),
+    });
+    if (!res.ok) throw new Error('Failed to create session');
+    const data = await res.json();
+    setSessionId(data.id);
+    return data.id;
   };
 
   const send = async () => {
@@ -98,6 +149,9 @@ export default function FloatingChat() {
     setLoading(true);
 
     try {
+      const sid = await ensureSession().catch(() => null);
+      if (sid) await saveMessage(sid, userMsg);
+
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -106,16 +160,15 @@ export default function FloatingChat() {
         }),
       });
       const data = await res.json();
-      setMessages(prev => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: data.content || data.error || 'No response.',
-          tasks_changed: data.tasks_changed,
-          tasks_count: data.tasks_count,
-          change_type: data.change_type,
-        },
-      ]);
+      const assistantMsg: Message = {
+        role: 'assistant',
+        content: data.content || data.error || 'No response.',
+        tasks_changed: data.tasks_changed,
+        tasks_count: data.tasks_count,
+        change_type: data.change_type,
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+      if (sid) await saveMessage(sid, assistantMsg);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
     } finally {
@@ -147,6 +200,17 @@ export default function FloatingChat() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-fq-border shrink-0">
           <h2 className="font-heading text-[14px] text-fq-dark">Fox &amp; Quinn Assistant</h2>
           <div className="flex items-center gap-2">
+            {/* New conversation */}
+            <button
+              onClick={startNewConversation}
+              title="New conversation"
+              className="text-fq-muted hover:text-fq-dark transition-colors"
+              aria-label="New conversation"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M8 3v10M3 8h10"/>
+              </svg>
+            </button>
             {/* Expand to full assistant page */}
             <a
               href="/assistant"
@@ -159,7 +223,7 @@ export default function FloatingChat() {
               </svg>
             </a>
             <button
-              onClick={handleClose}
+              onClick={() => setOpen(false)}
               className="text-fq-muted hover:text-fq-dark transition-colors"
               aria-label="Close chat"
             >
@@ -226,7 +290,7 @@ export default function FloatingChat() {
 
       {/* Trigger button */}
       <button
-        onClick={() => open ? handleClose() : setOpen(true)}
+        onClick={() => setOpen(prev => !prev)}
         className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-fq-dark text-white shadow-lg flex items-center justify-center hover:bg-fq-dark/90 transition-all"
         aria-label={open ? 'Close assistant' : 'Open assistant'}
       >
