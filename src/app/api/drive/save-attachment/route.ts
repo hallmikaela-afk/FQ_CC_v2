@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { graphFetch } from '@/lib/microsoft-graph';
 import { uploadFileToDrive } from '@/lib/google-drive';
 import { getServiceSupabase } from '@/lib/supabase';
+import { resolveProjectId } from '@/lib/resolve-project';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,12 +27,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // Get Drive folder IDs for this project (resolve slug → UUID first)
+  const pid = (await resolveProjectId(projectId)) ?? projectId;
   const supabase = getServiceSupabase();
-  const { data: projectRow } = await supabase
-    .from('projects').select('id')
-    .or(`id.eq.${projectId},slug.eq.${projectId}`).single();
-  const pid = projectRow?.id ?? projectId;
 
   const { data: driveFolders, error: folderError } = await supabase
     .from('drive_folders')
