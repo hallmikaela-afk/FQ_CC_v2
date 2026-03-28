@@ -7,6 +7,7 @@ import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
 import { buildReplyHtml, emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
 import { AddressField, useContacts, chipsToRecipients, type ContactChip } from './AddressField';
+import DriveFilePicker, { type DrivePickerFile } from '@/components/drive/DriveFilePicker';
 
 interface Props {
   email: Email;
@@ -216,8 +217,108 @@ function EmailBody({ html, plaintext }: { html: string | null; plaintext: string
   );
 }
 
+/* ── Save-to-Drive button for a single attachment ── */
+const FQ_SUBFOLDERS = [
+  'Budgets', 'Client Questionnaires', 'Design Boards & Mockups',
+  'Design Invoices & Contracts', 'Floorplans', 'Paper Goods', 'Photos',
+  'Planning Checklists', 'Processional', 'RSVP Summaries', 'Timelines',
+  'Vendor Contracts & Proposals', 'Venue Documents',
+] as const;
+
+function SaveToDriveButton({ messageId, attachmentId, projectId }: { messageId: string; attachmentId: string; projectId: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedMsg, setSavedMsg] = useState<string | null>(null);
+
+  if (!projectId) return null;
+
+  const save = async (subfolder: string) => {
+    setOpen(false);
+    setSaving(true);
+    setSavedMsg(null);
+    try {
+      const res = await fetch('/api/drive/save-attachment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, attachmentId, projectId, subfolder }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSavedMsg(`Saved to ${subfolder} ✓`);
+      } else {
+        setSavedMsg(data.error ?? 'Failed');
+      }
+    } catch {
+      setSavedMsg('Failed');
+    }
+    setSaving(false);
+    setTimeout(() => setSavedMsg(null), 4000);
+  };
+
+  if (savedMsg) {
+    return <span className="font-body text-[10.5px] text-fq-sage shrink-0">{savedMsg}</span>;
+  }
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        onClick={() => setOpen(v => !v)}
+        disabled={saving}
+        className="font-body text-[10.5px] text-fq-muted/60 hover:text-fq-accent transition-colors disabled:opacity-40"
+      >
+        {saving ? 'Saving…' : 'Save to Drive'}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-fq-card border border-fq-border rounded-xl shadow-xl w-52 py-1 max-h-60 overflow-y-auto">
+          {FQ_SUBFOLDERS.map(sf => (
+            <button
+              key={sf}
+              onClick={() => save(sf)}
+              className="w-full text-left px-3 py-1.5 font-body text-[11.5px] text-fq-dark hover:bg-fq-light-accent transition-colors"
+            >
+              {sf}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Drive attach button for reply / draft panels ── */
+function DriveAttachButton({ projectId, bodyRef }: { projectId: string | null; bodyRef: React.RefObject<HTMLDivElement | null> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Attach a file from Google Drive"
+        className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] text-fq-muted/65 hover:bg-fq-light-accent hover:text-fq-dark transition-colors`}
+      >
+        <Paperclip size={12} />
+        From Drive
+      </button>
+      {open && (
+        <DriveFilePicker
+          projectId={projectId}
+          title="Attach from Drive"
+          onClose={() => setOpen(false)}
+          onSelect={(file: DrivePickerFile) => {
+            setOpen(false);
+            if (bodyRef.current) {
+              bodyRef.current.focus();
+              document.execCommand('insertHTML', false, `<a href="${file.webViewLink}" target="_blank" rel="noopener noreferrer">${file.name}</a>`);
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
+
 /* ── Attachment list ── */
-function AttachmentList({ messageId }: { messageId: string }) {
+function AttachmentList({ messageId, projectId }: { messageId: string; projectId: string | null }) {
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; contentType: string; size: number }>>([]);
   const [loading, setLoading] = useState(true);
 
@@ -246,18 +347,20 @@ function AttachmentList({ messageId }: { messageId: string }) {
       </div>
       <div className="p-3 flex flex-wrap gap-2">
         {attachments.map((att) => (
-          <a
-            key={att.id}
-            href={`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`}
-            download={att.name}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group"
-          >
-            <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
-            <div className="min-w-0">
-              <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[180px]">{att.name}</p>
-              <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
-            </div>
-          </a>
+          <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group">
+            <a
+              href={`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`}
+              download={att.name}
+              className="flex items-center gap-2"
+            >
+              <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
+              <div className="min-w-0">
+                <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[160px]">{att.name}</p>
+                <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
+              </div>
+            </a>
+            <SaveToDriveButton messageId={messageId} attachmentId={att.id} projectId={projectId} />
+          </div>
         ))}
       </div>
     </div>
@@ -795,14 +898,7 @@ function DraftCard({
           </svg>
           {sending ? 'Sending…' : 'Send Reply'}
         </button>
-        <button
-          type="button"
-          title="Google Drive attachments coming soon"
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
-        >
-          <Paperclip size={12} />
-          Attach
-        </button>
+        <DriveAttachButton projectId={email.project_id ?? null} bodyRef={bodyRef} />
         <button
           onClick={handleCopy}
           className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.body} hover:bg-fq-light-accent transition-colors`}
@@ -1076,14 +1172,7 @@ function ReplyPanel({
           </svg>
           {sending ? 'Sending…' : replyAll ? 'Send to All' : 'Send Reply'}
         </button>
-        <button
-          type="button"
-          title="Google Drive attachments coming soon"
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
-        >
-          <Paperclip size={12} />
-          Attach
-        </button>
+        <DriveAttachButton projectId={email.project_id ?? null} bodyRef={bodyRef} />
         <button
           onClick={onClose}
           className={`px-3 py-2 rounded-lg font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors`}
@@ -1614,14 +1703,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
           {sending ? 'Sending…' : 'Forward'}
         </button>
 
-        <button
-          type="button"
-          title="Google Drive attachments coming soon"
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
-        >
-          <Paperclip size={12} />
-          Attach
-        </button>
+        <DriveAttachButton projectId={email.project_id ?? null} bodyRef={bodyRef} />
 
         <button
           onClick={onClose}
@@ -1956,7 +2038,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
 
         {/* Attachments */}
         {email.has_attachments && email.message_id && (
-          <AttachmentList messageId={email.message_id} />
+          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} />
         )}
 
         {/* Email body */}

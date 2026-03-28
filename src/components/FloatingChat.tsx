@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import DriveFilePicker, { type DrivePickerFile } from './drive/DriveFilePicker';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -93,6 +94,8 @@ export default function FloatingChat() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [fileUploading, setFileUploading] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -386,17 +389,35 @@ export default function FloatingChat() {
             </div>
           )}
           <div className="flex items-end gap-2">
-            {/* Attach button */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={fileUploading}
-              title="Attach file"
-              className="shrink-0 text-fq-muted hover:text-fq-accent transition-colors disabled:opacity-40 mb-1.5"
-            >
-              <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 7l-6.5 6.5a2.12 2.12 0 11-3-3L12 4a3.5 3.5 0 115 5l-6.5 6.5a5 5 0 01-7-7L10 2" />
-              </svg>
-            </button>
+            {/* Attach dropdown */}
+            <div className="relative shrink-0 mb-1.5">
+              <button
+                onClick={() => setAttachMenuOpen(v => !v)}
+                disabled={fileUploading}
+                title="Attach file"
+                className="text-fq-muted hover:text-fq-accent transition-colors disabled:opacity-40"
+              >
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 7l-6.5 6.5a2.12 2.12 0 11-3-3L12 4a3.5 3.5 0 115 5l-6.5 6.5a5 5 0 01-7-7L10 2" />
+                </svg>
+              </button>
+              {attachMenuOpen && (
+                <div className="absolute bottom-full left-0 mb-2 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 w-36 z-50">
+                  <button
+                    onClick={() => { setAttachMenuOpen(false); fileInputRef.current?.click(); }}
+                    className="w-full text-left px-3 py-2 font-body text-[12px] text-fq-dark hover:bg-fq-light-accent transition-colors"
+                  >
+                    From computer
+                  </button>
+                  <button
+                    onClick={() => { setAttachMenuOpen(false); setDrivePickerOpen(true); }}
+                    className="w-full text-left px-3 py-2 font-body text-[12px] text-fq-dark hover:bg-fq-light-accent transition-colors"
+                  >
+                    From Drive
+                  </button>
+                </div>
+              )}
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -427,6 +448,25 @@ export default function FloatingChat() {
           </div>
         </div>
       </div>
+
+      {/* Drive file picker */}
+      {drivePickerOpen && (
+        <DriveFilePicker
+          projectId={null}
+          title="Attach from Drive"
+          onClose={() => setDrivePickerOpen(false)}
+          onSelect={(file: DrivePickerFile) => {
+            setDrivePickerOpen(false);
+            // Add as a pending file with the Drive link as context
+            setPendingFiles(prev => [...prev, {
+              name: file.name,
+              fileType: file.mimeType,
+              size: '',
+              parsedText: `[Google Drive file: ${file.name}]\nLink: ${file.webViewLink}`,
+            }]);
+          }}
+        />
+      )}
 
       {/* Trigger button */}
       <button

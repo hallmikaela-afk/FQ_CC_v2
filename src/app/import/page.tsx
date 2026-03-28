@@ -51,6 +51,8 @@ export default function ImportPage() {
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [uploadDescription, setUploadDescription] = useState('');
+  const [selectedDriveSubfolder, setSelectedDriveSubfolder] = useState('');
+  const [driveConnected, setDriveConnected] = useState(false);
   // Fetch projects for the project_id selector (on mount)
   const fetchProjects = useCallback(async () => {
     try {
@@ -66,7 +68,13 @@ export default function ImportPage() {
     } catch { /* projects not loaded yet */ }
   }, []);
 
-  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+  useEffect(() => {
+    fetchProjects();
+    fetch('/api/auth/google/status')
+      .then(r => r.json())
+      .then(d => setDriveConnected(d.connected ?? false))
+      .catch(() => {});
+  }, [fetchProjects]);
 
   const processRows = useCallback((rows: Record<string, string>[]) => {
     setRawData(rows);
@@ -251,6 +259,19 @@ export default function ImportPage() {
       });
       const data = await res.json();
       setResult(data);
+
+      // If a Drive subfolder is selected and we have a file, upload to Drive after import
+      if (selectedDriveSubfolder && selectedProjectId && data.inserted && data.inserted > 0) {
+        const fileInput = document.getElementById('file-input') as HTMLInputElement;
+        const file = fileInput?.files?.[0];
+        if (file) {
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('projectId', selectedProjectId);
+          formData.append('subfolder', selectedDriveSubfolder);
+          await fetch('/api/drive/upload', { method: 'POST', body: formData });
+        }
+      }
     } catch (err: any) {
       setResult({ errors: [err.message] });
     }
@@ -337,35 +358,55 @@ export default function ImportPage() {
         />
       </div>
 
-      {/* Step 2: Upload file */}
+      {/* 1d. Save to Google Drive */}
       <div className="mb-6">
-        <label className="block text-sm font-medium text-fq-dark mb-2">1d. Save to Google Drive</label>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="font-body text-[11px] font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full">Coming soon</span>
-        </div>
-        <div className="border border-fq-border rounded-lg overflow-hidden opacity-50 pointer-events-none select-none max-w-lg">
-          <div className="flex items-center gap-1 px-3 py-2 bg-fq-light-accent border-b border-fq-border">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-            <span className="font-body text-[11px] text-fq-muted">My Drive</span>
-            <span className="font-body text-[11px] text-fq-muted/50">›</span>
-            <span className="font-body text-[11px] text-fq-muted">{projects.find(p => p.id === selectedProjectId)?.name || 'Client Name'}</span>
-            <span className="font-body text-[11px] text-fq-muted/50">›</span>
-            <span className="font-body text-[11px] text-fq-dark font-medium">Choose folder…</span>
+        <label className="block text-sm font-medium text-fq-dark mb-2">1d. Save to Google Drive <span className="text-fq-muted font-normal">(optional)</span></label>
+        {!driveConnected ? (
+          <p className="font-body text-[12px] text-fq-muted">
+            <a href="/api/auth/google/login" className="text-fq-accent hover:underline">Connect Google Drive</a> to save this file to a project folder.
+          </p>
+        ) : !selectedProjectId ? (
+          <p className="font-body text-[12px] text-fq-muted">Select a project above to choose a Drive folder.</p>
+        ) : (
+          <div className="border border-fq-border rounded-lg overflow-hidden max-w-lg">
+            <div className="flex items-center gap-1 px-3 py-2 bg-fq-light-accent border-b border-fq-border">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span className="font-body text-[11px] text-fq-muted">{projects.find(p => p.id === selectedProjectId)?.name || 'Project'}</span>
+              <span className="font-body text-[11px] text-fq-muted/50">›</span>
+              <span className="font-body text-[11px] text-fq-dark font-medium">
+                {selectedDriveSubfolder || 'Choose folder…'}
+              </span>
+            </div>
+            <div className="divide-y divide-fq-border">
+              {[
+                'Budgets', 'Client Questionnaires', 'Design Boards & Mockups',
+                'Design Invoices & Contracts', 'Floorplans', 'Paper Goods', 'Photos',
+                'Planning Checklists', 'Processional', 'RSVP Summaries', 'Timelines',
+                'Vendor Contracts & Proposals', 'Venue Documents',
+              ].map(folder => (
+                <button
+                  key={folder}
+                  onClick={() => setSelectedDriveSubfolder(prev => prev === folder ? '' : folder)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors ${
+                    selectedDriveSubfolder === folder
+                      ? 'bg-fq-light-accent text-fq-dark'
+                      : 'bg-fq-bg text-fq-muted hover:bg-fq-light-accent/40 hover:text-fq-dark'
+                  }`}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                  <span className="font-body text-[12px]">{folder}</span>
+                  {selectedDriveSubfolder === folder && (
+                    <span className="ml-auto font-body text-[10px] text-fq-accent">Selected</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="divide-y divide-fq-border">
-            {['Contracts & Proposals', 'Vendor Files', 'Photos & Inspiration', 'Emails & Correspondence', 'Timelines & Runsheets'].map(folder => (
-              <div key={folder} className="flex items-center gap-2.5 px-3 py-2 bg-fq-bg">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-fq-muted shrink-0">
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                </svg>
-                <span className="font-body text-[12px] text-fq-muted">{folder}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <p className="font-body text-[10px] text-fq-muted/60 mt-1.5">Connect your Google Drive in Settings to choose a destination folder.</p>
+        )}
       </div>
 
       {/* Step 2: Upload file */}

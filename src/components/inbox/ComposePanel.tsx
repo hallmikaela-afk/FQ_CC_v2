@@ -11,6 +11,7 @@ import { Send, X, Mail, Paperclip, Bold, Italic, Underline, List, ListOrdered } 
 import { emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
 import type { Project } from './EmailCard';
 import { AddressField, useContacts, chipsToRecipients, type ContactChip } from './AddressField';
+import DriveFilePicker, { type DrivePickerFile } from '@/components/drive/DriveFilePicker';
 
 /* ── Design tokens ── */
 const tk = {
@@ -152,6 +153,7 @@ export default function ComposePanel({
   const [sent,        setSent]        = useState(false);
   const [toast,       setToast]       = useState<string | null>(null);
   const [discardAsk,  setDiscardAsk]  = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
 
   /* ── Refs ── */
   const bodyRef    = useRef<HTMLDivElement>(null);
@@ -378,11 +380,12 @@ export default function ComposePanel({
 
           <button
             type="button"
-            title="Google Drive attachments coming soon"
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors cursor-not-allowed opacity-60`}
+            onClick={() => setDrivePickerOpen(true)}
+            title="Attach a file from Google Drive"
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fq-border font-body text-[12px] ${tk.light} hover:bg-fq-light-accent transition-colors`}
           >
             <Paperclip size={13} />
-            Attach
+            From Drive
           </button>
 
           <button
@@ -425,6 +428,28 @@ export default function ComposePanel({
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl bg-fq-dark text-white font-body text-[13px] shadow-lg whitespace-nowrap pointer-events-none">
           {toast}
         </div>
+      )}
+
+      {/* ── Drive file picker ── */}
+      {drivePickerOpen && (
+        <DriveFilePicker
+          projectId={projectId || null}
+          title="Attach from Drive"
+          onClose={() => setDrivePickerOpen(false)}
+          onSelect={(file: DrivePickerFile) => {
+            setDrivePickerOpen(false);
+            // Insert a Drive link into the email body
+            if (bodyRef.current) {
+              bodyRef.current.focus();
+              document.execCommand(
+                'insertHTML',
+                false,
+                `<a href="${file.webViewLink}" target="_blank" rel="noopener noreferrer">${file.name}</a>`,
+              );
+            }
+            showToast(`Attached: ${file.name}`);
+          }}
+        />
       )}
     </div>
   );

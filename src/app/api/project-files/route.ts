@@ -21,8 +21,43 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data);
 }
 
-// POST /api/project-files  (multipart: file + projectId + notes? + googleDrivePath?)
+// POST /api/project-files
+// Accepts either:
+//   multipart/form-data  — file + projectId + notes? + googleDrivePath?  (Supabase Storage upload)
+//   application/json     — Drive file link: { driveFileId, driveFileName, driveFileMimeType, driveFileUrl, driveFileSize?, projectId, notes? }
 export async function POST(req: NextRequest) {
+  // Drive file linking (JSON body)
+  const ct = req.headers.get('content-type') ?? '';
+  if (ct.includes('application/json')) {
+    try {
+      const body = await req.json();
+      const { driveFileId, driveFileName, driveFileMimeType, driveFileUrl, driveFileSize, projectId: pid, notes } = body;
+      if (!driveFileId || !driveFileName || !driveFileUrl || !pid) {
+        return NextResponse.json({ error: 'driveFileId, driveFileName, driveFileUrl, and projectId are required' }, { status: 400 });
+      }
+      const ext = driveFileName.includes('.') ? '.' + driveFileName.split('.').pop()!.toLowerCase() : '';
+      const supabase = getServiceSupabase();
+      const { data: inserted, error: dbError } = await supabase
+        .from('project_files')
+        .insert({
+          project_id: pid,
+          file_name: driveFileName,
+          file_type: ext || driveFileMimeType || 'unknown',
+          file_size: driveFileSize ?? 0,
+          storage_path: `drive:${driveFileId}`,
+          public_url: driveFileUrl,
+          notes: notes ?? null,
+          google_drive_path: driveFileUrl,
+        })
+        .select()
+        .single();
+      if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
+      return NextResponse.json(inserted);
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message }, { status: 500 });
+    }
+  }
+
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
