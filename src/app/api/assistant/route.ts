@@ -140,7 +140,8 @@ async function buildContext(): Promise<string> {
   context += `  Complete: {"type":"update_planner_task","task_id":"...","updates":{"completed":true}}\n`;
   context += `  Reopen:   {"type":"update_planner_task","task_id":"...","updates":{"completed":false}}\n\n`;
   context += `SPRINT TASK ACTIONS (use SPRINT_ID values listed above):\n`;
-  context += `  Create:   {"type":"create_sprint_task","title":"...","bucket":"one of: ${BUCKETS.join(' | ')}","tag":"action|decision|creative|ops|marketing|build|client|check"}\n`;
+  context += `  Create:   {"type":"create_sprint_task","title":"...","bucket":"one of: ${BUCKETS.join(' | ')}","tag":"action|decision|creative|ops|marketing|build|client|check|research|book_vendor|other"}\n`;
+  context += `  Note: Do NOT append the project name to sprint task titles — the bucket already identifies the project.\n`;
   context += `  Update:   {"type":"update_sprint_task","task_id":"...","updates":{"title":"...","bucket":"...","tag":"..."}}\n`;
   context += `  Complete: {"type":"update_sprint_task","task_id":"...","updates":{"done":true}}\n`;
   context += `  Reopen:   {"type":"update_sprint_task","task_id":"...","updates":{"done":false}}\n`;

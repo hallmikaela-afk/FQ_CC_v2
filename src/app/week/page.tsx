@@ -27,29 +27,31 @@ const BUCKETS = [
 ];
 
 const TAG_STYLES: Record<string, string> = {
-  action:    'bg-fq-blue-light text-fq-blue',
-  decision:  'bg-fq-amber-light text-fq-amber',
-  creative:  'bg-fq-plum-light text-fq-plum',
-  ops:       'bg-fq-bg text-fq-muted border border-fq-border',
-  marketing: 'bg-fq-rose-light text-fq-rose',
-  build:     'bg-fq-sage-light text-fq-sage',
-  client:    'bg-fq-teal-light text-fq-teal',
-  check:     'bg-fq-amber-light text-fq-amber',
-  research:  'bg-fq-light-accent text-fq-accent',
-  other:     'bg-fq-bg text-fq-muted border border-fq-border',
+  action:       'bg-fq-blue-light text-fq-blue',
+  decision:     'bg-fq-amber-light text-fq-amber',
+  creative:     'bg-fq-plum-light text-fq-plum',
+  ops:          'bg-fq-bg text-fq-muted border border-fq-border',
+  marketing:    'bg-fq-rose-light text-fq-rose',
+  build:        'bg-fq-sage-light text-fq-sage',
+  client:       'bg-fq-teal-light text-fq-teal',
+  check:        'bg-fq-amber-light text-fq-amber',
+  research:     'bg-fq-light-accent text-fq-accent',
+  book_vendor:  'bg-fq-sage-light text-fq-sage',
+  other:        'bg-fq-bg text-fq-muted border border-fq-border',
 };
 
 const TAG_LABELS: Record<string, string> = {
-  action:    'email / outreach',
-  decision:  'decision',
-  creative:  'creative',
-  ops:       'ops',
-  marketing: 'marketing',
-  build:     'build',
-  client:    'client work',
-  check:     'check',
-  research:  'research',
-  other:     'other',
+  action:       'email / outreach',
+  decision:     'decision',
+  creative:     'creative',
+  ops:          'ops',
+  marketing:    'marketing',
+  build:        'build',
+  client:       'client work',
+  check:        'check',
+  research:     'research',
+  book_vendor:  'book vendor',
+  other:        'other',
 };
 
 export default function WeekPage() {

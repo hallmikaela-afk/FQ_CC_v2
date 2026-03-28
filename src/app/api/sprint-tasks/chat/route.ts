@@ -71,7 +71,7 @@ async function buildContext(week: string): Promise<string> {
   ctx += `\n\nACTIONS — Always respond with valid JSON only (no plain text outside JSON).\n`;
   ctx += `Response format: {"response":"Your reply","action":"action_type",...fields} or {"response":"..."} for no action.\n\n`;
   ctx += `SPRINT TASK ACTIONS (use SPRINT_ID from list above):\n`;
-  ctx += `  Create:   {"response":"...","action":"add_sprint_task","title":"...","bucket":"...","tag":"action|decision|creative|ops|marketing|build|client|check|research|other"}\n`;
+  ctx += `  Create:   {"response":"...","action":"add_sprint_task","title":"...","bucket":"...","tag":"action|decision|creative|ops|marketing|build|client|check|research|book_vendor|other"}\n`;
   ctx += `  Update:   {"response":"...","action":"update_sprint_task","task_id":"SPRINT_ID","updates":{"title":"...","bucket":"...","tag":"..."}}\n`;
   ctx += `  Complete: {"response":"...","action":"update_sprint_task","task_id":"SPRINT_ID","updates":{"done":true}}\n`;
   ctx += `  Reopen:   {"response":"...","action":"update_sprint_task","task_id":"SPRINT_ID","updates":{"done":false}}\n\n`;
@@ -80,7 +80,8 @@ async function buildContext(week: string): Promise<string> {
   ctx += `  Update:   {"response":"...","action":"update_planner_task","task_id":"TASK_ID","updates":{"text":"...","due_date":"YYYY-MM-DD"}}\n`;
   ctx += `  Complete: {"response":"...","action":"update_planner_task","task_id":"TASK_ID","updates":{"completed":true}}\n`;
   ctx += `  Reopen:   {"response":"...","action":"update_planner_task","task_id":"TASK_ID","updates":{"completed":false}}\n\n`;
-  ctx += `Sprint buckets: ${BUCKETS.join(', ')}. If bucket unclear, ask. Keep responses short (1-2 sentences max unless listing).`;
+  ctx += `Sprint buckets: ${BUCKETS.join(', ')}. If bucket unclear, ask. Keep responses short (1-2 sentences max unless listing).\n`;
+  ctx += `IMPORTANT: When creating sprint task titles, do NOT append the project name to the title (e.g. use "Finalize design direction" not "Finalize design direction — Menorca Editorial"). The task is already filed under the correct project bucket.`;
 
   return ctx;
 }
