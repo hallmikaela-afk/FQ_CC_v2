@@ -47,7 +47,10 @@ export async function PATCH(req: NextRequest) {
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-  const { data, error } = await supabase.from('projects').update(updates).eq('id', id).select().single();
+  // The frontend uses slug as the project id — match by slug if not a UUID
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const query = supabase.from('projects').update(updates);
+  const { data, error } = await (isUUID ? query.eq('id', id) : query.eq('slug', id)).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Update assignments if provided
