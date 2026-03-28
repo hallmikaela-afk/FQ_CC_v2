@@ -58,6 +58,16 @@ export interface Database {
         Insert: Omit<ProjectFileRow, 'id' | 'uploaded_at'> & { id?: string };
         Update: Partial<ProjectFileRow>;
       };
+      google_tokens: {
+        Row: GoogleTokenRow;
+        Insert: Omit<GoogleTokenRow, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+        Update: Partial<GoogleTokenRow>;
+      };
+      drive_folders: {
+        Row: DriveFolderRow;
+        Insert: Omit<DriveFolderRow, 'id' | 'created_at'> & { id?: string };
+        Update: Partial<DriveFolderRow>;
+      };
     };
   };
 }
@@ -210,5 +220,29 @@ export interface ChatMessageRow {
   role: 'user' | 'assistant';
   content: string;
   metadata: Record<string, any>;
+  created_at: string;
+}
+
+export interface GoogleTokenRow {
+  id: string;
+  user_id: string;
+  access_token: string;
+  refresh_token: string | null;
+  expires_at: string;
+  scope: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DriveFolderRow {
+  id: string;
+  project_id: string;
+  root_folder_id: string;
+  root_folder_url: string;
+  internal_folder_id: string;
+  internal_folder_url: string;
+  client_folder_id: string;
+  client_folder_url: string;
+  subfolder_ids: Record<string, string>;
   created_at: string;
 }
