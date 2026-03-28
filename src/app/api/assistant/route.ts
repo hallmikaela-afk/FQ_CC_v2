@@ -165,7 +165,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { messages } = await req.json();
+    const { messages, imageAttachments } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: 'messages array required' }, { status: 400 });
@@ -173,11 +173,29 @@ export async function POST(req: NextRequest) {
 
     const context = await buildContext();
 
+    // For the last user message, attach any images as vision content blocks
+    const apiMessages = messages.map((m: any, idx: number) => {
+      if (
+        m.role === 'user' &&
+        idx === messages.length - 1 &&
+        Array.isArray(imageAttachments) &&
+        imageAttachments.length > 0
+      ) {
+        const parts: any[] = imageAttachments.map((img: any) => ({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+        }));
+        parts.push({ type: 'text', text: m.content });
+        return { role: m.role, content: parts };
+      }
+      return { role: m.role, content: m.content };
+    });
+
     const response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       system: context,
-      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
+      messages: apiMessages,
     });
 
     const rawText = (response.content.find((c: any) => c.type === 'text') as any)?.text || '';

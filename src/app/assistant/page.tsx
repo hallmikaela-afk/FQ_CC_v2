@@ -17,6 +17,12 @@ interface Attachment {
   name: string;
   type: string;
   size: string;
+  // Images (sent to Claude vision)
+  previewUrl?: string;   // data URL shown in UI
+  base64?: string;       // pure base64 for API
+  mediaType?: string;    // 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  // Documents (text extracted server-side)
+  parsedText?: string;
 }
 
 interface ToolUse {
@@ -78,6 +84,10 @@ interface PendingFile {
   fileType: string;
   size: string;
   parsedText: string;
+  // Images only:
+  previewUrl?: string;
+  base64?: string;
+  mediaType?: string;
 }
 
 const MAX_HISTORY = 25;
@@ -372,10 +382,10 @@ export default function AssistantPage() {
     const text = input.trim();
     if (!text && pendingFiles.length === 0) return;
 
-    // Build content: prepend any parsed file context
-    const fileContext = pendingFiles.map(f =>
-      `[Attached: ${f.name}]\n${f.parsedText}`
-    ).join('\n\n');
+    // Documents → prepend extracted text; images → passed separately to API
+    const docFiles = pendingFiles.filter(f => !f.base64);
+    const imgFiles = pendingFiles.filter(f => f.base64 && f.mediaType);
+    const fileContext = docFiles.map(f => `[Attached: ${f.name}]\n${f.parsedText}`).join('\n\n');
     const fullContent = fileContext ? `${fileContext}\n\n${text}` : text;
 
     const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -384,7 +394,8 @@ export default function AssistantPage() {
       role: 'user',
       content: fullContent,
       timestamp: now,
-      attachments: pendingFiles.map(f => ({ name: f.name, type: f.fileType, size: f.size })),
+      // Store previewUrl so images render in the chat; omit base64 to keep message state lean
+      attachments: pendingFiles.map(f => ({ name: f.name, type: f.fileType, size: f.size, previewUrl: f.previewUrl })),
     };
 
     setMessages(prev => [...prev, userMsg]);
@@ -403,7 +414,10 @@ export default function AssistantPage() {
       const res = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          imageAttachments: imgFiles.map(f => ({ base64: f.base64, mediaType: f.mediaType, name: f.name })),
+        }),
       });
 
       if (!res.ok) throw new Error('API error');
@@ -436,28 +450,45 @@ export default function AssistantPage() {
     setIsTyping(false);
   };
 
+  const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     setFileUploading(true);
     for (const file of files) {
-      try {
-        const formData = new FormData();
-        formData.append('file', file);
-        const res = await fetch('/api/parse-file', { method: 'POST', body: formData });
-        if (res.ok) {
-          const data = await res.json();
-          const parsedText = (data.rows || [])
-            .map((row: Record<string, string>) => Object.values(row).join(' | '))
-            .join('\n');
-          setPendingFiles(prev => [...prev, {
-            name: file.name,
-            fileType: file.type,
-            size: formatFileSize(file.size),
-            parsedText,
-          }]);
-        }
-      } catch { /* skip failed file */ }
+      const size = formatFileSize(file.size);
+      if (IMAGE_TYPES.includes(file.type)) {
+        // Images: read as base64 for Claude vision
+        const dataUrl = await new Promise<string>(resolve => {
+          const reader = new FileReader();
+          reader.onload = ev => resolve(ev.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+        setPendingFiles(prev => [...prev, {
+          name: file.name,
+          fileType: file.type,
+          size,
+          parsedText: '',
+          previewUrl: dataUrl,
+          base64: dataUrl.split(',')[1],
+          mediaType: file.type,
+        }]);
+      } else {
+        // Documents: parse text server-side
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          const res = await fetch('/api/parse-file', { method: 'POST', body: formData });
+          if (res.ok) {
+            const data = await res.json();
+            const parsedText = (data.rows || [])
+              .map((row: Record<string, string>) => Object.values(row).join(' | '))
+              .join('\n');
+            setPendingFiles(prev => [...prev, { name: file.name, fileType: file.type, size, parsedText }]);
+          }
+        } catch { /* skip failed file */ }
+      }
     }
     setFileUploading(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -564,26 +595,47 @@ export default function AssistantPage() {
             </div>
           )}
 
-          {/* Pending file badges */}
+          {/* Pending file badges / image thumbnails */}
           {pendingFiles.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-2">
               {pendingFiles.map((f, i) => (
-                <div key={i} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-fq-light-accent border border-fq-border">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded bg-fq-card text-fq-muted`}>
-                    {f.name.split('.').pop()?.toUpperCase() || 'FILE'}
-                  </span>
-                  <span className={`font-body text-[12px] ${t.heading} max-w-[120px] truncate`}>{f.name}</span>
-                  <span className={`font-body text-[10px] ${t.light}`}>{f.size}</span>
-                  <button
-                    onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
-                    className={`${t.icon} hover:text-fq-dark transition-colors`}
-                    aria-label="Remove file"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                      <path d="M3 3l6 6M9 3l-6 6"/>
-                    </svg>
-                  </button>
-                </div>
+                f.previewUrl ? (
+                  // Image thumbnail
+                  <div key={i} className="relative group">
+                    <img
+                      src={f.previewUrl}
+                      alt={f.name}
+                      className="w-16 h-16 object-cover rounded-lg border border-fq-border"
+                    />
+                    <button
+                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-fq-dark text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Remove image"
+                    >
+                      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M3 3l6 6M9 3l-6 6"/>
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
+                  // Document badge
+                  <div key={i} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-fq-light-accent border border-fq-border">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-fq-card text-fq-muted">
+                      {f.name.split('.').pop()?.toUpperCase() || 'FILE'}
+                    </span>
+                    <span className={`font-body text-[12px] ${t.heading} max-w-[120px] truncate`}>{f.name}</span>
+                    <span className={`font-body text-[10px] ${t.light}`}>{f.size}</span>
+                    <button
+                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      className={`${t.icon} hover:text-fq-dark transition-colors`}
+                      aria-label="Remove file"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M3 3l6 6M9 3l-6 6"/>
+                      </svg>
+                    </button>
+                  </div>
+                )
               ))}
             </div>
           )}
@@ -594,7 +646,7 @@ export default function AssistantPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={fileUploading}
               className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${t.icon} hover:text-fq-accent mb-0.5 disabled:opacity-40`}
-              title="Attach files (PDF, DOCX)"
+              title="Attach files (images, PDF, DOCX)"
             >
               <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M15 7l-6.5 6.5a2.12 2.12 0 11-3-3L12 4a3.5 3.5 0 115 5l-6.5 6.5a5 5 0 01-7-7L10 2" />
@@ -604,7 +656,7 @@ export default function AssistantPage() {
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.docx,.doc"
+              accept="image/jpeg,image/png,image/gif,image/webp,.pdf,.docx,.doc"
               className="hidden"
               onChange={handleFileChange}
             />
@@ -773,7 +825,18 @@ export default function AssistantPage() {
                     <div className={`${msg.role === 'user' ? 'max-w-[85%]' : 'max-w-[90%] flex-1'}`}>
                       {msg.attachments && msg.attachments.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2 justify-end">
-                          {msg.attachments.map((att, i) => <AttachmentBadge key={i} att={att} />)}
+                          {msg.attachments.map((att, i) =>
+                            att.previewUrl ? (
+                              <img
+                                key={i}
+                                src={att.previewUrl}
+                                alt={att.name}
+                                className="max-w-[260px] max-h-[260px] rounded-xl object-cover border border-fq-border"
+                              />
+                            ) : (
+                              <AttachmentBadge key={i} att={att} />
+                            )
+                          )}
                         </div>
                       )}
 
