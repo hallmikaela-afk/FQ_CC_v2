@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { NextResponse } from 'next/server';
 import { graphFetch } from '@/lib/microsoft-graph';
 import { uploadFileToDrive } from '@/lib/google-drive';
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
   // Fetch attachment content from Microsoft Graph
   let attachmentData: { name?: string; contentBytes?: string; contentType?: string };
   try {
-    const graphRes = await graphFetch(`/me/messages/${messageId}/attachments/${attachmentId}`);
+    const graphRes: Response = await graphFetch(`/me/messages/${messageId}/attachments/${attachmentId}`);
     if (!graphRes.ok) {
       console.error('[drive/save-attachment] Graph fetch failed:', graphRes.status);
       return NextResponse.json(
