@@ -166,12 +166,8 @@ export async function storeTokens(
   expiresIn: number,
   scope: string,
 ): Promise<void> {
-  console.log('[storeTokens] starting for userId:', userId);
-
   const supabase = getServiceSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-
-  console.log('[storeTokens] upserting to microsoft_tokens, expires_at:', expiresAt);
 
   const { data, error } = await supabase
     .from('microsoft_tokens')
@@ -202,7 +198,6 @@ export async function storeTokens(
     );
   }
 
-  console.log('[storeTokens] success, saved row:', data[0]);
 }
 
 /**
