@@ -121,8 +121,8 @@ export default function SidebarDriveFlyout({
     }, 2500);
   };
 
-  const topPos = Math.max(0, anchorTop);
-  const maxH = 'calc(100vh - 40px)';
+  const topPos = Math.max(8, Math.min(anchorTop, window.innerHeight - 200));
+  const maxH = `${window.innerHeight - topPos - 16}px`;
 
   const content = (
     <div ref={flyoutRef} className="fixed z-[200] flex" style={{ top: topPos, left: sidebarWidth }}>
