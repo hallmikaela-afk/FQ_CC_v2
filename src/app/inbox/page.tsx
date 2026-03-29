@@ -186,11 +186,15 @@ export default function InboxPage() {
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); setLoading(false); return; }
-      // Deduplicate by message_id (safety net for any DB duplicates)
-      const seen = new Set<string>();
+      // Deduplicate by message_id, then by subject+from+date as fallback
+      const seenId = new Set<string>();
+      const seenFp = new Set<string>();
       const cached = (data.emails ?? []).filter((e: Email) => {
-        if (seen.has(e.message_id)) return false;
-        seen.add(e.message_id);
+        const fp = `${e.subject}|${e.from_email}|${e.received_at?.slice(0, 16)}`;
+        if (e.message_id && seenId.has(e.message_id)) return false;
+        if (seenFp.has(fp)) return false;
+        if (e.message_id) seenId.add(e.message_id);
+        seenFp.add(fp);
         return true;
       });
       cachedCount = cached.length;
@@ -229,10 +233,14 @@ export default function InboxPage() {
       const res  = await fetch(`/api/emails?${params}`);
       const data = await res.json();
       if (data.error === 'NOT_CONNECTED') { setNotConnected(true); return; }
-      const seenSync = new Set<string>();
+      const seenSyncId = new Set<string>();
+      const seenSyncFp = new Set<string>();
       const synced = (data.emails ?? []).filter((e: Email) => {
-        if (seenSync.has(e.message_id)) return false;
-        seenSync.add(e.message_id);
+        const fp = `${e.subject}|${e.from_email}|${e.received_at?.slice(0, 16)}`;
+        if (e.message_id && seenSyncId.has(e.message_id)) return false;
+        if (seenSyncFp.has(fp)) return false;
+        if (e.message_id) seenSyncId.add(e.message_id);
+        seenSyncFp.add(fp);
         return true;
       });
       setEmails(synced);
