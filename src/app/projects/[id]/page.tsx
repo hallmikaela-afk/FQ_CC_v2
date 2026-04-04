@@ -9,7 +9,7 @@ import ProjectFileUpload from '@/components/ProjectFileUpload';
 import UploadModal from '@/components/UploadModal';
 import ComposePanel from '@/components/inbox/ComposePanel';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
-import type { Project, Vendor, CallNote, Task, SubTask, TeamMember } from '@/data/seed';
+import type { Project, Vendor, CallNote, Task, SubTask, TeamMember, EventDay } from '@/data/seed';
 import ProjectDriveTab from '@/components/drive/ProjectDriveTab';
 
 // Module-level team lookup — set by the main component after data loads
@@ -326,7 +326,17 @@ function NextCallAgenda({ items, projectId }: { items: string[]; projectId: stri
 }
 
 /* ─────────────── Vendor Tile ─────────────── */
-function VendorTile({ vendor, onRemove }: { vendor: Vendor; onRemove: () => void }) {
+function VendorTile({
+  vendor,
+  onRemove,
+  copyTargets,
+  onCopyToDay,
+}: {
+  vendor: Vendor;
+  onRemove: () => void;
+  copyTargets?: { id: string | null; label: string }[];
+  onCopyToDay?: (targetDayId: string | null) => void;
+}) {
   const [name, setName] = useState(vendor.vendor_name);
   const [contact, setContact] = useState(vendor.contact_name || '');
   const [email, setEmail] = useState(vendor.email || '');
@@ -334,6 +344,7 @@ function VendorTile({ vendor, onRemove }: { vendor: Vendor; onRemove: () => void
   const [website, setWebsite] = useState(vendor.website || '');
   const [instagram, setInstagram] = useState(vendor.instagram || '');
   const [category, setCategory] = useState(vendor.category);
+  const [showCopyMenu, setShowCopyMenu] = useState(false);
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
   const patchVendor = (updates: Record<string, unknown>) => {
@@ -341,14 +352,44 @@ function VendorTile({ vendor, onRemove }: { vendor: Vendor; onRemove: () => void
   };
 
   return (
-    <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-4 flex flex-col group/tile">
+    <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-4 flex flex-col group/tile relative">
       <div className="flex items-center justify-between mb-2">
         <EditableField value={category} onChange={(v) => { setCategory(v); patchVendor({ category: v }); }} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full" placeholder="Category..." />
-        <button onClick={onRemove} className="text-fq-muted/30 hover:text-fq-alert transition-colors opacity-0 group-hover/tile:opacity-100" title="Remove vendor">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1 opacity-0 group-hover/tile:opacity-100 transition-opacity">
+          {copyTargets && copyTargets.length > 0 && onCopyToDay && (
+            <div className="relative">
+              <button
+                onClick={() => setShowCopyMenu(v => !v)}
+                className="text-fq-muted/40 hover:text-fq-accent transition-colors"
+                title="Copy to another day"
+              >
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="5" y="5" width="9" height="9" rx="1.5" />
+                  <path d="M2 11V3a1 1 0 011-1h8" />
+                </svg>
+              </button>
+              {showCopyMenu && (
+                <div className="absolute right-0 top-full mt-1 z-20 bg-fq-card border border-fq-border rounded-lg shadow-lg py-1 min-w-[140px]">
+                  <p className="font-body text-[10px] text-fq-muted/60 px-3 py-1 uppercase tracking-wide">Copy to</p>
+                  {copyTargets.map(t => (
+                    <button
+                      key={String(t.id)}
+                      onClick={() => { onCopyToDay(t.id); setShowCopyMenu(false); }}
+                      className="w-full text-left font-body text-[12px] text-fq-dark/80 hover:bg-fq-bg px-3 py-1.5 transition-colors"
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <button onClick={onRemove} className="text-fq-muted/30 hover:text-fq-alert transition-colors" title="Remove vendor">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
+            </svg>
+          </button>
+        </div>
       </div>
       <EditableField value={name} onChange={(v) => { setName(v); patchVendor({ vendor_name: v }); }} className={`font-body text-[15px] font-medium ${t.heading} mb-2`} placeholder="Vendor name..." />
       <div className="space-y-1 flex-1">
@@ -416,26 +457,210 @@ function AddVendorModal({ open, onClose, onAdd }: { open: boolean; onClose: () =
   );
 }
 
+/* ─────────────── Vendor Day Section ─────────────── */
+function VendorDaySection({
+  dayLabel,
+  venueName,
+  eventDate,
+  vendors,
+  copyTargets,
+  onAddVendor,
+  onRemoveVendor,
+  onCopyVendorToDay,
+  onPatchDay,
+  onDeleteDay,
+  isMainDay,
+}: {
+  dayLabel: string;
+  venueName: string;
+  eventDate: string;
+  vendors: Vendor[];
+  copyTargets: { id: string | null; label: string }[];
+  onAddVendor: () => void;
+  onRemoveVendor: (id: string) => void;
+  onCopyVendorToDay: (vendor: Vendor, targetDayId: string | null) => void;
+  onPatchDay?: (updates: Record<string, string>) => void;
+  onDeleteDay?: () => void;
+  isMainDay: boolean;
+}) {
+  const [label, setLabel] = useState(dayLabel);
+  const [venue, setVenue] = useState(venueName);
+  const [date, setDate] = useState(eventDate);
+  const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', muted: 'text-fq-muted/60' };
+
+  return (
+    <div className="border border-fq-border rounded-xl overflow-hidden">
+      {/* Day header */}
+      <div className="flex items-center gap-3 px-4 py-3 bg-fq-bg/60 border-b border-fq-border">
+        <div className="flex-1 flex items-center gap-3 min-w-0">
+          {isMainDay ? (
+            <span className={`font-heading text-[14px] font-semibold ${t.heading}`}>{label}</span>
+          ) : (
+            <EditableField
+              value={label}
+              onChange={(v) => { setLabel(v); onPatchDay?.({ day_name: v }); }}
+              className={`font-heading text-[14px] font-semibold ${t.heading}`}
+              placeholder="Day name..."
+            />
+          )}
+          <span className={`${t.muted} text-[11px]`}>·</span>
+          {isMainDay ? (
+            <span className={`font-body text-[12px] ${t.light}`}>{venue || <span className="italic text-fq-border">no venue</span>}</span>
+          ) : (
+            <EditableField
+              value={venue}
+              onChange={(v) => { setVenue(v); onPatchDay?.({ venue_name: v }); }}
+              className={`font-body text-[12px] ${t.light}`}
+              placeholder="Venue name..."
+            />
+          )}
+          {date && (
+            <>
+              <span className={`${t.muted} text-[11px]`}>·</span>
+              {isMainDay ? (
+                <span className={`font-body text-[11px] ${t.muted}`}>{formatDate(date)}</span>
+              ) : (
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => { setDate(e.target.value); onPatchDay?.({ event_date: e.target.value }); }}
+                  className={`font-body text-[11px] ${t.muted} bg-transparent border-none outline-none cursor-pointer`}
+                />
+              )}
+            </>
+          )}
+          {!isMainDay && !date && (
+            <>
+              <span className={`${t.muted} text-[11px]`}>·</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => { setDate(e.target.value); onPatchDay?.({ event_date: e.target.value }); }}
+                className={`font-body text-[11px] text-fq-border bg-transparent border-none outline-none cursor-pointer`}
+                placeholder="Date..."
+              />
+            </>
+          )}
+          <span className={`font-body text-[11px] ${t.muted} bg-fq-card border border-fq-border px-1.5 py-0.5 rounded-full ml-1`}>{vendors.length}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={onAddVendor}
+            className={`font-body text-[12px] font-medium ${t.light} hover:text-fq-dark border border-fq-border hover:border-fq-dark/20 px-3 py-1.5 rounded-lg transition-colors`}
+          >
+            + Add Vendor
+          </button>
+          {!isMainDay && onDeleteDay && (
+            <button onClick={onDeleteDay} className={`${t.muted} hover:text-fq-alert transition-colors`} title="Remove event day">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+      {/* Vendors grid */}
+      {vendors.length > 0 ? (
+        <div className="grid grid-cols-3 gap-4 p-4">
+          {vendors.map((vendor) => (
+            <VendorTile
+              key={vendor.id}
+              vendor={vendor}
+              onRemove={() => onRemoveVendor(vendor.id)}
+              copyTargets={copyTargets}
+              onCopyToDay={(targetDayId) => onCopyVendorToDay(vendor, targetDayId)}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className={`font-body text-[12px] ${t.muted} italic px-4 py-4`}>No vendors added yet.</p>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────── Vendor Contacts ─────────────── */
-function VendorContacts({ vendors: initialVendors, projectId }: { vendors: Vendor[]; projectId: string }) {
+function VendorContacts({
+  vendors: initialVendors,
+  projectId,
+  supabaseProjectId,
+  eventDays: initialEventDays,
+  projectVenueName,
+  projectEventDate,
+}: {
+  vendors: Vendor[];
+  projectId: string;
+  supabaseProjectId: string;
+  eventDays: EventDay[];
+  projectVenueName: string;
+  projectEventDate: string;
+}) {
   const [vendors, setVendors] = useState(initialVendors);
+  const [eventDays, setEventDays] = useState(initialEventDays);
   const [collapsed, setCollapsed] = useState(true);
-  const [showAddModal, setShowAddModal] = useState(false);
+  // addModal: null = closed, 'main' = day 1, or event_day id string
+  const [addModalFor, setAddModalFor] = useState<string | null>(null);
   const [copiedCredits, setCopiedCredits] = useState(false);
+
   const removeVendor = (id: string) => {
-    setVendors(vendors.filter(v => v.id !== id));
+    setVendors(prev => prev.filter(v => v.id !== id));
     fetch(`/api/vendors?id=${id}`, { method: 'DELETE' });
   };
-  const addVendor = async (vendor: Vendor) => {
-    const res = await fetch('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...vendor, project_id: projectId }) });
+
+  const addVendor = async (vendor: Vendor, eventDayId: string | null) => {
+    const payload = { ...vendor, project_id: supabaseProjectId, event_day_id: eventDayId };
+    const res = await fetch('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const [saved] = await res.json();
     setVendors(prev => [...prev, saved]);
   };
 
+  const copyVendorToDay = async (vendor: Vendor, targetDayId: string | null) => {
+    const payload = {
+      project_id: supabaseProjectId,
+      event_day_id: targetDayId,
+      category: vendor.category,
+      vendor_name: vendor.vendor_name,
+      contact_name: vendor.contact_name,
+      email: vendor.email,
+      phone: vendor.phone,
+      website: vendor.website,
+      instagram: vendor.instagram,
+    };
+    const res = await fetch('/api/vendors', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const [saved] = await res.json();
+    setVendors(prev => [...prev, saved]);
+  };
+
+  const addEventDay = async () => {
+    const res = await fetch('/api/event-days', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project_id: supabaseProjectId, day_name: `Day ${eventDays.length + 2}`, sort_order: eventDays.length }),
+    });
+    const day = await res.json();
+    setEventDays(prev => [...prev, day]);
+    setCollapsed(false);
+  };
+
+  const patchEventDay = (id: string, updates: Record<string, string>) => {
+    setEventDays(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d));
+    fetch('/api/event-days', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, ...updates }) });
+  };
+
+  const deleteEventDay = async (id: string) => {
+    setEventDays(prev => prev.filter(d => d.id !== id));
+    setVendors(prev => prev.filter(v => v.event_day_id !== id));
+    fetch(`/api/event-days?id=${id}`, { method: 'DELETE' });
+  };
+
   const downloadCSV = () => {
-    const headers = ['Category', 'Vendor Name', 'Contact Name', 'Email', 'Phone', 'Website', 'Instagram'];
-    const rows = vendors.map(v => [v.category, v.vendor_name, v.contact_name || '', v.email || '', v.phone || '', v.website || '', v.instagram || '']);
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const headers = ['Category', 'Vendor Name', 'Contact Name', 'Email', 'Phone', 'Website', 'Instagram', 'Event Day'];
+    const dayName = (id: string | null | undefined) => {
+      if (!id) return 'Day 1';
+      return eventDays.find(d => d.id === id)?.day_name || id;
+    };
+    const rows = vendors.map(v => [v.category, v.vendor_name, v.contact_name || '', v.email || '', v.phone || '', v.website || '', v.instagram || '', dayName(v.event_day_id)]);
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = 'vendor-contacts.csv'; a.click();
@@ -448,7 +673,19 @@ function VendorContacts({ vendors: initialVendors, projectId }: { vendors: Vendo
     setCopiedCredits(true);
     setTimeout(() => setCopiedCredits(false), 2000);
   };
+
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
+
+  // Build copy targets for each day slot
+  const allDaySlots = [
+    { id: null, label: 'Day 1' + (projectVenueName ? ` — ${projectVenueName}` : '') },
+    ...eventDays.map(d => ({ id: d.id, label: d.day_name + (d.venue_name ? ` — ${d.venue_name}` : '') })),
+  ];
+
+  const copyTargetsFor = (currentDayId: string | null) =>
+    allDaySlots.filter(s => s.id !== currentDayId);
+
+  const hasMultipleDays = eventDays.length > 0;
 
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-6">
@@ -460,19 +697,73 @@ function VendorContacts({ vendors: initialVendors, projectId }: { vendors: Vendo
           <span className="text-[12px] font-body text-fq-muted bg-fq-bg px-2 py-0.5 rounded-full">{vendors.length}</span>
         </button>
         <div className="flex items-center gap-2">
+          <button
+            onClick={addEventDay}
+            className={`flex items-center gap-1.5 font-body text-[13px] ${t.light} hover:text-fq-dark px-3 py-2 rounded-lg border border-fq-border hover:border-fq-dark/20 transition-colors`}
+          >
+            + Add Event Day
+          </button>
           <button onClick={copyVendorCredits} className={`flex items-center gap-1.5 font-body text-[13px] ${copiedCredits ? 'text-fq-accent' : t.light} hover:text-fq-dark px-3 py-2 rounded-lg border border-fq-border hover:border-fq-dark/20 transition-colors`}>
             {copiedCredits ? '✓ Copied!' : '📋 Copy Credits'}
           </button>
           <button onClick={downloadCSV} className={`flex items-center gap-1.5 font-body text-[13px] ${t.light} hover:text-fq-dark px-3 py-2 rounded-lg border border-fq-border hover:border-fq-dark/20 transition-colors`}>↓ Download CSV</button>
-          <button onClick={() => setShowAddModal(true)} className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors">+ Add Vendor</button>
+          {!hasMultipleDays && (
+            <button onClick={() => setAddModalFor('main')} className="flex items-center gap-1.5 bg-fq-dark text-white font-body text-[13px] font-medium px-4 py-2 rounded-lg hover:bg-fq-dark/90 transition-colors">+ Add Vendor</button>
+          )}
         </div>
       </div>
+
       {!collapsed && (
-        <div className="grid grid-cols-3 gap-4">
-          {vendors.map((vendor) => (<VendorTile key={vendor.id} vendor={vendor} onRemove={() => removeVendor(vendor.id)} />))}
-        </div>
+        hasMultipleDays ? (
+          <div className="space-y-4">
+            {/* Day 1 — project-level venue */}
+            <VendorDaySection
+              dayLabel="Day 1"
+              venueName={projectVenueName}
+              eventDate={projectEventDate}
+              vendors={vendors.filter(v => !v.event_day_id)}
+              copyTargets={copyTargetsFor(null)}
+              onAddVendor={() => setAddModalFor('main')}
+              onRemoveVendor={removeVendor}
+              onCopyVendorToDay={(vendor, targetDayId) => copyVendorToDay(vendor, targetDayId)}
+              isMainDay={true}
+            />
+            {/* Additional event days */}
+            {eventDays.map((day) => (
+              <VendorDaySection
+                key={day.id}
+                dayLabel={day.day_name}
+                venueName={day.venue_name || ''}
+                eventDate={day.event_date || ''}
+                vendors={vendors.filter(v => v.event_day_id === day.id)}
+                copyTargets={copyTargetsFor(day.id)}
+                onAddVendor={() => setAddModalFor(day.id)}
+                onRemoveVendor={removeVendor}
+                onCopyVendorToDay={(vendor, targetDayId) => copyVendorToDay(vendor, targetDayId)}
+                onPatchDay={(updates) => patchEventDay(day.id, updates)}
+                onDeleteDay={() => deleteEventDay(day.id)}
+                isMainDay={false}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-4">
+            {vendors.map((vendor) => (
+              <VendorTile key={vendor.id} vendor={vendor} onRemove={() => removeVendor(vendor.id)} />
+            ))}
+          </div>
+        )
       )}
-      <AddVendorModal open={showAddModal} onClose={() => setShowAddModal(false)} onAdd={addVendor} />
+
+      <AddVendorModal
+        open={addModalFor !== null}
+        onClose={() => setAddModalFor(null)}
+        onAdd={(vendor) => {
+          const dayId = addModalFor === 'main' ? null : addModalFor;
+          addVendor(vendor, dayId);
+          setAddModalFor(null);
+        }}
+      />
     </div>
   );
 }
@@ -2174,7 +2465,14 @@ export default function ProjectDetailPage() {
             <NextCallAgenda items={project.next_call_agenda || []} projectId={project.id} />
           </div>
 
-          <div className="mb-8"><VendorContacts vendors={project.vendors || []} projectId={project.id} /></div>
+          <div className="mb-8"><VendorContacts
+            vendors={project.vendors || []}
+            projectId={project.id}
+            supabaseProjectId={(project as any)._supabaseId || project.id}
+            eventDays={(project as any).event_days || []}
+            projectVenueName={project.venue_name || project.location || ''}
+            projectEventDate={project.event_date || ''}
+          /></div>
 
           <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
 

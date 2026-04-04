@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import type { ProjectRow, TaskRow, TeamMemberRow, VendorRow, CallNoteRow, TemplateTaskRow } from './database.types';
-import type { Project, Task, Vendor, CallNote, TeamMember } from '@/data/seed';
+import type { ProjectRow, TaskRow, TeamMemberRow, VendorRow, CallNoteRow, TemplateTaskRow, EventDayRow } from './database.types';
+import type { Project, Task, Vendor, CallNote, TeamMember, EventDay } from '@/data/seed';
 
 // Re-export types that match the seed.ts interfaces for compatibility
 export interface ProjectWithCounts extends ProjectRow {
@@ -113,6 +113,21 @@ export function useVendors(projectId?: string) {
   return { vendors, loading };
 }
 
+export function useEventDays(projectId?: string) {
+  const [eventDays, setEventDays] = useState<EventDayRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const params = projectId ? `?project_id=${projectId}` : '';
+    fetch(`${API_BASE}/api/event-days${params}`)
+      .then(r => r.json())
+      .then(data => { setEventDays(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [projectId]);
+
+  return { eventDays, loading };
+}
+
 export function useCallNotes(projectId?: string) {
   const [callNotes, setCallNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -185,8 +200,9 @@ export function useFullProjects() {
   const { vendors: allVendors, loading: vLoading } = useVendors();
   const { callNotes: allCallNotes, loading: cnLoading } = useCallNotes();
   const { team, loading: tmLoading } = useTeam();
+  const { eventDays: allEventDays, loading: edLoading } = useEventDays();
 
-  const loading = pLoading || tLoading || vLoading || cnLoading || tmLoading;
+  const loading = pLoading || tLoading || vLoading || cnLoading || tmLoading || edLoading;
 
   const projects: Project[] = useMemo(() => {
     if (loading) return [];
@@ -222,6 +238,20 @@ export function useFullProjects() {
           phone: v.phone || undefined,
           website: v.website || undefined,
           instagram: v.instagram || undefined,
+          event_day_id: v.event_day_id ?? null,
+        }));
+
+      const projectEventDays: EventDay[] = allEventDays
+        .filter(d => d.project_id === p.id)
+        .map(d => ({
+          id: d.id,
+          project_id: d.project_id,
+          day_name: d.day_name,
+          event_date: d.event_date ?? null,
+          venue_name: d.venue_name ?? null,
+          venue_street: d.venue_street ?? null,
+          venue_city_state_zip: d.venue_city_state_zip ?? null,
+          sort_order: d.sort_order,
         }));
 
       const projectCallNotes: CallNote[] = allCallNotes
@@ -288,6 +318,7 @@ export function useFullProjects() {
         tasks: projectTasks,
         vendors: projectVendors,
         call_notes: projectCallNotes,
+        event_days: projectEventDays,
         // Store the real UUID for API calls
         _supabaseId: p.id,
       } as Project & { _supabaseId: string };

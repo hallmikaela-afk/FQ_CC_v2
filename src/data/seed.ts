@@ -15,6 +15,18 @@ export interface Vendor {
   phone?: string;
   website?: string;
   instagram?: string;
+  event_day_id?: string | null;
+}
+
+export interface EventDay {
+  id: string;
+  project_id: string;
+  day_name: string;
+  event_date?: string | null;
+  venue_name?: string | null;
+  venue_street?: string | null;
+  venue_city_state_zip?: string | null;
+  sort_order: number;
 }
 
 export interface CallNote {
@@ -104,6 +116,7 @@ export interface Project {
   tasks?: Task[];
   vendors?: Vendor[];
   call_notes?: CallNote[];
+  event_days?: EventDay[];
 }
 
 export const team: TeamMember[] = [

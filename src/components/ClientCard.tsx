@@ -584,6 +584,25 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
               showMapLink />
           )}
 
+          {/* Additional event day venues */}
+          {(project.event_days || []).map((day) => (
+            <div key={day.id} className="ml-4 pl-3 border-l-2 border-fq-border/40 space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className={`${t.icon} text-[9px]`}>◉</span>
+                <span className={`font-body text-[12px] font-medium ${t.body}`}>{day.day_name}</span>
+                {day.event_date && <span className={`font-body text-[10px] ${t.light}`}>· {formatDate(day.event_date)}</span>}
+              </div>
+              {day.venue_name && (
+                <p className={`font-body text-[12px] ${t.light} ml-4`}>{day.venue_name}</p>
+              )}
+              {(day.venue_street || day.venue_city_state_zip) && (
+                <p className={`font-body text-[11px] ${t.light} opacity-70 ml-4`}>
+                  {[day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', ')}
+                </p>
+              )}
+            </div>
+          ))}
+
           {isFieldVisible('guests', 'first') && (
             <div className="flex items-center gap-2">
               <span className={`${t.icon} w-4 text-center text-[12px]`}>♗</span>
