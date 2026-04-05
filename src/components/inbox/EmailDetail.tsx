@@ -561,6 +561,22 @@ function LinkModal({
 
   if (!open) return null;
 
+  // When Drive picker is open, render only it — avoids z-index/blur conflict with our backdrop
+  if (driveOpen) {
+    return (
+      <DriveFilePicker
+        projectId={projectId ?? null}
+        title="Link a Drive file"
+        onClose={() => setDriveOpen(false)}
+        onSelect={(file) => {
+          setUrl(file.webViewLink);
+          setDisplayText((prev) => prev || file.name);
+          setDriveOpen(false);
+        }}
+      />
+    );
+  }
+
   const handleOk = () => {
     const text = displayText.trim() || url;
     if (!url.trim() || url === 'https://') return;
@@ -568,7 +584,6 @@ function LinkModal({
   };
 
   return (
-    <>
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
       <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[380px] p-6">
@@ -626,19 +641,6 @@ function LinkModal({
         </div>
       </div>
     </div>
-    {driveOpen && (
-      <DriveFilePicker
-        projectId={projectId ?? null}
-        title="Link a Drive file"
-        onClose={() => setDriveOpen(false)}
-        onSelect={(file) => {
-          setUrl(file.webViewLink);
-          setDisplayText((prev) => prev || file.name);
-          setDriveOpen(false);
-        }}
-      />
-    )}
-    </>
   );
 }
 
