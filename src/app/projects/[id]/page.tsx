@@ -443,6 +443,7 @@ function VendorDaySection({
   onPatchDay?: (updates: Record<string, string>) => void;
   onEditDay?: () => void;
   onLabelChange?: (v: string) => void;
+  onDeleteDay?: () => void;
   isMainDay: boolean;
 }) {
   const [showCopyPanel, setShowCopyPanel] = useState(false);
@@ -450,6 +451,7 @@ function VendorDaySection({
   const [copyTarget, setCopyTarget] = useState<string>('__none__');
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelDraft, setLabelDraft] = useState(dayLabel);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const labelInputRef = useRef<HTMLInputElement>(null);
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', muted: 'text-fq-muted/60' };
 
@@ -528,6 +530,21 @@ function VendorDaySection({
                 <path d="M11.5 2.5a2.121 2.121 0 013 3L5 15H2v-3L11.5 2.5z" />
               </svg>
             </button>
+          )}
+          {!isMainDay && onDeleteDay && (
+            confirmingDelete ? (
+              <div className="flex items-center gap-1.5">
+                <span className={`font-body text-[11px] ${t.muted}`}>Delete?</span>
+                <button onClick={() => { setConfirmingDelete(false); onDeleteDay(); }} className="font-body text-[11px] text-red-500 hover:text-red-700 transition-colors">Yes</button>
+                <button onClick={() => setConfirmingDelete(false)} className={`font-body text-[11px] ${t.muted} hover:text-fq-dark transition-colors`}>No</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmingDelete(true)} className={`${t.muted} hover:text-red-500 transition-colors p-1.5 rounded-lg border border-transparent hover:border-fq-border`} title="Delete event day">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 4h12M5 4V2h6v2M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9" />
+                </svg>
+              </button>
+            )
           )}
           <button
             onClick={onAddVendor}
@@ -765,6 +782,10 @@ function VendorContacts({
                 onRemoveVendor={removeVendor}
                 onCopySelectedToDay={copySelectedToDay}
                 onEditDay={() => setEditingDay(day)}
+                onDeleteDay={async () => {
+                  await fetch(`/api/event-days?id=${day.id}`, { method: 'DELETE' });
+                  setEventDays(prev => prev.filter(d => d.id !== day.id));
+                }}
                 isMainDay={false}
               />
             ))}

@@ -599,8 +599,8 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
 
           {/* Additional event day venues */}
           {eventDays.map((day) => (
-            <div key={day.id} className="ml-4 pl-3 border-l-2 border-fq-border/40 space-y-0.5">
-              <div className="flex items-center gap-2">
+            <div key={day.id} className="ml-4 pl-3 border-l-2 border-fq-border/40 space-y-0.5 group/day relative">
+              <div className="flex items-center gap-2 pr-5">
                 <span className={`${t.icon} text-[9px]`}>◉</span>
                 <span className={`font-body text-[12px] font-medium ${t.body}`}>{day.day_name}</span>
                 {day.event_date && <span className={`font-body text-[10px] ${t.light}`}>· {formatDate(day.event_date)}</span>}
@@ -613,6 +613,16 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
                   {[day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', ')}
                 </p>
               )}
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!confirm(`Delete "${day.day_name}"?`)) return;
+                  await fetch(`/api/event-days?id=${day.id}`, { method: 'DELETE' });
+                  setEventDays(prev => prev.filter(d => d.id !== day.id));
+                }}
+                className="absolute top-0 right-0 opacity-0 group-hover/day:opacity-100 text-fq-muted/40 hover:text-red-500 transition-all text-[14px] p-1"
+                title="Delete event day"
+              >×</button>
             </div>
           ))}
 

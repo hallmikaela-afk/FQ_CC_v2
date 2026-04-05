@@ -312,6 +312,7 @@ export function useFullProjects() {
         sharepoint_folder: p.sharepoint_folder || undefined,
         project_colors: p.project_colors || undefined,
         next_call_agenda: p.next_call_agenda || undefined,
+        primary_day_name: p.primary_day_name || undefined,
         tasks_total: projectTasks.length,
         tasks_completed: projectTasks.filter(t => t.completed).length,
         overdue_count: projectTasks.filter(t => !t.completed && t.due_date && t.due_date < today).length,
@@ -323,7 +324,7 @@ export function useFullProjects() {
         _supabaseId: p.id,
       } as Project & { _supabaseId: string };
     });
-  }, [rawProjects, allTasks, allVendors, allCallNotes, loading]);
+  }, [rawProjects, allTasks, allVendors, allCallNotes, allEventDays, loading]);
 
   const teamMembers: TeamMember[] = useMemo(() => {
     return team.map(t => ({
