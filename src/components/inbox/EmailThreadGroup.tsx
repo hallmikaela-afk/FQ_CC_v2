@@ -21,6 +21,7 @@ interface Props {
   onDismiss: (email: Email) => void;
   onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
+  onRightClick?: (email: Email, x: number, y: number) => void;
 }
 
 export default function EmailThreadGroup({
@@ -42,6 +43,7 @@ export default function EmailThreadGroup({
   onDismiss,
   onDelete,
   onReassign,
+  onRightClick,
 }: Props) {
   const [representative, ...siblings] = emails;
   const hasThread = siblings.length > 0;
@@ -58,6 +60,7 @@ export default function EmailThreadGroup({
     onDismiss,
     onDelete,
     onReassign,
+    onRightClick,
   };
 
   if (!hasThread) {

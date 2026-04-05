@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, Mail, ChevronDown, ChevronRight, Inbox } from 'lucide-react';
+import { Search, X, Mail, ChevronDown, ChevronRight, Inbox, Paperclip } from 'lucide-react';
 import FolderSidebar, { type Folder, DISMISSED_FOLDER_ID } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
 import EmailThreadGroup from '@/components/inbox/EmailThreadGroup';
@@ -137,10 +137,15 @@ export default function InboxPage() {
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
+  const [searchFrom,         setSearchFrom]         = useState('');
+  const [searchHasAttachment,setSearchHasAttachment] = useState(false);
   const [searchResults,      setSearchResults]      = useState<Email[] | null>(null);
   const [searchLoading,      setSearchLoading]      = useState(false);
   const [searchedGraph,      setSearchedGraph]      = useState(false);
   const searchDebounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ── Context menu state ── */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; email: Email } | null>(null);
 
   /* ── Compose state ── */
   const [composeOpen, setComposeOpen] = useState(false);
@@ -428,10 +433,13 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolder]);
 
+  /* ── Derived: whether any search / filter is active ── */
+  const isSearchActive = !!(searchQuery.trim() || searchFrom.trim() || searchHasAttachment);
+
   /* ── Debounced search ── */
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!searchQuery.trim()) {
+    if (!isSearchActive) {
       setSearchResults(null);
       setSearchLoading(false);
       setSearchedGraph(false);
@@ -441,7 +449,11 @@ export default function InboxPage() {
     setSearchedGraph(false);
     searchDebounceRef.current = setTimeout(async () => {
       try {
-        const res  = await fetch(`/api/emails/search?q=${encodeURIComponent(searchQuery)}`);
+        const params = new URLSearchParams();
+        if (searchQuery.trim()) params.set('q', searchQuery.trim());
+        if (searchFrom.trim()) params.set('from', searchFrom.trim());
+        if (searchHasAttachment) params.set('has_attachment', 'true');
+        const res  = await fetch(`/api/emails/search?${params}`);
         const data = await res.json();
         setSearchResults(data.emails ?? []);
         setSearchedGraph(data.searchedGraph ?? false);
@@ -454,7 +466,17 @@ export default function InboxPage() {
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchFrom, searchHasAttachment, isSearchActive]);
+
+  /* ── Close context menu on outside click / Escape ── */
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', onKey); };
+  }, [contextMenu]);
 
   /* ── Derived email list ── */
   // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net.
@@ -1019,18 +1041,14 @@ export default function InboxPage() {
 
         {/* Search bar */}
         <div className="px-5 pt-3 pb-1">
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${searchQuery ? 'border-fq-accent/30 bg-fq-card' : 'border-fq-border bg-fq-card'} transition-colors`}>
-            <Search size={13} className={`shrink-0 ${searchQuery ? 'text-fq-accent' : tk.icon}`} />
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${isSearchActive ? 'border-fq-accent/30 bg-fq-card' : 'border-fq-border bg-fq-card'} transition-colors`}>
+            <Search size={13} className={`shrink-0 ${isSearchActive ? 'text-fq-accent' : tk.icon}`} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
-                // Clear folder + filter when searching
-                if (e.target.value) {
-                  setSelectedFolder(null);
-                  setSelectedId(null);
-                }
+                if (e.target.value) { setSelectedFolder(null); setSelectedId(null); }
               }}
               placeholder="Search emails…"
               className={`flex-1 font-body text-[12.5px] ${tk.body} bg-transparent border-none outline-none placeholder:text-fq-muted/45`}
@@ -1038,19 +1056,51 @@ export default function InboxPage() {
             {searchLoading && (
               <div className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin shrink-0" />
             )}
-            {searchQuery && !searchLoading && (
+            {isSearchActive && !searchLoading && (
               <button
-                onClick={() => { setSearchQuery(''); setSearchResults(null); }}
+                onClick={() => { setSearchQuery(''); setSearchFrom(''); setSearchHasAttachment(false); setSearchResults(null); }}
                 className={`shrink-0 p-0.5 rounded hover:bg-fq-light-accent transition-colors ${tk.icon}`}
               >
                 <X size={12} />
               </button>
             )}
           </div>
+
+          {/* Filter chips */}
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {/* From filter */}
+            <div className={`inline-flex items-center gap-1 rounded-full border transition-colors ${searchFrom ? 'bg-fq-accent/10 border-fq-accent/30' : 'border-fq-border bg-fq-card'}`}>
+              <span className={`font-body text-[10.5px] pl-2 ${searchFrom ? 'text-fq-accent' : tk.light}`}>From:</span>
+              <input
+                type="text"
+                value={searchFrom}
+                onChange={(e) => { setSearchFrom(e.target.value); if (e.target.value) { setSelectedFolder(null); setSelectedId(null); } }}
+                placeholder="sender…"
+                className={`font-body text-[10.5px] bg-transparent border-none outline-none w-16 placeholder:text-fq-muted/35 ${searchFrom ? 'text-fq-accent' : tk.light} pr-1.5 py-0.5`}
+              />
+              {searchFrom && (
+                <button onClick={() => setSearchFrom('')} className={`pr-1.5 ${tk.light} hover:text-fq-dark`}>
+                  <X size={9} />
+                </button>
+              )}
+            </div>
+
+            {/* Has Attachment toggle */}
+            <button
+              onClick={() => { setSearchHasAttachment((v) => !v); setSelectedFolder(null); setSelectedId(null); }}
+              className={`inline-flex items-center gap-1 font-body text-[10.5px] px-2 py-0.5 rounded-full border transition-colors ${
+                searchHasAttachment
+                  ? 'bg-fq-accent/10 border-fq-accent/30 text-fq-accent'
+                  : `border-fq-border bg-fq-card ${tk.light} hover:border-fq-accent/20`
+              }`}
+            >
+              <Paperclip size={9} />
+              Has attachment
+            </button>
+          </div>
+
           {searchedGraph && (
-            <p className={`font-body text-[11px] ${tk.light} mt-1 px-1`}>
-              Searching all email…
-            </p>
+            <p className={`font-body text-[11px] ${tk.light} mt-1 px-1`}>Searching all email…</p>
           )}
         </div>
 
@@ -1076,7 +1126,7 @@ export default function InboxPage() {
         )}
 
         {/* Tab filter bar — hidden when searching or in dismissed view */}
-        {!searchQuery && !isDismissedView && (
+        {!isSearchActive && !isDismissedView && (
           <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
             {[
               ...TAB_FILTERS,
@@ -1109,7 +1159,7 @@ export default function InboxPage() {
         )}
 
         {/* Project filter dropdown — hidden when searching */}
-        {!searchQuery && (
+        {!isSearchActive && (
           <div className="px-5 pb-3">
             <select
               value={projectFilter}
@@ -1128,7 +1178,7 @@ export default function InboxPage() {
         <div className="flex-1 overflow-y-auto px-4 pb-6">
 
           {/* ── Search results mode ── */}
-          {searchQuery && (
+          {isSearchActive && (
             <>
               {searchLoading && (
                 <div className="flex flex-col items-center justify-center mt-16 gap-3">
@@ -1138,7 +1188,7 @@ export default function InboxPage() {
               )}
               {!searchLoading && searchResults !== null && searchResults.length === 0 && (
                 <div className="text-center mt-12">
-                  <p className={`font-body text-[13px] ${tk.light}`}>No results for &ldquo;{searchQuery}&rdquo;</p>
+                  <p className={`font-body text-[13px] ${tk.light}`}>No results found.</p>
                 </div>
               )}
               {!searchLoading && searchResults?.map((email) => (
@@ -1159,13 +1209,14 @@ export default function InboxPage() {
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
                   onViewThread={(e) => handleSelectEmail(e)}
+                  onRightClick={(email, x, y) => setContextMenu({ x, y, email })}
                 />
               ))}
             </>
           )}
 
           {/* ── Normal list mode ── */}
-          {!searchQuery && (
+          {!isSearchActive && (
             <>
               {/* Only block the list on very first load when cache is empty */}
               {loading && (
@@ -1246,6 +1297,7 @@ export default function InboxPage() {
                           onDelete={handleDeleteEmail}
                           onReassign={handleReassign}
                           onViewThread={(e) => handleSelectEmail(e)}
+                          onRightClick={(email, x, y) => setContextMenu({ x, y, email })}
                         />
                       ))}
                     </div>
@@ -1274,11 +1326,12 @@ export default function InboxPage() {
                   onDismiss={handleDismiss}
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
+                  onRightClick={(email, x, y) => setContextMenu({ x, y, email })}
                 />
               ))}
 
               {/* Load more older emails */}
-              {!loading && !searchQuery && filteredEmails.length > 0 && typeof window !== 'undefined' &&
+              {!loading && !isSearchActive && filteredEmails.length > 0 && typeof window !== 'undefined' &&
                 localStorage.getItem('inbox_initial_sync_done') &&
                 !noMoreHistory &&
                 !localStorage.getItem('inbox_no_more_history') && (
@@ -1317,6 +1370,29 @@ export default function InboxPage() {
             className="font-medium text-fq-accent hover:text-fq-accent/80 transition-colors"
           >
             Undo
+          </button>
+        </div>
+      )}
+
+      {/* ── Right-click context menu ── */}
+      {contextMenu && (
+        <div
+          className="fixed z-[999] bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className={`w-full text-left px-4 py-2 font-body text-[12.5px] ${tk.body} hover:bg-fq-light-accent transition-colors`}
+            onClick={() => {
+              const sender = contextMenu.email.from_email || contextMenu.email.from_name || '';
+              setSearchFrom(sender);
+              setSearchQuery('');
+              setSelectedFolder(null);
+              setSelectedId(null);
+              setContextMenu(null);
+            }}
+          >
+            More from <span className="font-medium text-fq-dark/80">{contextMenu.email.from_name || contextMenu.email.from_email}</span>
           </button>
         </div>
       )}

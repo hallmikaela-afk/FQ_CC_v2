@@ -2025,6 +2025,11 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           <TriagePanel email={email} projects={projects} onTriageSave={onTriageSave} />
         )}
 
+        {/* Attachments — shown first so they're visible without scrolling */}
+        {email.message_id && (
+          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} onFound={onAttachmentsFound} />
+        )}
+
         {/* Composer zone — Draft card OR Reply panel (shared space, never both) */}
         {email.draft_message_id ? (
           <DraftCard email={email} onPatch={onPatch} showToast={showToast} />
@@ -2052,11 +2057,6 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
             ✨ Generate AI Draft
           </button>
         ) : null}
-
-        {/* Attachments */}
-        {email.message_id && (
-          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} onFound={onAttachmentsFound} />
-        )}
 
         {/* Email body */}
         <EmailBody html={email.body} plaintext={email.body_preview} />

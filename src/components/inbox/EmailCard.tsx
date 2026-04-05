@@ -63,6 +63,7 @@ interface Props {
   onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
   onViewThread?: (email: Email) => void;
+  onRightClick?: (email: Email, x: number, y: number) => void;
   threadCount?: number;
   threadExpanded?: boolean;
   onThreadToggle?: () => void;
@@ -225,6 +226,7 @@ export default function EmailCard({
   onDelete,
   onReassign,
   onViewThread,
+  onRightClick,
   threadCount,
   threadExpanded,
   onThreadToggle,
@@ -264,6 +266,7 @@ export default function EmailCard({
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+      onContextMenu={(e) => { if (onRightClick) { e.preventDefault(); onRightClick(email, e.clientX, e.clientY); } }}
       className={`group relative rounded-xl mb-2 transition-all duration-150 border cursor-pointer overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-fq-accent/40 ${
         deleting
           ? 'opacity-40 scale-[0.98] pointer-events-none'
