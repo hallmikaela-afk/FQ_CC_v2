@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Reply, PenLine, Clock, Check, X, Trash2 } from 'lucide-react';
+import { Reply, PenLine, Clock, Check, X, Trash2, Paperclip } from 'lucide-react';
 
 /* ── Shared types (also used by page + EmailDetail) ── */
 export interface EmailProject {
@@ -412,6 +412,13 @@ export default function EmailCard({
                 {email.is_meeting_summary && (
                   <span className="font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-teal-light text-fq-teal">
                     Meeting Summary
+                  </span>
+                )}
+
+                {/* Attachment indicator */}
+                {email.has_attachments && (
+                  <span className="inline-flex items-center gap-1 font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-light-accent text-fq-muted/70">
+                    <Paperclip size={10} />
                   </span>
                 )}
               </div>

@@ -488,7 +488,7 @@ export default function InboxPage() {
         default:
           return false;
       }
-    }).filter((e) => tabFilter === 'untagged' || tabFilter === 'all' || !projectFilter || e.project_id === projectFilter);
+    }).filter((e) => tabFilter === 'untagged' || !projectFilter || e.project_id === projectFilter);
 
     if (tabFilter === 'all' || tabFilter === 'untagged') {
       return [...byTab].sort((a, b) =>

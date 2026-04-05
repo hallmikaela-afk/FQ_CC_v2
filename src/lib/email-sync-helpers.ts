@@ -61,6 +61,8 @@ export function detectReceipt(
     RECEIPT_SUBJECT_BILLING_WORDS.some(w => subj.includes(w))
   ) return true;
 
+  if (subj.includes('new subscriber')) return true;
+
   return false;
 }
 

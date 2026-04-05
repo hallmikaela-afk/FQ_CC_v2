@@ -330,7 +330,13 @@ function AttachmentList({ messageId, projectId }: { messageId: string; projectId
       .finally(() => setLoading(false));
   }, [messageId]);
 
-  if (loading || attachments.length === 0) return null;
+  if (!loading && attachments.length === 0) return null;
+  if (loading) return (
+    <div className="flex items-center gap-2 px-1 py-2">
+      <Paperclip size={12} className="text-fq-muted/40 animate-pulse" />
+      <span className="font-body text-[12px] text-fq-muted/50 animate-pulse">Loading attachments…</span>
+    </div>
+  );
 
   function fmtSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
