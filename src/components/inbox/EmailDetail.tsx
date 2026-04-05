@@ -324,9 +324,35 @@ function DriveAttachButton({ projectId, bodyRef }: { projectId: string | null; b
 }
 
 /* ── Attachment list ── */
+type AttachmentMeta = { id: string; name: string; contentType: string; size: number };
+type PreviewType = 'pdf' | 'image' | 'docx' | 'xlsx';
+type PreviewData =
+  | { type: 'html'; content: string }
+  | { type: 'table'; sheets: { name: string; rows: unknown[][] }[] };
+
+function getPreviewType(contentType: string, name: string): PreviewType | null {
+  const ct  = contentType.toLowerCase();
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  if (ct === 'application/pdf' || ext === 'pdf') return 'pdf';
+  if (ct.startsWith('image/')) return 'image';
+  if (ct.includes('wordprocessingml') || ct.includes('msword') || ext === 'docx' || ext === 'doc') return 'docx';
+  if (ct.includes('spreadsheetml') || ct.includes('ms-excel') || ct === 'text/csv' || ['xlsx','xls','csv'].includes(ext)) return 'xlsx';
+  return null;
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function AttachmentList({ messageId, projectId, onFound }: { messageId: string; projectId: string | null; onFound?: () => void }) {
-  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; contentType: string; size: number }>>([]);
-  const [loading, setLoading] = useState(true);
+  const [attachments,    setAttachments]    = useState<AttachmentMeta[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [previewAtt,     setPreviewAtt]     = useState<AttachmentMeta | null>(null);
+  const [previewData,    setPreviewData]    = useState<PreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [activeSheet,    setActiveSheet]    = useState(0);
 
   useEffect(() => {
     fetch(`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}`)
@@ -340,6 +366,32 @@ function AttachmentList({ messageId, projectId, onFound }: { messageId: string; 
       .finally(() => setLoading(false));
   }, [messageId]);
 
+  // Close preview on Escape
+  useEffect(() => {
+    if (!previewAtt) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewAtt(null); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [previewAtt]);
+
+  const openPreview = async (att: AttachmentMeta) => {
+    const type = getPreviewType(att.contentType, att.name);
+    if (!type) return;
+    setPreviewAtt(att);
+    setPreviewData(null);
+    setActiveSheet(0);
+    if (type === 'pdf' || type === 'image') return; // URL-based, no fetch needed
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(
+        `/api/emails/attachments/convert?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`
+      );
+      const data: PreviewData = await res.json();
+      setPreviewData(data);
+    } catch { setPreviewData(null); }
+    finally { setPreviewLoading(false); }
+  };
+
   if (!loading && attachments.length === 0) return null;
   if (loading) return (
     <div className="flex items-center gap-2 px-1 py-2">
@@ -348,13 +400,13 @@ function AttachmentList({ messageId, projectId, onFound }: { messageId: string; 
     </div>
   );
 
-  function fmtSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
+  const attUrl = (att: AttachmentMeta) =>
+    `/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`;
+
+  const previewType = previewAtt ? getPreviewType(previewAtt.contentType, previewAtt.name) : null;
 
   return (
+    <>
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
       <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40">
         <span className="font-body text-[11.5px] font-medium text-fq-dark/70">
@@ -362,25 +414,198 @@ function AttachmentList({ messageId, projectId, onFound }: { messageId: string; 
         </span>
       </div>
       <div className="p-3 flex flex-wrap gap-2">
-        {attachments.map((att) => (
-          <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group">
-            <a
-              href={`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2"
-            >
-              <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
-              <div className="min-w-0">
-                <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[160px]">{att.name}</p>
-                <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
-              </div>
-            </a>
-            <SaveToDriveButton messageId={messageId} attachmentId={att.id} projectId={projectId} />
-          </div>
-        ))}
+        {attachments.map((att) => {
+          const canPreview = !!getPreviewType(att.contentType, att.name);
+          return (
+            <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group">
+              <a
+                href={attUrl(att)}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2"
+              >
+                <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[140px]">{att.name}</p>
+                  <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
+                </div>
+              </a>
+              {canPreview && (
+                <button
+                  onClick={() => openPreview(att)}
+                  title="Preview"
+                  className={`p-1 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 shrink-0`}
+                >
+                  {/* Eye icon */}
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+                    <circle cx="10" cy="10" r="2.5" />
+                  </svg>
+                </button>
+              )}
+              <SaveToDriveButton messageId={messageId} attachmentId={att.id} projectId={projectId} />
+            </div>
+          );
+        })}
       </div>
     </div>
+
+    {/* ── Attachment preview modal ── */}
+    {previewAtt && (
+      <div
+        className="fixed inset-0 z-[9999] flex items-stretch justify-stretch p-6"
+        onClick={() => setPreviewAtt(null)}
+      >
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        <div
+          className="relative flex flex-col w-full bg-fq-card rounded-2xl border border-fq-border shadow-2xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-fq-border bg-fq-light-accent/40 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <Paperclip size={13} className="text-fq-muted/55 shrink-0" />
+              <span className="font-body text-[13px] text-fq-dark/80 truncate">{previewAtt.name}</span>
+              <span className={`font-body text-[11px] ${tk.light}`}>{fmtSize(previewAtt.size)}</span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <a
+                href={attUrl(previewAtt)}
+                target="_blank"
+                rel="noreferrer"
+                className={`font-body text-[11.5px] ${tk.light} hover:text-fq-accent transition-colors`}
+              >
+                Open in tab ↗
+              </a>
+              <button
+                onClick={() => setPreviewAtt(null)}
+                className={`p-1.5 rounded-lg hover:bg-fq-border transition-colors ${tk.icon}`}
+              >
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Modal body */}
+          <div className="flex-1 overflow-auto min-h-0 bg-white">
+            {/* Loading */}
+            {previewLoading && (
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <span className="w-6 h-6 border-2 border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                <span className={`font-body text-[12.5px] ${tk.light}`}>Loading preview…</span>
+              </div>
+            )}
+
+            {/* PDF */}
+            {!previewLoading && previewType === 'pdf' && (
+              <iframe
+                src={attUrl(previewAtt)}
+                className="w-full h-full border-none"
+                title={previewAtt.name}
+              />
+            )}
+
+            {/* Image */}
+            {!previewLoading && previewType === 'image' && (
+              <div className="flex items-center justify-center min-h-full p-8 bg-fq-bg/50">
+                <img
+                  src={attUrl(previewAtt)}
+                  alt={previewAtt.name}
+                  className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-lg"
+                />
+              </div>
+            )}
+
+            {/* DOCX → HTML */}
+            {!previewLoading && previewData?.type === 'html' && (
+              <div
+                className="p-8 font-body text-[13.5px] text-fq-dark/85 leading-relaxed max-w-3xl mx-auto prose prose-sm"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(previewData.content) }}
+              />
+            )}
+
+            {/* XLSX → Table */}
+            {!previewLoading && previewData?.type === 'table' && (() => {
+              const sheet = previewData.sheets[activeSheet];
+              return (
+                <div className="flex flex-col h-full">
+                  {/* Sheet tabs */}
+                  {previewData.sheets.length > 1 && (
+                    <div className="flex items-center gap-1 px-4 pt-3 pb-0 border-b border-fq-border bg-fq-light-accent/30 shrink-0">
+                      {previewData.sheets.map((s, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setActiveSheet(i)}
+                          className={`px-3 py-1.5 font-body text-[12px] rounded-t-lg border-x border-t transition-colors ${
+                            i === activeSheet
+                              ? 'border-fq-border bg-white text-fq-dark/80 font-medium -mb-px'
+                              : `border-transparent ${tk.light} hover:bg-fq-light-accent`
+                          }`}
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Table */}
+                  <div className="flex-1 overflow-auto p-4">
+                    {sheet && sheet.rows.length > 0 ? (
+                      <table className="w-full border-collapse text-left font-body text-[12.5px]">
+                        <thead>
+                          <tr>
+                            {(sheet.rows[0] as unknown[]).map((cell, ci) => (
+                              <th
+                                key={ci}
+                                className="px-3 py-2 border border-fq-border bg-fq-light-accent/60 text-fq-dark/70 font-medium whitespace-nowrap"
+                              >
+                                {String(cell ?? '')}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sheet.rows.slice(1).map((row, ri) => (
+                            <tr key={ri} className="odd:bg-white even:bg-fq-bg/40 hover:bg-fq-light-accent/50">
+                              {(row as unknown[]).map((cell, ci) => (
+                                <td key={ci} className="px-3 py-1.5 border border-fq-border/60 text-fq-dark/75">
+                                  {String(cell ?? '')}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className={`font-body text-[12.5px] ${tk.light} p-4`}>This sheet is empty.</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Conversion failed / unsupported */}
+            {!previewLoading && (previewType === 'docx' || previewType === 'xlsx') && !previewData && (
+              <div className="flex flex-col items-center justify-center h-full gap-3 p-8">
+                <p className={`font-body text-[13px] ${tk.light} text-center`}>
+                  Preview could not be generated for this file.
+                </p>
+                <a
+                  href={attUrl(previewAtt)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-body text-[12.5px] font-medium px-4 py-2 rounded-lg bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors"
+                >
+                  Download instead
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
