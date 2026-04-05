@@ -67,7 +67,8 @@ src/
       emails/                 # Sync, compose, reply, draft, triage, search, folders
       projects/               # CRUD + Outlook folder sync
       tasks/ subtasks/        # CRUD
-      vendors/                # CRUD
+      vendors/                # CRUD — supports event_day_id for per-day vendor assignment
+      event-days/             # CRUD — additional event days per project (rehearsal dinner, ceremony, etc.)
       call-notes/             # CRUD
       sprint-tasks/           # CRUD + AI chat for week planning
       project-files/          # Upload/list
@@ -80,8 +81,9 @@ src/
   components/
     Sidebar.tsx               # Collapsible nav with project dropdown
     LayoutWrapper.tsx         # Wraps all pages with sidebar
-    ClientCard.tsx            # Dashboard card for weddings
+    ClientCard.tsx            # Dashboard card for weddings — includes + Event Day button and event day venue list
     ShootCard.tsx             # Dashboard card for editorial shoots
+    AddEventDayModal.tsx      # Modal for adding/editing/deleting additional event days; Google Maps Places Autocomplete on venue name
     FloatingChat.tsx          # Persistent floating AI chat bubble
     WeekChatPanel.tsx         # AI chat panel on week page
     AddEventDayModal.tsx      # Modal to add/edit event days with Google Maps Places Autocomplete
@@ -122,8 +124,13 @@ supabase/
 - **subtasks** — children of tasks.
 - **team_members** — Mikaela's team (currently: Mikaela, Liliana VanMiddlesworth, Tim).
 - **project_assignments** — many-to-many projects ↔ team_members.
+<<<<<<< HEAD
 - **vendors** — per-project vendor contacts (category, name, email, phone, instagram). `event_day_id` FK → event_days (NOT NULL — always points to a real event day row).
 - **event_days** — additional event days per project (rehearsal dinner, ceremony, reception, etc.). Fields: `day_name`, `event_date`, `venue_name`, `venue_street`, `venue_city_state_zip`, `sort_order`. A primary/wedding day row (`sort_order = 0`) is always created automatically when a project is created.
+=======
+- **vendors** — per-project vendor contacts (category, name, email, phone, instagram). Has `event_day_id` FK (nullable) — null = Wedding Day (primary event), set = additional event day.
+- **event_days** — additional event days per project (e.g. rehearsal dinner, ceremony, brunch). Has `day_name`, `event_date`, `venue_name`, `venue_street`, `venue_city_state_zip`, `sort_order`. Migrations 019–020. Projects also have `primary_day_name` (default `'Wedding Day'`) to rename the main event label.
+>>>>>>> origin/main
 - **call_notes** — raw + summarized notes from client/vendor calls.
 - **extracted_actions** — AI-extracted action items from call notes.
 - **template_tasks** — reusable task templates keyed by `weeks_before_event`.
