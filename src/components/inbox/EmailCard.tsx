@@ -63,6 +63,9 @@ interface Props {
   onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
   onViewThread?: (email: Email) => void;
+  threadCount?: number;
+  threadExpanded?: boolean;
+  onThreadToggle?: () => void;
 }
 
 /* ── Design tokens ── */
@@ -222,6 +225,9 @@ export default function EmailCard({
   onDelete,
   onReassign,
   onViewThread,
+  threadCount,
+  threadExpanded,
+  onThreadToggle,
 }: Props) {
   const proj        = email.projects;
   const isUntagged  = !email.project_id;
@@ -272,21 +278,39 @@ export default function EmailCard({
           <div className="w-[3px] shrink-0 bg-fq-amber/55 rounded-l-xl" />
         )}
 
-        <div className="flex-1 px-4 py-3.5 min-w-0">
+        <div className="flex-1 px-4 py-2.5 min-w-0">
           {/* Row 1: sender + time */}
           <div className="flex items-start gap-2.5">
             <ReadDot isRead={email.is_read} />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2 mb-0.5">
-                <span
-                  className={`font-body text-[13.5px] truncate ${
-                    email.is_read
-                      ? `font-normal ${tk.body}`
-                      : `font-semibold ${tk.heading}`
-                  }`}
-                >
-                  {email.from_name || email.from_email || 'Unknown'}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {threadCount && threadCount > 1 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onThreadToggle?.(); }}
+                      title={threadExpanded ? 'Collapse thread' : 'Expand thread'}
+                      className="shrink-0 flex items-center gap-0.5 text-fq-muted/40 hover:text-fq-accent transition-colors"
+                    >
+                      <svg
+                        width="9" height="9" viewBox="0 0 12 12" fill="none"
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ transform: threadExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms' }}
+                      >
+                        <path d="M4 2l4 4-4 4" />
+                      </svg>
+                      <span className={`font-body text-[10px] ${tk.light}`}>{threadCount}</span>
+                    </button>
+                  )}
+                  <span
+                    className={`font-body text-[13.5px] truncate ${
+                      email.is_read
+                        ? `font-normal ${tk.body}`
+                        : `font-semibold ${tk.heading}`
+                    }`}
+                  >
+                    {email.from_name || email.from_email || 'Unknown'}
+                  </span>
+                </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   {email.has_attachments && <Paperclip size={11} className="text-fq-muted/50" />}
                   <span className={`font-body text-[11px] ${tk.light}`}>

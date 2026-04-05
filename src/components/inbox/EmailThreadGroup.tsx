@@ -76,42 +76,23 @@ export default function EmailThreadGroup({
 
   return (
     <div>
-      {/* Representative row with thread count + expand chevron */}
-      <div className="relative flex items-start">
-        {/* Left-side expand toggle */}
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-          title={expanded ? 'Collapse thread' : 'Expand thread'}
-          className="absolute left-1 top-3.5 z-10 flex flex-col items-center gap-0.5 text-fq-muted/40 hover:text-fq-accent transition-colors"
-          style={{ transform: 'translateY(-50%)' }}
-        >
-          <svg
-            width="10" height="10" viewBox="0 0 12 12" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms' }}
-          >
-            <path d="M4 2l4 4-4 4" />
-          </svg>
-          <span className="font-body text-[9px] leading-none">{emails.length}</span>
-        </button>
-
-        {/* Representative email card — inset to leave room for chevron */}
-        <div className="flex-1 pl-4">
-          <EmailCard
-            email={representative}
-            isSelected={isSelected(representative.id)}
-            showStatusPill={showStatusPill}
-            showTriage={showTriage}
-            onSelect={() => onSelect(representative)}
-            onViewThread={(_e) => onSelect(representative)}
-            {...sharedCardProps}
-          />
-        </div>
-      </div>
+      {/* Representative card — chevron + count rendered inside the card via threadCount prop */}
+      <EmailCard
+        email={representative}
+        isSelected={isSelected(representative.id)}
+        showStatusPill={showStatusPill}
+        showTriage={showTriage}
+        onSelect={() => onSelect(representative)}
+        onViewThread={(_e) => onSelect(representative)}
+        threadCount={emails.length}
+        threadExpanded={expanded}
+        onThreadToggle={onToggleExpand}
+        {...sharedCardProps}
+      />
 
       {/* Expandable sibling rows */}
       {expanded && (
-        <div className="pl-4 border-l border-fq-border/40 ml-3 mb-1">
+        <div className="ml-3 pl-3 border-l border-fq-border/50 mb-1">
           {siblings.map((email) => (
             <EmailCard
               key={email.id}
