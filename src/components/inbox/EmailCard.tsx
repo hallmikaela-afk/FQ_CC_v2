@@ -154,15 +154,17 @@ function ReassignDropdown({
   projects,
   onSelect,
   onClose,
+  upward,
 }: {
   email: Email;
   projects: Project[];
   onSelect: (projectId: string | null) => void;
   onClose: () => void;
+  upward?: boolean;
 }) {
   return (
     <div
-      className="absolute top-full left-0 mt-1 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]"
+      className={`absolute ${upward ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]`}
       onClick={(e) => e.stopPropagation()}
     >
       {projects.map((p) => {
@@ -448,6 +450,7 @@ export default function EmailCard({
                         projects={projects}
                         onSelect={handleReassignSelect}
                         onClose={() => setReassignOpen(false)}
+                        upward
                       />
                     )}
                   </div>

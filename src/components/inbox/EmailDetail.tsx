@@ -2043,7 +2043,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
         ) : null}
 
         {/* Attachments */}
-        {email.has_attachments && email.message_id && (
+        {email.message_id && (
           <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} />
         )}
 

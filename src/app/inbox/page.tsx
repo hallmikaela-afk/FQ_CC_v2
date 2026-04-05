@@ -1224,7 +1224,7 @@ export default function InboxPage() {
               ))}
 
               {/* Load more older emails */}
-              {!loading && !searchQuery && typeof window !== 'undefined' &&
+              {!loading && !searchQuery && filteredEmails.length > 0 && typeof window !== 'undefined' &&
                 localStorage.getItem('inbox_initial_sync_done') &&
                 !noMoreHistory &&
                 !localStorage.getItem('inbox_no_more_history') && (
