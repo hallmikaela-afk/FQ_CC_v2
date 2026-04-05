@@ -529,6 +529,87 @@ function TriagePanel({
   );
 }
 
+/* ── Styled link insertion modal ── */
+function LinkModal({
+  open,
+  selectedText,
+  onInsert,
+  onClose,
+}: {
+  open: boolean;
+  selectedText: string;
+  onInsert: (displayText: string, url: string) => void;
+  onClose: () => void;
+}) {
+  const [displayText, setDisplayText] = useState('');
+  const [url, setUrl]                 = useState('https://');
+  const urlRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setDisplayText(selectedText);
+      setUrl('https://');
+      setTimeout(() => urlRef.current?.focus(), 0);
+    }
+  }, [open, selectedText]);
+
+  if (!open) return null;
+
+  const handleOk = () => {
+    const text = displayText.trim() || url;
+    if (!url.trim() || url === 'https://') return;
+    onInsert(text, url.trim());
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[360px] p-6">
+        <h3 className={`font-heading text-[16px] font-semibold ${tk.heading} mb-4`}>Insert link</h3>
+
+        {!selectedText && (
+          <div className="mb-3">
+            <label className={`font-body text-[12px] ${tk.light} block mb-1`}>Display text</label>
+            <input
+              type="text"
+              value={displayText}
+              onChange={(e) => setDisplayText(e.target.value)}
+              className={`w-full font-body text-[13px] ${tk.body} bg-fq-bg border border-fq-accent/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-fq-accent/30`}
+            />
+          </div>
+        )}
+
+        <div className="mb-5">
+          <label className={`font-body text-[12px] ${tk.light} block mb-1`}>URL</label>
+          <input
+            ref={urlRef}
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleOk(); if (e.key === 'Escape') onClose(); }}
+            className={`w-full font-body text-[13px] ${tk.body} bg-fq-bg border border-fq-accent/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-fq-accent/30`}
+          />
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className={`px-4 py-2 rounded-lg font-body text-[13px] ${tk.light} bg-fq-light-accent hover:bg-fq-border transition-colors`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleOk}
+            className="px-4 py-2 rounded-lg font-body text-[13px] font-medium bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── AI Draft Card (shown above email body when draft_message_id is set) ── */
 function DraftCard({
   email,
@@ -561,10 +642,13 @@ function DraftCard({
   const [vendors,           setVendors]           = useState<Array<{ id: string; name: string; category: string | null; instagram: string | null }>>([]);
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
   const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
-  const bodyRef      = useRef<HTMLDivElement>(null);
-  const colorBtnRef  = useRef<HTMLDivElement>(null);
-  const vendorBtnRef = useRef<HTMLDivElement>(null);
-  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [linkModalOpen,    setLinkModalOpen]    = useState(false);
+  const [linkSelectedText, setLinkSelectedText] = useState('');
+  const bodyRef        = useRef<HTMLDivElement>(null);
+  const colorBtnRef    = useRef<HTMLDivElement>(null);
+  const vendorBtnRef   = useRef<HTMLDivElement>(null);
+  const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedRangeRef  = useRef<Range | null>(null);
 
   const COLORS = [
     { label: 'Black',      value: '#2C2C2C' },
@@ -761,9 +845,29 @@ function DraftCard({
     }
   };
 
+  const handleInsertLink = (displayText: string, url: string) => {
+    setLinkModalOpen(false);
+    const html = `<a href="${url}" style="color:#6B2737;text-decoration:underline;">${displayText}</a>`;
+    bodyRef.current?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current) {
+      sel?.removeAllRanges();
+      sel?.addRange(savedRangeRef.current);
+    }
+    document.execCommand('insertHTML', false, html);
+    savedRangeRef.current = null;
+  };
+
   if (sent) return null;
 
   return (
+    <>
+    <LinkModal
+      open={linkModalOpen}
+      selectedText={linkSelectedText}
+      onInsert={handleInsertLink}
+      onClose={() => setLinkModalOpen(false)}
+    />
     <div
       className="rounded-xl border border-fq-border bg-fq-card"
       style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}
@@ -882,16 +986,10 @@ function DraftCard({
           <button type="button" title="Insert link"
             onMouseDown={(e) => {
               e.preventDefault();
-              bodyRef.current?.focus();
               const sel = window.getSelection();
-              if (sel && sel.toString().length > 0) {
-                const url = window.prompt('Enter URL:', 'https://');
-                if (url) document.execCommand('createLink', false, url);
-              } else {
-                const text = window.prompt('Display text:', '');
-                const url  = window.prompt('Enter URL:', 'https://');
-                if (text && url) document.execCommand('insertHTML', false, `<a href="${url}">${text}</a>`);
-              }
+              savedRangeRef.current = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0).cloneRange() : null;
+              setLinkSelectedText(sel?.toString() ?? '');
+              setLinkModalOpen(true);
             }}
             className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
           >
@@ -1037,6 +1135,7 @@ function DraftCard({
         </button>
       </div>
     </div>
+    </>
   );
 }
 
@@ -1070,11 +1169,14 @@ function ReplyPanel({
   const [vendors,           setVendors]           = useState<Array<{ id: string; name: string; category: string | null; instagram: string | null }>>([]);
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
   const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
-  const contacts     = useContacts();
-  const bodyRef      = useRef<HTMLDivElement>(null);
-  const sigRef       = useRef<HTMLDivElement>(null);
-  const colorBtnRef  = useRef<HTMLDivElement>(null);
-  const vendorBtnRef = useRef<HTMLDivElement>(null);
+  const [linkModalOpen,    setLinkModalOpen]    = useState(false);
+  const [linkSelectedText, setLinkSelectedText] = useState('');
+  const contacts       = useContacts();
+  const bodyRef        = useRef<HTMLDivElement>(null);
+  const sigRef         = useRef<HTMLDivElement>(null);
+  const colorBtnRef    = useRef<HTMLDivElement>(null);
+  const vendorBtnRef   = useRef<HTMLDivElement>(null);
+  const savedRangeRef  = useRef<Range | null>(null);
 
   // Focus on mount
   useEffect(() => { bodyRef.current?.focus(); }, []);
@@ -1179,6 +1281,19 @@ function ReplyPanel({
     }
   };
 
+  const handleInsertLink = (displayText: string, url: string) => {
+    setLinkModalOpen(false);
+    const html = `<a href="${url}" style="color:#6B2737;text-decoration:underline;">${displayText}</a>`;
+    bodyRef.current?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current) {
+      sel?.removeAllRanges();
+      sel?.addRange(savedRangeRef.current);
+    }
+    document.execCommand('insertHTML', false, html);
+    savedRangeRef.current = null;
+  };
+
   const handleSend = async () => {
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
     if (!bodyHtml.trim() || bodyHtml === '<br>') return;
@@ -1240,6 +1355,13 @@ function ReplyPanel({
   }
 
   return (
+    <>
+    <LinkModal
+      open={linkModalOpen}
+      selectedText={linkSelectedText}
+      onInsert={handleInsertLink}
+      onClose={() => setLinkModalOpen(false)}
+    />
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
       {/* Panel header */}
       <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
@@ -1296,16 +1418,10 @@ function ReplyPanel({
         <button type="button" title="Insert link"
           onMouseDown={(e) => {
             e.preventDefault();
-            bodyRef.current?.focus();
             const sel = window.getSelection();
-            if (sel && sel.toString().length > 0) {
-              const url = window.prompt('Enter URL:', 'https://');
-              if (url) document.execCommand('createLink', false, url);
-            } else {
-              const text = window.prompt('Display text:', '');
-              const url  = window.prompt('Enter URL:', 'https://');
-              if (text && url) document.execCommand('insertHTML', false, `<a href="${url}">${text}</a>`);
-            }
+            savedRangeRef.current = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0).cloneRange() : null;
+            setLinkSelectedText(sel?.toString() ?? '');
+            setLinkModalOpen(true);
           }}
           className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
         >
@@ -1472,6 +1588,7 @@ function ReplyPanel({
         </button>
       </div>
     </div>
+    </>
   );
 }
 
