@@ -38,7 +38,7 @@ export async function generateEmailDraft(
   let projectContext = 'This email has not been linked to a project yet.';
 
   if (email.project_id) {
-    const [projectRes, tasksRes, sprintRes, callNotesRes] = await Promise.all([
+    const [projectRes, tasksRes, sprintRes, callNotesRes, eventDaysRes] = await Promise.all([
       supabase
         .from('projects')
         .select('id, name, type, status, event_date, client1_name, client2_name, client1_email, client2_email, venue_name, venue_location, service_tier, concept, guest_count')
@@ -63,12 +63,18 @@ export async function generateEmailDraft(
         .eq('project_id', email.project_id)
         .order('date', { ascending: false })
         .limit(3),
+      supabase
+        .from('event_days')
+        .select('day_name, event_date, venue_name, venue_street, venue_city_state_zip, sort_order')
+        .eq('project_id', email.project_id)
+        .order('sort_order', { ascending: true }),
     ]);
 
     const project = projectRes.data;
     const tasks = tasksRes.data ?? [];
     const sprintTasks = sprintRes.data ?? [];
     const callNotes = callNotesRes.data ?? [];
+    const eventDays = eventDaysRes.data ?? [];
 
     if (project) {
       projectContext  = `PROJECT: ${project.name} (${project.type})\n`;
@@ -93,6 +99,18 @@ export async function generateEmailDraft(
         projectContext += `\nTHIS WEEK'S SPRINT TASKS:\n`;
         sprintTasks.forEach(st => {
           projectContext += `- ${st.task}${st.tag ? ` [${st.tag}]` : ''}\n`;
+        });
+      }
+
+      if (eventDays.length > 0) {
+        projectContext += `\nEVENT DAYS:\n`;
+        eventDays.forEach(day => {
+          projectContext += `- ${day.day_name}${day.event_date ? ` (${day.event_date})` : ''}`;
+          if (day.venue_name) projectContext += ` @ ${day.venue_name}`;
+          if (day.venue_street || day.venue_city_state_zip) {
+            projectContext += `, ${[day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', ')}`;
+          }
+          projectContext += '\n';
         });
       }
 

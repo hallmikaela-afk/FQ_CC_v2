@@ -38,7 +38,7 @@ AZURE_TENANT_ID                   # Microsoft OAuth tenant
 AZURE_CLIENT_ID                   # Microsoft OAuth app client ID
 AZURE_CLIENT_SECRET               # Microsoft OAuth app secret
 NEXTAUTH_URL / NEXT_PUBLIC_APP_URL # App base URL for OAuth callbacks
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY   # Google Maps JS API — enables Places Autocomplete in AddEventDayModal (falls back to plain text if absent). Requires Maps JavaScript API + Places API enabled in Google Cloud Console.
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY   # Google Maps JS API — enables Places Autocomplete in AddEventDayModal (falls back to plain text if absent). Requires Maps JavaScript API + Places API enabled in Google Cloud Console. Must also be set in Vercel project environment variables.
 ```
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, or Azure secrets to the client. They are server-only.
@@ -74,6 +74,7 @@ src/
       project-files/          # Upload/list
       inbox-rules/            # Auto-triage rules
       import/                 # Bulk data import
+      event-days/             # Full CRUD for event_days table. Supports slug-to-UUID resolution. Every project must have at least one event day row (the primary day).
       parse-file/             # Server-side file parsing (pdf, docx, xlsx)
       team/                   # Team member list
       template-tasks/         # Task templates for new clients
@@ -85,6 +86,7 @@ src/
     AddEventDayModal.tsx      # Modal for adding/editing/deleting additional event days; Google Maps Places Autocomplete on venue name
     FloatingChat.tsx          # Persistent floating AI chat bubble
     WeekChatPanel.tsx         # AI chat panel on week page
+    AddEventDayModal.tsx      # Modal to add/edit event days with Google Maps Places Autocomplete
     ProjectFileUpload.tsx     # File upload for project documents
     UploadModal.tsx           # Upload modal
     QuickUploadButton.tsx     # Quick upload trigger
@@ -109,7 +111,7 @@ src/
     seed.ts                   # Type definitions, formatting helpers, seed data
   middleware.ts               # Auth guard — redirects unauthenticated users to /login
 supabase/
-  migrations/                 # All schema changes in numbered order (001–013)
+  migrations/                 # All schema changes in numbered order (001–022)
 ```
 
 ---
@@ -122,8 +124,13 @@ supabase/
 - **subtasks** — children of tasks.
 - **team_members** — Mikaela's team (currently: Mikaela, Liliana VanMiddlesworth, Tim).
 - **project_assignments** — many-to-many projects ↔ team_members.
+<<<<<<< HEAD
+- **vendors** — per-project vendor contacts (category, name, email, phone, instagram). `event_day_id` FK → event_days (NOT NULL — always points to a real event day row).
+- **event_days** — additional event days per project (rehearsal dinner, ceremony, reception, etc.). Fields: `day_name`, `event_date`, `venue_name`, `venue_street`, `venue_city_state_zip`, `sort_order`. A primary/wedding day row (`sort_order = 0`) is always created automatically when a project is created.
+=======
 - **vendors** — per-project vendor contacts (category, name, email, phone, instagram). Has `event_day_id` FK (nullable) — null = Wedding Day (primary event), set = additional event day.
 - **event_days** — additional event days per project (e.g. rehearsal dinner, ceremony, brunch). Has `day_name`, `event_date`, `venue_name`, `venue_street`, `venue_city_state_zip`, `sort_order`. Migrations 019–020. Projects also have `primary_day_name` (default `'Wedding Day'`) to rename the main event label.
+>>>>>>> origin/main
 - **call_notes** — raw + summarized notes from client/vendor calls.
 - **extracted_actions** — AI-extracted action items from call notes.
 - **template_tasks** — reusable task templates keyed by `weeks_before_event`.
@@ -243,7 +250,7 @@ Brand voice in UI copy: calm, professional, restrained. No exclamation points in
 - `Project`, `Task`, etc. types also exported from `src/data/seed.ts` — keep in sync
 
 ### Migrations
-- New schema changes go in `supabase/migrations/` as the next numbered file (currently at `013`)
+- New schema changes go in `supabase/migrations/` as the next numbered file (currently at `022`)
 - Always use `IF NOT EXISTS` / `IF EXISTS` for safety
 
 ---

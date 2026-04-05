@@ -53,7 +53,7 @@ export default function ImportPage() {
   const [uploadDescription, setUploadDescription] = useState('');
   const [selectedDriveSubfolder, setSelectedDriveSubfolder] = useState('');
   const [driveConnected, setDriveConnected] = useState(false);
-  const [importEventDays, setImportEventDays] = useState<{ id: string; day_name: string }[]>([]);
+  const [importEventDays, setImportEventDays] = useState<{ id: string; day_name: string; sort_order: number }[]>([]);
   const [showAssignPanel, setShowAssignPanel] = useState(false);
   const [vendorDayAssignments, setVendorDayAssignments] = useState<Record<number, string | null>>({});
   // Fetch projects for the project_id selector (on mount)
@@ -208,8 +208,8 @@ export default function ImportPage() {
   };
 
   const handleImport = async (assignments?: Record<number, string | null>) => {
-    // If importing vendors for a project with event days, show the assign panel first
-    if (!assignments && table === 'vendors' && importEventDays.length > 0) {
+    // If importing vendors for a project with 2+ event days, show the assign panel first
+    if (!assignments && table === 'vendors' && importEventDays.length >= 2) {
       setVendorDayAssignments({});
       setShowAssignPanel(true);
       return;
@@ -253,12 +253,11 @@ export default function ImportPage() {
         mapped.project_id = selectedProjectId;
       }
 
-      // Inject event_day_id from assignment panel (null = Wedding Day)
-      if (assignments && table === 'vendors') {
-        const assignedDayId = assignments[rowIdx] ?? null;
-        if (assignedDayId !== null) {
-          mapped.event_day_id = assignedDayId;
-        }
+      // Inject event_day_id: use assignment panel result, or auto-assign to primary day
+      if (table === 'vendors' && importEventDays.length > 0) {
+        const primaryEventDay = importEventDays.find(d => d.sort_order === 0) ?? importEventDays[0];
+        const assignedDayId = assignments ? (assignments[rowIdx] ?? null) : null;
+        mapped.event_day_id = assignedDayId ?? primaryEventDay?.id ?? null;
       }
 
       // Auto-sync status ↔ completed for tasks
