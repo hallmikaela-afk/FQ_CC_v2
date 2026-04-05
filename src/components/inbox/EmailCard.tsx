@@ -467,9 +467,9 @@ export default function EmailCard({
         </div>
       </div>
 
-      {/* ── Quick action toolbar — inline bottom row, visible on hover ── */}
+      {/* ── Quick action toolbar — absolute overlay, visible on hover ── */}
       <div
-        className="hidden group-hover:flex items-center justify-end gap-0.5 px-4 pb-2.5 -mt-1"
+        className="absolute top-2.5 right-3 hidden group-hover:flex items-center gap-0.5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-0.5 bg-fq-light-accent border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">

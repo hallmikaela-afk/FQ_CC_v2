@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Search, X, Mail, ChevronDown, ChevronRight, Inbox } from 'lucide-react';
 import FolderSidebar, { type Folder, DISMISSED_FOLDER_ID } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
+import EmailThreadGroup from '@/components/inbox/EmailThreadGroup';
 import EmailDetail from '@/components/inbox/EmailDetail';
 import ComposePanel from '@/components/inbox/ComposePanel';
 
@@ -158,6 +159,9 @@ export default function InboxPage() {
   const [migrating,         setMigrating]         = useState(false);
   const [migrateProgress,   setMigrateProgress]   = useState<{ total: number; moved: number } | null>(null);
   const [migrateToast,      setMigrateToast]      = useState<string | null>(null);
+
+  /* ── Thread expand/collapse state ── */
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
 
   /* ── "now" tick — updates relative "synced X ago" label every minute ── */
   useEffect(() => {
@@ -549,6 +553,32 @@ export default function InboxPage() {
       .sort((a, b) => (a.received_at ?? '').localeCompare(b.received_at ?? ''));
   }, [selected, emails]);
 
+  /* ── Thread grouping for the email list ── */
+  const conversationGroups = useMemo(() => {
+    const displayEmails = filteredEmails.filter((e) => tabFilter !== 'all' || !!e.project_id || e.dismissed);
+    const groups = new Map<string, Email[]>();
+    for (const email of displayEmails) {
+      const key = email.conversation_id ?? email.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(email);
+    }
+    for (const group of groups.values()) {
+      group.sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? ''));
+    }
+    return [...groups.values()].sort(
+      (a, b) => (b[0].received_at ?? '').localeCompare(a[0].received_at ?? ''),
+    );
+  }, [filteredEmails, tabFilter]);
+
+  const toggleThread = useCallback((conversationId: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      return next;
+    });
+  }, []);
+
   /* ── Email actions ── */
   const patch = useCallback(async (id: string, updates: Record<string, unknown>) => {
     // Optimistic update
@@ -565,6 +595,16 @@ export default function InboxPage() {
       body: JSON.stringify({ id, ...updates }),
     });
   }, []);
+
+  const dismissThreadSiblings = useCallback((email: Email) => {
+    if (!email.conversation_id) return;
+    const siblings = emails.filter(
+      (e) => e.conversation_id === email.conversation_id && e.id !== email.id,
+    );
+    for (const sibling of siblings) {
+      patch(sibling.id, { dismissed: true });
+    }
+  }, [emails, patch]);
 
   const handleSelectEmail = (email: Email) => {
     setSelectedId(email.id);
@@ -609,25 +649,27 @@ export default function InboxPage() {
     [patch, showToast],
   );
 
-  const handleToggleFollowup = (email: Email) => {
+  const handleToggleFollowup = useCallback((email: Email) => {
     // Turning on follow-up clears needs_response (mutually exclusive)
     if (!email.needs_followup) {
       patch(email.id, { needs_followup: true, needs_response: false });
+      dismissThreadSiblings(email);
     } else {
       patch(email.id, { needs_followup: false });
     }
-  };
+  }, [patch, dismissThreadSiblings]);
 
   const handleNeedsResponse = useCallback(
     (email: Email) => {
       // Turning on needs_response clears needs_followup (mutually exclusive)
       if (!email.needs_response) {
         patch(email.id, { needs_response: true, needs_followup: false });
+        dismissThreadSiblings(email);
       } else {
         patch(email.id, { needs_response: false });
       }
     },
-    [patch],
+    [patch, dismissThreadSiblings],
   );
 
   const handleDraftResponse = useCallback(
@@ -718,19 +760,19 @@ export default function InboxPage() {
     async (email: Email, projectId: string | null) => {
       // Optimistic update
       const targetProject = projectId ? projects.find((p) => p.id === projectId) ?? null : null;
+      const updatedFields = {
+        project_id:       projectId,
+        match_confidence: projectId ? 'exact' as const : null,
+        dismissed:        false,
+        projects: targetProject
+          ? { id: targetProject.id, name: targetProject.name, type: targetProject.type, color: targetProject.color, event_date: null }
+          : null,
+      };
       setEmails((prev) =>
-        prev.map((e) => {
-          if (e.id !== email.id) return e;
-          return {
-            ...e,
-            project_id:       projectId,
-            match_confidence: projectId ? 'exact' : null,
-            dismissed:        false,
-            projects: targetProject
-              ? { id: targetProject.id, name: targetProject.name, type: targetProject.type, color: targetProject.color, event_date: null }
-              : null,
-          };
-        }),
+        prev.map((e) => e.id !== email.id ? e : { ...e, ...updatedFields }),
+      );
+      setSearchResults((prev) =>
+        prev ? prev.map((e) => e.id !== email.id ? e : { ...e, ...updatedFields }) : prev,
       );
       await fetch('/api/emails/reassign', {
         method: 'POST',
@@ -1211,15 +1253,17 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {!loading && filteredEmails.filter((e) => tabFilter !== 'all' || !!e.project_id || e.dismissed).map((email) => (
-                <EmailCard
-                  key={email.id}
-                  email={email}
-                  isSelected={selectedId === email.id}
+              {!loading && conversationGroups.map((group) => (
+                <EmailThreadGroup
+                  key={group[0].conversation_id ?? group[0].id}
+                  emails={group}
+                  expanded={!!group[0].conversation_id && expandedThreads.has(group[0].conversation_id)}
+                  onToggleExpand={() => group[0].conversation_id && toggleThread(group[0].conversation_id)}
+                  isSelected={(id) => id === selectedId}
                   showStatusPill={tabFilter === 'all'}
                   showTriage={tabFilter === 'untagged'}
                   projects={projects}
-                  onSelect={() => handleSelectEmail(email)}
+                  onSelect={handleSelectEmail}
                   onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
@@ -1230,7 +1274,6 @@ export default function InboxPage() {
                   onDismiss={handleDismiss}
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
-                  onViewThread={(e) => handleSelectEmail(e)}
                 />
               ))}
 
