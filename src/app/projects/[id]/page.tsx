@@ -90,6 +90,7 @@ function HeaderCard({ project }: { project: Project }) {
   const [client2Phone, setClient2Phone] = useState(project.client2_phone || '');
   const [clientStreet, setClientStreet] = useState(project.client_street || '');
   const [clientCityStateZip, setClientCityStateZip] = useState(project.client_city_state_zip || '');
+  const [eventDays, setEventDays] = useState<EventDay[]>(project.event_days || []);
 
   const patchProject = (updates: Record<string, unknown>) => {
     fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: project.id, ...updates }) });
@@ -191,17 +192,34 @@ function HeaderCard({ project }: { project: Project }) {
               </a>
             )}
             {/* Additional event days */}
-            {(project.event_days || []).map(day => (
-              <div key={day.id} className="mt-2 pl-3 border-l-2 border-fq-border/50 space-y-0.5">
+            {eventDays.map(day => (
+              <div key={day.id} className="mt-2 pl-3 border-l-2 border-fq-border/50 space-y-0.5 group/day">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className={`font-body text-[12px] font-medium ${t.body}`}>{day.day_name}</span>
                   {day.event_date && <span className={`font-body text-[11px] ${t.light}`}>· {formatDate(day.event_date)}</span>}
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm(`Delete "${day.day_name}"?`)) return;
+                      await fetch(`/api/event-days?id=${day.id}`, { method: 'DELETE' });
+                      setEventDays(prev => prev.filter(d => d.id !== day.id));
+                    }}
+                    className={`opacity-0 group-hover/day:opacity-100 font-body text-[11px] text-fq-muted/40 hover:text-red-500 transition-all`}
+                    title="Delete event day"
+                  >×</button>
                 </div>
                 {day.venue_name && <p className={`font-body text-[12px] ${t.light}`}>{day.venue_name}</p>}
                 {(day.venue_street || day.venue_city_state_zip) && (
                   <p className={`font-body text-[11px] ${t.light} opacity-80`}>
                     {[day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', ')}
                   </p>
+                )}
+                {(day.venue_street || day.venue_city_state_zip) && (
+                  <a
+                    href={`https://maps.google.com/?q=${encodeURIComponent([day.venue_name, day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', '))}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`font-body text-[11px] ${t.light} hover:text-fq-accent transition-colors`}
+                  >Open in Maps ↗</a>
                 )}
               </div>
             ))}
