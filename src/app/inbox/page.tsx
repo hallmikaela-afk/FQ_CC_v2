@@ -168,6 +168,13 @@ export default function InboxPage() {
   /* ── Thread expand/collapse state ── */
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
 
+  /* ── Bulk select state ── */
+  const [isSelectMode,     setIsSelectMode]     = useState(false);
+  const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
+  const lastBulkSelectedIdRef                   = useRef<string | null>(null);
+  const [bulkFileOpen,     setBulkFileOpen]     = useState(false);
+  const [bulkDeleteConfirm,setBulkDeleteConfirm]= useState(false);
+
   /* ── "now" tick — updates relative "synced X ago" label every minute ── */
   useEffect(() => {
     const id = setInterval(() => setNowTick((n) => n + 1), 60_000);
@@ -846,6 +853,84 @@ export default function InboxPage() {
     }
   };
 
+  /* ── Bulk select handlers ── */
+  const toggleSelectMode = useCallback(() => {
+    setIsSelectMode((v) => {
+      if (v) {
+        setSelectedEmailIds(new Set());
+        lastBulkSelectedIdRef.current = null;
+        setBulkDeleteConfirm(false);
+      }
+      return !v;
+    });
+  }, []);
+
+  const handleBulkToggle = useCallback((email: Email, shiftKey: boolean) => {
+    setBulkDeleteConfirm(false);
+    if (shiftKey && lastBulkSelectedIdRef.current) {
+      const ids = filteredEmails.map((e) => e.id);
+      const lastIdx = ids.indexOf(lastBulkSelectedIdRef.current);
+      const currIdx = ids.indexOf(email.id);
+      if (lastIdx !== -1 && currIdx !== -1) {
+        const [from, to] = lastIdx < currIdx ? [lastIdx, currIdx] : [currIdx, lastIdx];
+        setSelectedEmailIds((prev) => {
+          const next = new Set(prev);
+          for (let i = from; i <= to; i++) next.add(ids[i]);
+          return next;
+        });
+        return;
+      }
+    }
+    lastBulkSelectedIdRef.current = email.id;
+    setSelectedEmailIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(email.id)) next.delete(email.id);
+      else next.add(email.id);
+      return next;
+    });
+  }, [filteredEmails]);
+
+  const handleBulkMarkRead = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    await Promise.all(ids.map((id) => patch(id, { is_read: true })));
+    setSelectedEmailIds(new Set());
+  }, [selectedEmailIds, patch]);
+
+  const handleBulkResolve = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    await Promise.all(ids.map((id) => patch(id, { resolved: true, needs_followup: false, needs_response: false })));
+    setSelectedEmailIds(new Set());
+  }, [selectedEmailIds, patch]);
+
+  const handleBulkDismiss = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    await Promise.all(ids.map((id) => patch(id, { dismissed: true })));
+    setDismissedCount((c) => c + ids.length);
+    setSelectedEmailIds(new Set());
+  }, [selectedEmailIds, patch]);
+
+  const handleBulkDelete = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    setEmails((prev) => prev.filter((e) => !ids.includes(e.id)));
+    if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+    await Promise.all(ids.map((id) =>
+      fetch('/api/emails', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, delete_from_outlook: false }),
+      }).catch(() => {}),
+    ));
+    setSelectedEmailIds(new Set());
+    setBulkDeleteConfirm(false);
+  }, [selectedEmailIds, selectedId]);
+
+  const handleBulkReassign = useCallback(async (projectId: string | null) => {
+    const emailsToUpdate = emails.filter((e) => selectedEmailIds.has(e.id));
+    await Promise.all(emailsToUpdate.map((e) => handleReassign(e, projectId)));
+    setSelectedEmailIds(new Set());
+    setBulkFileOpen(false);
+  }, [selectedEmailIds, emails, handleReassign]);
+
   /* ── Migrate all tagged emails to their correct Outlook folders ── */
   const handleMigrateOutlookFolders = async () => {
     setMigrating(true);
@@ -1005,6 +1090,17 @@ export default function InboxPage() {
                 >
                   <path d="M4 10a6 6 0 1 0 1.3-3.8" /><path d="M4 6v4h4" />
                 </svg>
+              </button>
+              {/* Select mode toggle */}
+              <button
+                onClick={toggleSelectMode}
+                className={`px-3 py-1.5 rounded-lg font-body text-[12px] transition-colors ${
+                  isSelectMode
+                    ? 'bg-fq-sage-light text-fq-sage font-medium'
+                    : `${tk.light} hover:bg-fq-light-accent`
+                }`}
+              >
+                {isSelectMode ? 'Done' : 'Select'}
               </button>
               {/* Compose button */}
               <button
@@ -1175,7 +1271,7 @@ export default function InboxPage() {
         )}
 
         {/* Email list */}
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
+        <div className={`relative flex-1 overflow-y-auto px-4 ${isSelectMode && selectedEmailIds.size > 0 ? 'pb-20' : 'pb-6'}`}>
 
           {/* ── Search results mode ── */}
           {isSearchActive && (
@@ -1198,6 +1294,9 @@ export default function InboxPage() {
                   isSelected={selectedId === email.id}
                   projects={projects}
                   onSelect={() => handleSelectEmail(email)}
+                  isSelectMode={isSelectMode}
+                  isBulkSelected={selectedEmailIds.has(email.id)}
+                  onBulkToggle={(shiftKey) => handleBulkToggle(email, shiftKey)}
                   onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
@@ -1286,6 +1385,9 @@ export default function InboxPage() {
                           showTriage
                           projects={projects}
                           onSelect={() => handleSelectEmail(email)}
+                          isSelectMode={isSelectMode}
+                          isBulkSelected={selectedEmailIds.has(email.id)}
+                          onBulkToggle={(shiftKey) => handleBulkToggle(email, shiftKey)}
                           onReply={handleReply}
                           onConfirmSuggested={handleConfirmSuggested}
                           onDismissSuggested={handleDismissSuggested}
@@ -1316,6 +1418,9 @@ export default function InboxPage() {
                   showTriage={tabFilter === 'untagged'}
                   projects={projects}
                   onSelect={handleSelectEmail}
+                  isSelectMode={isSelectMode}
+                  selectedEmailIds={selectedEmailIds}
+                  onBulkToggle={handleBulkToggle}
                   onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
@@ -1346,6 +1451,106 @@ export default function InboxPage() {
                 </div>
               )}
             </>
+          )}
+
+          {/* ── Bulk action bar ── */}
+          {isSelectMode && selectedEmailIds.size > 0 && (
+            <div className="absolute bottom-3 left-3 right-3 z-20 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-fq-dark text-white shadow-lg">
+              <span className="font-body text-[11.5px] text-white/55 shrink-0 mr-1">
+                {selectedEmailIds.size} selected
+              </span>
+              <div className="w-px h-3.5 bg-white/15 shrink-0" />
+
+              <button
+                onClick={handleBulkMarkRead}
+                className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                Mark Read
+              </button>
+
+              <button
+                onClick={handleBulkResolve}
+                className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                Resolve
+              </button>
+
+              {/* File to Project */}
+              <div className="relative">
+                <button
+                  onClick={() => { setBulkFileOpen((v) => !v); setBulkDeleteConfirm(false); }}
+                  className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap flex items-center gap-1"
+                >
+                  File to Project
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 2.5l3 3 3-3" />
+                  </svg>
+                </button>
+                {bulkFileOpen && (
+                  <div className="absolute bottom-full mb-1 left-0 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+                    {projects.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleBulkReassign(p.id)}
+                        className={`w-full text-left px-3 py-1.5 font-body text-[12px] hover:bg-fq-light-accent transition-colors ${tk.body}`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                    <div className="border-t border-fq-border my-1" />
+                    <button
+                      onClick={() => handleBulkReassign(null)}
+                      className={`w-full text-left px-3 py-1.5 font-body text-[12px] hover:bg-fq-light-accent transition-colors ${tk.light}`}
+                    >
+                      Untagged
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleBulkDismiss}
+                className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                Dismiss
+              </button>
+
+              {/* Delete with two-click confirmation */}
+              {!bulkDeleteConfirm ? (
+                <button
+                  onClick={() => { setBulkDeleteConfirm(true); setBulkFileOpen(false); }}
+                  className="font-body text-[11.5px] text-white/55 hover:text-red-400 px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+                >
+                  Delete
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="font-body text-[11.5px] text-red-400 font-medium px-2 py-1 rounded-lg hover:bg-red-500/20 transition-colors whitespace-nowrap"
+                  >
+                    Delete {selectedEmailIds.size}?
+                  </button>
+                  <button
+                    onClick={() => setBulkDeleteConfirm(false)}
+                    className="font-body text-[11.5px] text-white/40 hover:text-white px-1 py-1 rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+
+              <div className="flex-1" />
+              <button
+                onClick={() => { setSelectedEmailIds(new Set()); setBulkDeleteConfirm(false); setBulkFileOpen(false); }}
+                className="p-1 rounded-lg hover:bg-white/10 transition-colors text-white/40 hover:text-white shrink-0"
+                title="Clear selection"
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 2l8 8M10 2L2 10" />
+                </svg>
+              </button>
+            </div>
           )}
         </div>
       </div>

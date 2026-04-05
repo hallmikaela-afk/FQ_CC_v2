@@ -22,6 +22,10 @@ interface Props {
   onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
   onRightClick?: (email: Email, x: number, y: number) => void;
+  /* Bulk select */
+  isSelectMode?: boolean;
+  selectedEmailIds?: Set<string>;
+  onBulkToggle?: (email: Email, shiftKey: boolean) => void;
 }
 
 export default function EmailThreadGroup({
@@ -44,6 +48,9 @@ export default function EmailThreadGroup({
   onDelete,
   onReassign,
   onRightClick,
+  isSelectMode,
+  selectedEmailIds,
+  onBulkToggle,
 }: Props) {
   const [representative, ...siblings] = emails;
   const hasThread = siblings.length > 0;
@@ -72,6 +79,9 @@ export default function EmailThreadGroup({
         showTriage={showTriage}
         onSelect={() => onSelect(representative)}
         onViewThread={(_e) => onSelect(representative)}
+        isSelectMode={isSelectMode}
+        isBulkSelected={selectedEmailIds?.has(representative.id) ?? false}
+        onBulkToggle={(shiftKey) => onBulkToggle?.(representative, shiftKey)}
         {...sharedCardProps}
       />
     );
@@ -90,6 +100,9 @@ export default function EmailThreadGroup({
         threadCount={emails.length}
         threadExpanded={expanded}
         onThreadToggle={onToggleExpand}
+        isSelectMode={isSelectMode}
+        isBulkSelected={selectedEmailIds?.has(representative.id) ?? false}
+        onBulkToggle={(shiftKey) => onBulkToggle?.(representative, shiftKey)}
         {...sharedCardProps}
       />
 
@@ -105,6 +118,9 @@ export default function EmailThreadGroup({
               showTriage={false}
               onSelect={() => onSelect(email)}
               onViewThread={(_e) => onSelect(email)}
+              isSelectMode={isSelectMode}
+              isBulkSelected={selectedEmailIds?.has(email.id) ?? false}
+              onBulkToggle={(shiftKey) => onBulkToggle?.(email, shiftKey)}
               {...sharedCardProps}
             />
           ))}

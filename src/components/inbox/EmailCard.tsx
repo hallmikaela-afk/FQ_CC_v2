@@ -52,6 +52,10 @@ interface Props {
   showTriage?: boolean;           // Untagged tab: show always-visible triage controls
   projects: Project[];
   onSelect: () => void;
+  /* Bulk select */
+  isSelectMode?: boolean;
+  isBulkSelected?: boolean;
+  onBulkToggle?: (shiftKey: boolean) => void;
   onReply: (email: Email) => void;
   onConfirmSuggested: (email: Email) => void;
   onDismissSuggested: (email: Email) => void;
@@ -215,6 +219,9 @@ export default function EmailCard({
   showTriage = false,
   projects,
   onSelect,
+  isSelectMode = false,
+  isBulkSelected = false,
+  onBulkToggle,
   onReply,
   onConfirmSuggested,
   onDismissSuggested,
@@ -264,12 +271,25 @@ export default function EmailCard({
     <div
       role="button"
       tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+      onClick={(e) => {
+        if (isSelectMode) { onBulkToggle?.(e.shiftKey); }
+        else { onSelect(); }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || (e.key === ' ' && isSelectMode)) {
+          e.preventDefault();
+          if (isSelectMode) onBulkToggle?.(false);
+          else onSelect();
+        }
+      }}
       onContextMenu={(e) => { if (onRightClick) { e.preventDefault(); onRightClick(email, e.clientX, e.clientY); } }}
       className={`group relative rounded-xl mb-2 transition-all duration-150 border cursor-pointer overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-fq-accent/40 ${
         deleting
           ? 'opacity-40 scale-[0.98] pointer-events-none'
+          : isSelectMode
+          ? isBulkSelected
+            ? 'bg-fq-sage-light/30 border-fq-sage/30'
+            : 'bg-fq-card border-fq-border hover:border-fq-sage/20 hover:shadow-sm'
           : isSelected
           ? 'bg-fq-light-accent border-fq-accent/35 shadow-sm'
           : 'bg-fq-card border-fq-border hover:border-fq-accent/20 hover:shadow-sm'
@@ -284,7 +304,19 @@ export default function EmailCard({
         <div className="flex-1 px-4 py-2.5 min-w-0">
           {/* Row 1: sender + time */}
           <div className="flex items-start gap-2.5">
-            <ReadDot isRead={email.is_read} />
+            {isSelectMode ? (
+              <div className={`w-4 h-4 rounded border-2 shrink-0 mt-1 flex items-center justify-center transition-colors ${
+                isBulkSelected ? 'bg-fq-sage border-fq-sage' : 'border-fq-border bg-transparent'
+              }`}>
+                {isBulkSelected && (
+                  <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                )}
+              </div>
+            ) : (
+              <ReadDot isRead={email.is_read} />
+            )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2 mb-0.5">
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -494,9 +526,9 @@ export default function EmailCard({
         </div>
       </div>
 
-      {/* ── Quick action toolbar — absolute overlay, visible on hover ── */}
+      {/* ── Quick action toolbar — absolute overlay, visible on hover (hidden in select mode) ── */}
       <div
-        className="absolute top-2.5 right-3 hidden group-hover:flex items-center gap-0.5"
+        className={`absolute top-2.5 right-3 items-center gap-0.5 ${isSelectMode ? 'hidden' : 'hidden group-hover:flex'}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-0.5 bg-fq-light-accent border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
