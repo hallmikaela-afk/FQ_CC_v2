@@ -528,13 +528,14 @@ export default function InboxPage() {
   );
 
   /* ── Triage banner: untagged emails shown at top of "All" tab ── */
-  const triageEmails = useMemo(
-    () =>
-      visibleEmails
-        .filter((e) => !e.project_id && !e.dismissed)
-        .sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? '')),
-    [visibleEmails],
-  );
+  const triageEmails = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffStr = cutoff.toISOString();
+    return visibleEmails
+      .filter((e) => !e.project_id && !e.dismissed && (e.received_at ?? '') >= cutoffStr)
+      .sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? ''));
+  }, [visibleEmails]);
 
   const totalUnread = visibleEmails.filter((e) => !e.is_read && !!e.project_id && !e.resolved).length;
   const selected    = selectedId
