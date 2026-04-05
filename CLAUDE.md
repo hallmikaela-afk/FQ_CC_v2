@@ -38,6 +38,7 @@ AZURE_TENANT_ID                   # Microsoft OAuth tenant
 AZURE_CLIENT_ID                   # Microsoft OAuth app client ID
 AZURE_CLIENT_SECRET               # Microsoft OAuth app secret
 NEXTAUTH_URL / NEXT_PUBLIC_APP_URL # App base URL for OAuth callbacks
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY   # Google Maps JS API — enables Places Autocomplete in AddEventDayModal (falls back to plain text if absent). Requires Maps JavaScript API + Places API enabled in Google Cloud Console.
 ```
 
 Never expose `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, or Azure secrets to the client. They are server-only.
@@ -66,7 +67,8 @@ src/
       emails/                 # Sync, compose, reply, draft, triage, search, folders
       projects/               # CRUD + Outlook folder sync
       tasks/ subtasks/        # CRUD
-      vendors/                # CRUD
+      vendors/                # CRUD — supports event_day_id for per-day vendor assignment
+      event-days/             # CRUD — additional event days per project (rehearsal dinner, ceremony, etc.)
       call-notes/             # CRUD
       sprint-tasks/           # CRUD + AI chat for week planning
       project-files/          # Upload/list
@@ -78,8 +80,9 @@ src/
   components/
     Sidebar.tsx               # Collapsible nav with project dropdown
     LayoutWrapper.tsx         # Wraps all pages with sidebar
-    ClientCard.tsx            # Dashboard card for weddings
+    ClientCard.tsx            # Dashboard card for weddings — includes + Event Day button and event day venue list
     ShootCard.tsx             # Dashboard card for editorial shoots
+    AddEventDayModal.tsx      # Modal for adding/editing/deleting additional event days; Google Maps Places Autocomplete on venue name
     FloatingChat.tsx          # Persistent floating AI chat bubble
     WeekChatPanel.tsx         # AI chat panel on week page
     ProjectFileUpload.tsx     # File upload for project documents
@@ -119,7 +122,8 @@ supabase/
 - **subtasks** — children of tasks.
 - **team_members** — Mikaela's team (currently: Mikaela, Liliana VanMiddlesworth, Tim).
 - **project_assignments** — many-to-many projects ↔ team_members.
-- **vendors** — per-project vendor contacts (category, name, email, phone, instagram).
+- **vendors** — per-project vendor contacts (category, name, email, phone, instagram). Has `event_day_id` FK (nullable) — null = Wedding Day (primary event), set = additional event day.
+- **event_days** — additional event days per project (e.g. rehearsal dinner, ceremony, brunch). Has `day_name`, `event_date`, `venue_name`, `venue_street`, `venue_city_state_zip`, `sort_order`. Migrations 019–020. Projects also have `primary_day_name` (default `'Wedding Day'`) to rename the main event label.
 - **call_notes** — raw + summarized notes from client/vendor calls.
 - **extracted_actions** — AI-extracted action items from call notes.
 - **template_tasks** — reusable task templates keyed by `weeks_before_event`.
