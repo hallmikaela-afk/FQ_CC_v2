@@ -89,6 +89,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Create primary event day row (every project must have one) ────────────
+  await supabase.from('event_days').insert({
+    project_id: project.id,
+    day_name: 'Wedding Day',
+    event_date: project.event_date || null,
+    sort_order: 0,
+  });
+
   // ── Create matching Outlook folder (best-effort, non-blocking) ────────────
   let outlookFolderCreated = false;
   try {

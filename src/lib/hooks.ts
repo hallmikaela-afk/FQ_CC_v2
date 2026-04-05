@@ -238,7 +238,7 @@ export function useFullProjects() {
           phone: v.phone || undefined,
           website: v.website || undefined,
           instagram: v.instagram || undefined,
-          event_day_id: v.event_day_id ?? null,
+          event_day_id: v.event_day_id,
         }));
 
       const projectEventDays: EventDay[] = allEventDays
@@ -312,7 +312,6 @@ export function useFullProjects() {
         sharepoint_folder: p.sharepoint_folder || undefined,
         project_colors: p.project_colors || undefined,
         next_call_agenda: p.next_call_agenda || undefined,
-        primary_day_name: p.primary_day_name || undefined,
         tasks_total: projectTasks.length,
         tasks_completed: projectTasks.filter(t => t.completed).length,
         overdue_count: projectTasks.filter(t => !t.completed && t.due_date && t.due_date < today).length,

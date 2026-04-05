@@ -21,9 +21,7 @@ export async function GET(req: NextRequest) {
     const uuid = await resolveProjectId(supabase, projectId);
     if (uuid) query = query.eq('project_id', uuid);
   }
-  if (eventDayId === 'null') {
-    query = query.is('event_day_id', null);
-  } else if (eventDayId) {
+  if (eventDayId) {
     query = query.eq('event_day_id', eventDayId);
   }
 

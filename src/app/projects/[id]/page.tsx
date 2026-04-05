@@ -765,12 +765,14 @@ function VendorContacts({
 
   const mainDayLabel = primaryDayName || 'Wedding Day';
 
-  const allDaySlots = [
-    { id: null as string | null, label: mainDayLabel + (projectVenueName ? ` — ${projectVenueName}` : '') },
-    ...eventDays.map(d => ({ id: d.id, label: d.day_name + (d.venue_name ? ` — ${d.venue_name}` : '') })),
-  ];
+  const primaryDay = eventDays.find(d => d.sort_order === 0) ?? null;
+  const additionalDays = eventDays.filter(d => d.sort_order !== 0);
+  const hasMultipleDays = additionalDays.length > 0;
 
-  const hasMultipleDays = eventDays.length > 0;
+  const allDaySlots = [
+    { id: (primaryDay?.id ?? null) as string | null, label: mainDayLabel + (projectVenueName ? ` — ${projectVenueName}` : '') },
+    ...additionalDays.map(d => ({ id: d.id, label: d.day_name + (d.venue_name ? ` — ${d.venue_name}` : '') })),
+  ];
 
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-6">
@@ -799,7 +801,7 @@ function VendorContacts({
               dayLabel={mainDayLabel}
               venueName={projectVenueName}
               eventDate={projectEventDate}
-              vendors={vendors.filter(v => !v.event_day_id)}
+              vendors={vendors.filter(v => v.event_day_id === primaryDay?.id)}
               allDaySlots={allDaySlots}
               onAddVendor={() => setAddModalFor('main')}
               onRemoveVendor={removeVendor}
@@ -807,7 +809,7 @@ function VendorContacts({
               onLabelChange={onPrimaryDayNameChange}
               isMainDay={true}
             />
-            {eventDays.map((day) => (
+            {additionalDays.map((day) => (
               <VendorDaySection
                 key={day.id}
                 dayLabel={day.day_name}
@@ -840,7 +842,7 @@ function VendorContacts({
         open={addModalFor !== null}
         onClose={() => setAddModalFor(null)}
         onAdd={(vendor) => {
-          const dayId = addModalFor === 'main' ? null : addModalFor;
+          const dayId = addModalFor === 'main' ? (primaryDay?.id ?? null) : addModalFor;
           addVendor(vendor, dayId);
           setAddModalFor(null);
         }}
@@ -2485,10 +2487,13 @@ export default function ProjectDetailPage() {
   const [pendingNewDay, setPendingNewDay] = useState<EventDay | null>(null);
   const [primaryDayName, setPrimaryDayName] = useState<string>('');
 
-  // Sync primaryDayName from project on load
+  // Sync primaryDayName from the sort_order=0 event day
   const foundProject = projects.find(p => p.id === projectId);
   useEffect(() => {
-    if (foundProject) setPrimaryDayName((foundProject as any).primary_day_name || 'Wedding Day');
+    if (foundProject) {
+      const primaryDay = (foundProject.event_days || []).find((d: any) => d.sort_order === 0);
+      setPrimaryDayName(primaryDay?.day_name || 'Wedding Day');
+    }
   }, [foundProject?.id]);
 
   // Update the module-level lookup so sub-components can use it
@@ -2585,7 +2590,10 @@ export default function ProjectDetailPage() {
             primaryDayName={primaryDayName || 'Wedding Day'}
             onPrimaryDayNameChange={(v) => {
               setPrimaryDayName(v);
-              fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: (project as any)._supabaseId || project.id, primary_day_name: v }) });
+              const primaryDay = (project.event_days || []).find((d: any) => d.sort_order === 0);
+              if (primaryDay) {
+                fetch('/api/event-days', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: primaryDay.id, day_name: v }) });
+              }
             }}
             pendingNewDay={pendingNewDay}
             onPendingDayConsumed={() => setPendingNewDay(null)}

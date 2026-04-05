@@ -112,8 +112,6 @@ export interface Project {
   project_colors?: string[];
   // Next call agenda
   next_call_agenda?: string[];
-  // Primary event day label (defaults to 'Wedding Day')
-  primary_day_name?: string;
   // Related data
   tasks?: Task[];
   vendors?: Vendor[];

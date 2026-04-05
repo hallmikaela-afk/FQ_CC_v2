@@ -125,7 +125,6 @@ export interface ProjectRow {
   sharepoint_folder: string | null;
   project_colors: string[] | null;
   next_call_agenda: string[] | null;
-  primary_day_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -158,7 +157,7 @@ export interface SubtaskRow {
 export interface VendorRow {
   id: string;
   project_id: string;
-  event_day_id: string | null;
+  event_day_id: string;
   category: string;
   vendor_name: string;
   contact_name: string | null;
