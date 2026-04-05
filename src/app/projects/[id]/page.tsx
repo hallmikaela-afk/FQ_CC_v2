@@ -430,6 +430,7 @@ function VendorDaySection({
   onPatchDay,
   onEditDay,
   onLabelChange,
+  onDeleteDay,
   isMainDay,
 }: {
   dayLabel: string;
