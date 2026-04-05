@@ -542,6 +542,13 @@ export default function InboxPage() {
     ? (emails.find((e) => e.id === selectedId) ?? searchResults?.find((e) => e.id === selectedId) ?? null)
     : null;
 
+  const threadEmails = useMemo(() => {
+    if (!selected?.conversation_id) return [];
+    return emails
+      .filter((e) => e.conversation_id === selected.conversation_id && e.id !== selected.id)
+      .sort((a, b) => (a.received_at ?? '').localeCompare(b.received_at ?? ''));
+  }, [selected, emails]);
+
   /* ── Email actions ── */
   const patch = useCallback(async (id: string, updates: Record<string, unknown>) => {
     // Optimistic update
@@ -1109,6 +1116,7 @@ export default function InboxPage() {
                   onDismiss={handleDismiss}
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
+                  onViewThread={(e) => handleSelectEmail(e)}
                 />
               ))}
             </>
@@ -1193,8 +1201,9 @@ export default function InboxPage() {
                           onNeedsResponse={handleNeedsResponse}
                           onDraftResponse={handleDraftResponse}
                           onDismiss={handleDismiss}
-                  onDelete={handleDeleteEmail}
+                          onDelete={handleDeleteEmail}
                           onReassign={handleReassign}
+                          onViewThread={(e) => handleSelectEmail(e)}
                         />
                       ))}
                     </div>
@@ -1221,6 +1230,7 @@ export default function InboxPage() {
                   onDismiss={handleDismiss}
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
+                  onViewThread={(e) => handleSelectEmail(e)}
                 />
               ))}
 
@@ -1281,6 +1291,8 @@ export default function InboxPage() {
           onGenerateDraft={() => handleDraftResponse(selected)}
           draftFallbackText={draftFallbackText}
           onDraftFallbackConsumed={() => setDraftFallbackText(null)}
+          threadEmails={threadEmails}
+          onSelectThread={(e) => handleSelectEmail(e)}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-fq-bg">

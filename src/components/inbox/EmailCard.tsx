@@ -62,6 +62,7 @@ interface Props {
   onDismiss: (email: Email) => void;
   onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
+  onViewThread?: (email: Email) => void;
 }
 
 /* ── Design tokens ── */
@@ -220,6 +221,7 @@ export default function EmailCard({
   onDismiss,
   onDelete,
   onReassign,
+  onViewThread,
 }: Props) {
   const proj        = email.projects;
   const isUntagged  = !email.project_id;
@@ -451,24 +453,29 @@ export default function EmailCard({
               )}
             </div>
 
-            {/* Chevron — hidden on hover when quick actions appear */}
-            <svg
-              width="12" height="12" viewBox="0 0 14 14" fill="none"
-              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className={`mt-1 shrink-0 ${tk.light} group-hover:opacity-0 transition-opacity`}
+            {/* Chevron — thread view button, always visible */}
+            <button
+              onClick={(e) => { e.stopPropagation(); onViewThread ? onViewThread(email) : onSelect(); }}
+              title="View thread"
+              className={`mt-1 shrink-0 p-0.5 rounded ${tk.light} hover:text-fq-accent transition-colors`}
             >
-              <path d="M5 3l4 4-4 4" />
-            </svg>
+              <svg
+                width="12" height="12" viewBox="0 0 14 14" fill="none"
+                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <path d="M5 3l4 4-4 4" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* ── Quick action toolbar — absolute overlay, visible on hover ── */}
+      {/* ── Quick action toolbar — inline bottom row, visible on hover ── */}
       <div
-        className="absolute top-2.5 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none group-hover:pointer-events-auto"
+        className="hidden group-hover:flex items-center justify-end gap-0.5 px-4 pb-2.5 -mt-1"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-0.5 bg-fq-card/95 border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
+        <div className="flex items-center gap-0.5 bg-fq-light-accent border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
 
           {/* 1. Reply — opens the email to compose a reply */}
           <Tip label="Reply">

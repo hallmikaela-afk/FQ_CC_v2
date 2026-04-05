@@ -32,6 +32,10 @@ interface Props {
   draftFallbackText?: string | null;
   /** Called once the fallback text has been consumed so parent can clear it */
   onDraftFallbackConsumed?: () => void;
+  /** Other emails in the same conversation thread */
+  threadEmails?: Email[];
+  /** Called when a thread email is clicked */
+  onSelectThread?: (email: Email) => void;
 }
 
 /* ── Design tokens ── */
@@ -1726,7 +1730,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed, threadEmails, onSelectThread }: Props) {
   const [replyOpen,    setReplyOpen]    = useState(false);
   const [replyAllMode, setReplyAllMode] = useState(false);
   const [forwardOpen,  setForwardOpen]  = useState(false);
@@ -2050,6 +2054,35 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
 
         {/* Email body */}
         <EmailBody html={email.body} plaintext={email.body_preview} />
+
+        {/* Thread — other messages in the same conversation */}
+        {threadEmails && threadEmails.length > 0 && (
+          <div className="border border-fq-border rounded-xl overflow-hidden">
+            <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center gap-2">
+              <ChevronDown size={12} className="text-fq-muted/60" />
+              <span className="font-body text-[11.5px] font-medium text-fq-dark/70">
+                {threadEmails.length} more message{threadEmails.length !== 1 ? 's' : ''} in this thread
+              </span>
+            </div>
+            {threadEmails.map((te) => (
+              <button
+                key={te.id}
+                onClick={() => onSelectThread?.(te)}
+                className="w-full text-left px-4 py-3 border-b border-fq-border/40 last:border-0 hover:bg-fq-light-accent/30 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-0.5 gap-2">
+                  <span className="font-body text-[12.5px] font-medium text-fq-dark/80 truncate">
+                    {te.from_name || te.from_email}
+                  </span>
+                  <span className="font-body text-[11px] text-fq-muted/55 shrink-0">
+                    {te.received_at ? new Date(te.received_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                  </span>
+                </div>
+                <p className="font-body text-[11.5px] text-fq-muted/65 truncate">{te.body_preview}</p>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Create task form */}
         {taskOpen && (
