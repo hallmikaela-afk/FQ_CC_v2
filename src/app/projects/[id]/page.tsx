@@ -429,6 +429,7 @@ function VendorDaySection({
   onCopySelectedToDay,
   onPatchDay,
   onEditDay,
+  onLabelChange,
   isMainDay,
 }: {
   dayLabel: string;
@@ -441,12 +442,19 @@ function VendorDaySection({
   onCopySelectedToDay: (vendorIds: string[], targetDayId: string | null) => void;
   onPatchDay?: (updates: Record<string, string>) => void;
   onEditDay?: () => void;
+  onLabelChange?: (v: string) => void;
   isMainDay: boolean;
 }) {
   const [showCopyPanel, setShowCopyPanel] = useState(false);
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
   const [copyTarget, setCopyTarget] = useState<string>('__none__');
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [labelDraft, setLabelDraft] = useState(dayLabel);
+  const labelInputRef = useRef<HTMLInputElement>(null);
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', muted: 'text-fq-muted/60' };
+
+  useEffect(() => { if (editingLabel) labelInputRef.current?.focus(); }, [editingLabel]);
+  useEffect(() => { setLabelDraft(dayLabel); }, [dayLabel]);
 
   const copyTargets = allDaySlots.filter(s => isMainDay ? s.id !== null : s.id !== (onPatchDay ? '__current__' : null));
 
@@ -472,7 +480,25 @@ function VendorDaySection({
       {/* Day header */}
       <div className="flex items-center gap-3 px-4 py-3 bg-fq-bg/60 border-b border-fq-border">
         <div className="flex-1 flex items-center gap-2 min-w-0 flex-wrap">
-          <span className={`font-heading text-[14px] font-semibold ${t.heading}`}>{dayLabel}</span>
+          {onLabelChange && editingLabel ? (
+            <input
+              ref={labelInputRef}
+              value={labelDraft}
+              onChange={e => setLabelDraft(e.target.value)}
+              onBlur={() => { if (labelDraft.trim()) onLabelChange(labelDraft.trim()); setEditingLabel(false); }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { if (labelDraft.trim()) onLabelChange(labelDraft.trim()); setEditingLabel(false); }
+                if (e.key === 'Escape') { setLabelDraft(dayLabel); setEditingLabel(false); }
+              }}
+              className={`font-heading text-[14px] font-semibold ${t.heading} bg-transparent border-b border-fq-accent/40 outline-none w-[180px]`}
+            />
+          ) : (
+            <span
+              className={`font-heading text-[14px] font-semibold ${t.heading} ${onLabelChange ? 'cursor-text hover:border-b hover:border-fq-border/60 transition-colors' : ''}`}
+              onClick={() => { if (onLabelChange) { setLabelDraft(dayLabel); setEditingLabel(true); } }}
+              title={onLabelChange ? 'Click to rename' : undefined}
+            >{dayLabel}</span>
+          )}
           {venueName && (
             <>
               <span className={`${t.muted} text-[11px]`}>·</span>
@@ -584,6 +610,8 @@ function VendorContacts({
   eventDays: initialEventDays,
   projectVenueName,
   projectEventDate,
+  primaryDayName,
+  onPrimaryDayNameChange,
   pendingNewDay,
   onPendingDayConsumed,
 }: {
@@ -593,6 +621,8 @@ function VendorContacts({
   eventDays: EventDay[];
   projectVenueName: string;
   projectEventDate: string;
+  primaryDayName?: string;
+  onPrimaryDayNameChange?: (v: string) => void;
   pendingNewDay?: EventDay | null;
   onPendingDayConsumed?: () => void;
 }) {
@@ -659,7 +689,7 @@ function VendorContacts({
   const downloadCSV = () => {
     const headers = ['Category', 'Vendor Name', 'Contact Name', 'Email', 'Phone', 'Website', 'Instagram', 'Event Day'];
     const getDayName = (id: string | null | undefined) => {
-      if (!id) return 'Wedding Day';
+      if (!id) return mainDayLabel;
       return eventDays.find(d => d.id === id)?.day_name || id;
     };
     const rows = vendors.map(v => [v.category, v.vendor_name, v.contact_name || '', v.email || '', v.phone || '', v.website || '', v.instagram || '', getDayName(v.event_day_id)]);
@@ -679,8 +709,10 @@ function VendorContacts({
 
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
+  const mainDayLabel = primaryDayName || 'Wedding Day';
+
   const allDaySlots = [
-    { id: null as string | null, label: 'Wedding Day' + (projectVenueName ? ` — ${projectVenueName}` : '') },
+    { id: null as string | null, label: mainDayLabel + (projectVenueName ? ` — ${projectVenueName}` : '') },
     ...eventDays.map(d => ({ id: d.id, label: d.day_name + (d.venue_name ? ` — ${d.venue_name}` : '') })),
   ];
 
@@ -710,7 +742,7 @@ function VendorContacts({
         hasMultipleDays ? (
           <div className="space-y-4">
             <VendorDaySection
-              dayLabel="Wedding Day"
+              dayLabel={mainDayLabel}
               venueName={projectVenueName}
               eventDate={projectEventDate}
               vendors={vendors.filter(v => !v.event_day_id)}
@@ -718,6 +750,7 @@ function VendorContacts({
               onAddVendor={() => setAddModalFor('main')}
               onRemoveVendor={removeVendor}
               onCopySelectedToDay={copySelectedToDay}
+              onLabelChange={onPrimaryDayNameChange}
               isMainDay={true}
             />
             {eventDays.map((day) => (
@@ -2392,6 +2425,13 @@ export default function ProjectDetailPage() {
   const [activeSection, setActiveSection] = useState<'overview' | 'drive'>('overview');
   const [showAddEventDayModal, setShowAddEventDayModal] = useState(false);
   const [pendingNewDay, setPendingNewDay] = useState<EventDay | null>(null);
+  const [primaryDayName, setPrimaryDayName] = useState<string>('');
+
+  // Sync primaryDayName from project on load
+  const foundProject = projects.find(p => p.id === projectId);
+  useEffect(() => {
+    if (foundProject) setPrimaryDayName((foundProject as any).primary_day_name || 'Wedding Day');
+  }, [foundProject?.id]);
 
   // Update the module-level lookup so sub-components can use it
   getTeamMember = teamLookup;
@@ -2484,6 +2524,11 @@ export default function ProjectDetailPage() {
             eventDays={(project as any).event_days || []}
             projectVenueName={project.venue_name || project.location || ''}
             projectEventDate={project.event_date || ''}
+            primaryDayName={primaryDayName || 'Wedding Day'}
+            onPrimaryDayNameChange={(v) => {
+              setPrimaryDayName(v);
+              fetch('/api/projects', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: (project as any)._supabaseId || project.id, primary_day_name: v }) });
+            }}
             pendingNewDay={pendingNewDay}
             onPendingDayConsumed={() => setPendingNewDay(null)}
           /></div>

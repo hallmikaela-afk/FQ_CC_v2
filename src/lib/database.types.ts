@@ -125,6 +125,7 @@ export interface ProjectRow {
   sharepoint_folder: string | null;
   project_colors: string[] | null;
   next_call_agenda: string[] | null;
+  primary_day_name: string | null;
   created_at: string;
   updated_at: string;
 }

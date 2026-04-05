@@ -573,7 +573,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         <div className="ml-5 mb-3">
           <button
             onClick={(e) => { e.stopPropagation(); setShowAddEventDayModal(true); }}
-            className={`font-body text-[11px] ${t.light} hover:text-fq-accent transition-colors`}
+            className="font-body text-[11px] text-fq-accent hover:text-fq-dark border border-fq-accent/30 hover:border-fq-accent/60 rounded-full px-2.5 py-0.5 transition-colors"
           >
             + Event Day
           </button>

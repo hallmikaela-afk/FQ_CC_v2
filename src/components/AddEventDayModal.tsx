@@ -69,7 +69,7 @@ export default function AddEventDayModal({
   useEffect(() => {
     if (open) {
       setDayName(existingDay?.day_name || '');
-      setEventDate(existingDay?.event_date || '');
+      setEventDate(existingDay?.event_date || weddingDate || '');
       setVenueName(existingDay?.venue_name || '');
       setVenueStreet(existingDay?.venue_street || '');
       setVenueCityStateZip(existingDay?.venue_city_state_zip || '');
@@ -240,11 +240,23 @@ export default function AddEventDayModal({
 
           {/* Street Address */}
           <div>
-            <label className={`font-body text-[12px] font-medium ${t.heading} block mb-1.5`}>Street Address</label>
+            <label className={`font-body text-[12px] font-medium ${t.heading} block mb-1.5`}>
+              Street Address
+              <span className={`font-body font-normal text-[11px] ${t.muted} ml-1`}>— or paste full address to auto-split</span>
+            </label>
             <input
               value={venueStreet}
               onChange={e => setVenueStreet(e.target.value)}
-              placeholder="123 Main St"
+              onPaste={e => {
+                const text = e.clipboardData.getData('text').trim();
+                const commaIdx = text.indexOf(',');
+                if (commaIdx !== -1) {
+                  e.preventDefault();
+                  setVenueStreet(text.slice(0, commaIdx).trim());
+                  setVenueCityStateZip(text.slice(commaIdx + 1).trim());
+                }
+              }}
+              placeholder="Paste full address or type street…"
               className={`w-full font-body text-[13px] ${t.light} bg-fq-bg border border-fq-border rounded-lg px-3 py-2 outline-none focus:border-fq-accent/50 placeholder:text-fq-muted/40`}
             />
           </div>
