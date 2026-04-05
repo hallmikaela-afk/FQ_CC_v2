@@ -6,6 +6,12 @@
  * previewable format:
  *   - DOCX/DOC  → { type: 'html',  content: '<p>…</p>' }
  *   - XLSX/XLS/CSV → { type: 'table', sheets: [{ name, rows }] }
+ *
+ * Auth: no explicit Supabase session check — matches the pattern used by
+ * /api/emails/attachments/route.ts. Both routes rely on the Microsoft Graph
+ * token (managed by fetchAttachmentContent in microsoft-graph.ts) which will
+ * return a 401/500 if the token is absent or expired. This is consistent
+ * across all email attachment endpoints.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

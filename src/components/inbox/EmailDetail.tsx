@@ -869,6 +869,46 @@ function LinkModal({
   );
 }
 
+/* ── Vendor credits helpers ── */
+type VendorForCredits = {
+  id: string;
+  vendor_name: string;
+  category: string | null;
+  instagram: string | null;
+  event_day_id: string | null;
+};
+type EventDayBrief = { id: string; day_name: string; sort_order: number };
+
+function buildVendorCreditsHtml(
+  selected: VendorForCredits[],
+  eventDays: EventDayBrief[],
+): string {
+  const makeItem = (v: VendorForCredits) => {
+    const href = v.instagram ? `https://www.instagram.com/${v.instagram.replace(/^@/, '')}` : null;
+    const nameHtml = href ? `<a href="${href}">${v.vendor_name}</a>` : v.vendor_name;
+    return `<li>${v.category ? `<strong>${v.category}:</strong> ` : ''}${nameHtml}</li>`;
+  };
+  if (eventDays.length <= 1) {
+    return `<ul>${selected.map(makeItem).join('')}</ul>`;
+  }
+  // Multiple days — group by event_day_id, sorted by sort_order
+  const dayMap = new Map<string | null, VendorForCredits[]>();
+  for (const v of selected) {
+    const key = v.event_day_id;
+    if (!dayMap.has(key)) dayMap.set(key, []);
+    dayMap.get(key)!.push(v);
+  }
+  let html = '';
+  const sorted = [...eventDays].sort((a, b) => a.sort_order - b.sort_order);
+  for (const day of sorted) {
+    const vends = dayMap.get(day.id);
+    if (vends?.length) html += `<p><strong>${day.day_name}</strong></p><ul>${vends.map(makeItem).join('')}</ul>`;
+  }
+  const unassigned = dayMap.get(null);
+  if (unassigned?.length) html += `<ul>${unassigned.map(makeItem).join('')}</ul>`;
+  return html;
+}
+
 /* ── AI Draft Card (shown above email body when draft_message_id is set) ── */
 function DraftCard({
   email,
@@ -898,7 +938,8 @@ function DraftCard({
   const contacts = useContacts();
   const [vendorOpen,        setVendorOpen]        = useState(false);
   const [vendorLoading,     setVendorLoading]     = useState(false);
-  const [vendors,           setVendors]           = useState<Array<{ id: string; name: string; category: string | null; instagram: string | null }>>([]);
+  const [vendors,           setVendors]           = useState<VendorForCredits[]>([]);
+  const [eventDays,         setEventDays]         = useState<EventDayBrief[]>([]);
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
   const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
   const [linkModalOpen,    setLinkModalOpen]    = useState(false);
@@ -922,23 +963,21 @@ function DraftCard({
   const fetchVendors = async (projectId: string) => {
     setVendorLoading(true);
     try {
-      const res = await fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`);
-      const data = await res.json();
-      setVendors(data ?? []);
-    } catch { setVendors([]); }
+      const [vendorRes, dayRes] = await Promise.all([
+        fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`),
+        fetch(`/api/event-days?project_id=${encodeURIComponent(projectId)}`),
+      ]);
+      setVendors((await vendorRes.json()) ?? []);
+      setEventDays((await dayRes.json()) ?? []);
+    } catch { setVendors([]); setEventDays([]); }
     finally { setVendorLoading(false); }
   };
 
   const insertVendorCredits = () => {
     const sel = vendors.filter(v => selectedVendorIds.has(v.id));
     if (!sel.length) return;
-    const items = sel.map(v => {
-      const href = v.instagram ? `https://www.instagram.com/${v.instagram.replace(/^@/, '')}` : null;
-      const nameHtml = href ? `<a href="${href}">${v.name}</a>` : v.name;
-      return `<li>${v.category ? `<strong>${v.category}:</strong> ` : ''}${nameHtml}</li>`;
-    }).join('');
     bodyRef.current?.focus();
-    document.execCommand('insertHTML', false, `<ul>${items}</ul>`);
+    document.execCommand('insertHTML', false, buildVendorCreditsHtml(sel, eventDays));
     setVendorOpen(false);
     setSelectedVendorIds(new Set());
   };
@@ -1365,17 +1404,53 @@ function DraftCard({
                 ) : (
                   <>
                     <div className="max-h-48 overflow-y-auto">
-                      {vendors.map(v => (
-                        <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
-                          <input type="checkbox" checked={selectedVendorIds.has(v.id)}
-                            onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
-                            className="rounded border-fq-border text-fq-accent" />
-                          <span className="min-w-0">
-                            <span className={`font-body text-[12px] ${tk.body}`}>{v.name}</span>
-                            {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
-                          </span>
-                        </label>
-                      ))}
+                      {eventDays.length <= 1 ? (
+                        vendors.map(v => (
+                          <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                            <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                              onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                              className="rounded border-fq-border text-fq-accent" />
+                            <span className="min-w-0">
+                              <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                              {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                            </span>
+                          </label>
+                        ))
+                      ) : (
+                        [...eventDays]
+                          .sort((a, b) => a.sort_order - b.sort_order)
+                          .flatMap(day => {
+                            const dayVendors = vendors.filter(v => v.event_day_id === day.id);
+                            if (!dayVendors.length) return [];
+                            return [
+                              <p key={`hd-${day.id}`} className={`px-3 pt-2 pb-0.5 font-body text-[10.5px] uppercase tracking-wide ${tk.light}`}>{day.day_name}</p>,
+                              ...dayVendors.map(v => (
+                                <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                                  <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                    onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                    className="rounded border-fq-border text-fq-accent" />
+                                  <span className="min-w-0">
+                                    <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                    {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                                  </span>
+                                </label>
+                              )),
+                            ];
+                          })
+                          .concat(
+                            vendors.filter(v => !v.event_day_id).map(v => (
+                              <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                                <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                  onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                  className="rounded border-fq-border text-fq-accent" />
+                                <span className="min-w-0">
+                                  <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                  {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                                </span>
+                              </label>
+                            ))
+                          )
+                      )}
                     </div>
                     <div className="border-t border-fq-border px-3 pt-2 pb-1">
                       <button onMouseDown={(e) => { e.preventDefault(); insertVendorCredits(); }}
@@ -1503,7 +1578,8 @@ function ReplyPanel({
   const [revising,          setRevising]          = useState(false);
   const [vendorOpen,        setVendorOpen]        = useState(false);
   const [vendorLoading,     setVendorLoading]     = useState(false);
-  const [vendors,           setVendors]           = useState<Array<{ id: string; name: string; category: string | null; instagram: string | null }>>([]);
+  const [vendors,           setVendors]           = useState<VendorForCredits[]>([]);
+  const [eventDays,         setEventDays]         = useState<EventDayBrief[]>([]);
   const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
   const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
   const [linkModalOpen,    setLinkModalOpen]    = useState(false);
@@ -1600,23 +1676,21 @@ function ReplyPanel({
   const fetchVendorsRP = async (projectId: string) => {
     setVendorLoading(true);
     try {
-      const res = await fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`);
-      const data = await res.json();
-      setVendors(data ?? []);
-    } catch { setVendors([]); }
+      const [vendorRes, dayRes] = await Promise.all([
+        fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`),
+        fetch(`/api/event-days?project_id=${encodeURIComponent(projectId)}`),
+      ]);
+      setVendors((await vendorRes.json()) ?? []);
+      setEventDays((await dayRes.json()) ?? []);
+    } catch { setVendors([]); setEventDays([]); }
     finally { setVendorLoading(false); }
   };
 
   const insertVendorCreditsRP = () => {
     const sel = vendors.filter(v => selectedVendorIds.has(v.id));
     if (!sel.length) return;
-    const items = sel.map(v => {
-      const href = v.instagram ? `https://www.instagram.com/${v.instagram.replace(/^@/, '')}` : null;
-      const nameHtml = href ? `<a href="${href}">${v.name}</a>` : v.name;
-      return `<li>${v.category ? `<strong>${v.category}:</strong> ` : ''}${nameHtml}</li>`;
-    }).join('');
     bodyRef.current?.focus();
-    document.execCommand('insertHTML', false, `<ul>${items}</ul>`);
+    document.execCommand('insertHTML', false, buildVendorCreditsHtml(sel, eventDays));
     setVendorOpen(false);
     setSelectedVendorIds(new Set());
   };
@@ -1898,17 +1972,53 @@ function ReplyPanel({
               ) : (
                 <>
                   <div className="max-h-48 overflow-y-auto">
-                    {vendors.map(v => (
-                      <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
-                        <input type="checkbox" checked={selectedVendorIds.has(v.id)}
-                          onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
-                          className="rounded border-fq-border text-fq-accent" />
-                        <span className="min-w-0">
-                          <span className={`font-body text-[12px] ${tk.body}`}>{v.name}</span>
-                          {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
-                        </span>
-                      </label>
-                    ))}
+                    {eventDays.length <= 1 ? (
+                      vendors.map(v => (
+                        <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                          <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                            onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                            className="rounded border-fq-border text-fq-accent" />
+                          <span className="min-w-0">
+                            <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                            {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                          </span>
+                        </label>
+                      ))
+                    ) : (
+                      [...eventDays]
+                        .sort((a, b) => a.sort_order - b.sort_order)
+                        .flatMap(day => {
+                          const dayVendors = vendors.filter(v => v.event_day_id === day.id);
+                          if (!dayVendors.length) return [];
+                          return [
+                            <p key={`hd-${day.id}`} className={`px-3 pt-2 pb-0.5 font-body text-[10.5px] uppercase tracking-wide ${tk.light}`}>{day.day_name}</p>,
+                            ...dayVendors.map(v => (
+                              <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                                <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                  onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                  className="rounded border-fq-border text-fq-accent" />
+                                <span className="min-w-0">
+                                  <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                  {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                                </span>
+                              </label>
+                            )),
+                          ];
+                        })
+                        .concat(
+                          vendors.filter(v => !v.event_day_id).map(v => (
+                            <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                              <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                className="rounded border-fq-border text-fq-accent" />
+                              <span className="min-w-0">
+                                <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                              </span>
+                            </label>
+                          ))
+                        )
+                    )}
                   </div>
                   <div className="border-t border-fq-border px-3 pt-2 pb-1">
                     <button onMouseDown={(e) => { e.preventDefault(); insertVendorCreditsRP(); }}

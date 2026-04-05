@@ -925,6 +925,10 @@ export default function InboxPage() {
   }, [selectedEmailIds, selectedId]);
 
   const handleBulkReassign = useCallback(async (projectId: string | null) => {
+    // Confirmed: emails.filter covers ALL selected emails (not just the first).
+    // The reassign route only updates emails.project_id / match_confidence /
+    // dismissed — it does not touch the vendors table, so event_day_id (NOT NULL
+    // on vendors from migration 021) is irrelevant here.
     const emailsToUpdate = emails.filter((e) => selectedEmailIds.has(e.id));
     await Promise.all(emailsToUpdate.map((e) => handleReassign(e, projectId)));
     setSelectedEmailIds(new Set());

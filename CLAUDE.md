@@ -64,6 +64,8 @@ src/
       assistant/route.ts      # Claude API endpoint — builds context from Supabase
       auth/microsoft/         # OAuth login, callback, status
       emails/                 # Sync, compose, reply, draft, triage, search, folders
+        attachments/convert/  # Converts email attachments for inline preview: DOCX/DOC → mammoth HTML, XLSX/XLS/CSV → table with sheet tabs. PDF and images pass through.
+        # search — accepts `from` (sender filter) and `has_attachment` (boolean) params, applied in both Supabase and Graph queries.
       projects/               # CRUD + Outlook folder sync
       tasks/ subtasks/        # CRUD
       vendors/                # CRUD
@@ -88,9 +90,11 @@ src/
     inbox/
       EmailDetail.tsx         # Full email view (LARGE — ~86KB)
       EmailCard.tsx           # Email list item
+      EmailThreadGroup.tsx    # Groups emails sharing a conversation_id into a collapsible thread. Shows most recent message with expand/collapse chevron + sibling count badge inline. Auto-dismisses thread siblings when a message is marked Needs Follow-up or Needs Response.
       ComposePanel.tsx        # Compose/reply panel
       FolderSidebar.tsx       # Outlook folder tree
       AddressField.tsx        # To/CC/BCC autocomplete
+      LinkModal               # (defined inside EmailDetail.tsx) FQ-styled hyperlink insertion dialog. Replaces window.prompt(). Preserves editor selection while open. Includes "Link from Drive" via DriveFilePicker.
   lib/
     supabase.ts               # getSupabase() (client), getServiceSupabase() (server)
     auth.ts                   # getSession(), signIn(), signOut()
@@ -160,6 +164,19 @@ import { getServiceSupabase } from '@/lib/supabase';
 - Token refresh is automatic (5-min buffer). On 401, forces a refresh and retries once.
 - Scopes: `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `User.Read`, `offline_access`
 - Email sync flow: initial sync → load more → triage
+
+---
+
+## Inbox behaviors (added features)
+
+- **Thread grouping** — emails with matching `conversation_id` are grouped in the list. The expand/collapse chevron is always visible (not hover-only). Thread siblings auto-dismiss when a message is marked Needs Follow-up or Needs Response.
+- **Bulk selection mode** — "Select" button in the inbox header toggles checkbox mode on cards. Shift-click range-selects. Floating action bar appears with: Mark Read, Resolve, File to Project (project picker dropdown), Dismiss, Delete (two-click confirm).
+- **Full-screen pop-out** — 45° arrow in the email detail header expands the panel to fill the screen. Same button returns to split view.
+- **Inline attachment preview** — eye icon on each attachment chip opens a full-screen modal. PDF = iframe, images = img tag, DOCX/DOC = mammoth HTML, XLSX/XLS/CSV = table with sheet tabs. Powered by `/api/emails/attachments/convert`.
+- **Search filters** — "From:" input chip and "Has Attachment" toggle below the search bar. Right-click any email card for "More from sender" context menu.
+- **AI revision bar** — persistent instruction input + "Revise →" button in ReplyPanel and DraftCard. Submits to `/api/emails/draft-reply` with full project context (client names, venue, tasks, call notes).
+- **Vendor credits popout** — toolbar icon opens vendor checklist for the project, grouped by event day when project has multiple days. "Insert Credits" inserts formatted vendor list into the compose body.
+- **To field in reply** — ReplyPanel has an editable To field pre-filled with the sender. Original email's From/Date/Subject shown below the compose area.
 
 ---
 
