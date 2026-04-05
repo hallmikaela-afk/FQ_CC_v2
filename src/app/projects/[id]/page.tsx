@@ -159,7 +159,10 @@ function HeaderCard({ project }: { project: Project }) {
           <p className={`${t.label} mb-2`}>Venue</p>
           <div className="space-y-1.5">
             <EditableField value={venueName} onChange={(v) => { setVenueName(v); patchProject({ venue_name: v }); }} className={`font-body text-[13px] font-medium ${t.body} block w-full`} placeholder="Venue name..." />
-            <EditableField value={venueLocation} onChange={(v) => { setVenueLocation(v); patchProject({ venue_location: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="City, State..." />
+            {/* Only show venue_location if the split street/city fields are empty (legacy field) */}
+            {!venueStreet && !venueCityStateZip && (
+              <EditableField value={venueLocation} onChange={(v) => { setVenueLocation(v); patchProject({ venue_location: v }); }} className={`font-body text-[13px] ${t.light} block w-full`} placeholder="City, State..." />
+            )}
             <EditableField
               value={venueStreet}
               onChange={(v) => { setVenueStreet(v); patchProject({ venue_street: v }); }}
@@ -187,6 +190,21 @@ function HeaderCard({ project }: { project: Project }) {
                 Open in Maps ↗
               </a>
             )}
+            {/* Additional event days */}
+            {(project.event_days || []).map(day => (
+              <div key={day.id} className="mt-2 pl-3 border-l-2 border-fq-border/50 space-y-0.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`font-body text-[12px] font-medium ${t.body}`}>{day.day_name}</span>
+                  {day.event_date && <span className={`font-body text-[11px] ${t.light}`}>· {formatDate(day.event_date)}</span>}
+                </div>
+                {day.venue_name && <p className={`font-body text-[12px] ${t.light}`}>{day.venue_name}</p>}
+                {(day.venue_street || day.venue_city_state_zip) && (
+                  <p className={`font-body text-[11px] ${t.light} opacity-80`}>
+                    {[day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', ')}
+                  </p>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
