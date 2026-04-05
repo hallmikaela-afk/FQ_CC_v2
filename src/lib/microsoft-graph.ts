@@ -383,6 +383,7 @@ export async function sendReply(
   messageId: string,
   replyBodyHtml: string,
   userId = 'default',
+  to: GraphRecipient[] = [],
   cc: GraphRecipient[] = [],
   bcc: GraphRecipient[] = [],
   replyAll = false,
@@ -390,6 +391,7 @@ export async function sendReply(
   const message: Record<string, unknown> = {
     body: { contentType: 'HTML', content: replyBodyHtml },
   };
+  if (to.length > 0)  message.toRecipients  = to;
   if (cc.length > 0)  message.ccRecipients  = cc;
   if (bcc.length > 0) message.bccRecipients = bcc;
 

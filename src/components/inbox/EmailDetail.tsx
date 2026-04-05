@@ -1269,6 +1269,9 @@ function ReplyPanel({
   const [colorOpen,   setColorOpen]         = useState(false);
   const [activeColor, setActiveColor]       = useState('#2C2C2C');
   const [showCcBcc, setShowCcBcc]           = useState(false);
+  const [toChips,    setToChips]            = useState<ContactChip[]>(
+    email.from_email ? [{ name: email.from_name ?? '', email: email.from_email }] : []
+  );
   const [ccChips,   setCcChips]             = useState<ContactChip[]>([]);
   const [bccChips,  setBccChips]            = useState<ContactChip[]>([]);
   const [reviseInstruction, setReviseInstruction] = useState('');
@@ -1452,6 +1455,7 @@ function ReplyPanel({
         body: JSON.stringify({
           message_id: email.message_id,
           reply_html: replyHtml,
+          to:  chipsToRecipients(toChips),
           cc:  chipsToRecipients(ccChips),
           bcc: chipsToRecipients(bccChips),
           reply_all: replyAll,
@@ -1545,12 +1549,12 @@ function ReplyPanel({
       </div>
     )}
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
-      {/* Panel header */}
-      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
-            {replyAll ? 'Replying all' : `Replying to ${email.from_name || email.from_email}`}
-          </span>
+      {/* Panel header — action bar */}
+      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between gap-2">
+        <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
+          {replyAll ? 'Reply all' : 'Reply'}
+        </span>
+        <div className="flex items-center gap-2 ml-auto">
           {!showCcBcc && (
             <button
               type="button"
@@ -1560,19 +1564,24 @@ function ReplyPanel({
               + CC / BCC
             </button>
           )}
+          <button
+            onClick={handleAIDraft}
+            disabled={draftLoading}
+            className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
+          >
+            {draftLoading ? (
+              <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z"/></svg>
+            )}
+            {draftLoading ? 'Drafting…' : 'AI Draft'}
+          </button>
         </div>
-        <button
-          onClick={handleAIDraft}
-          disabled={draftLoading}
-          className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
-        >
-          {draftLoading ? (
-            <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z"/></svg>
-          )}
-          {draftLoading ? 'Drafting…' : 'AI Draft'}
-        </button>
+      </div>
+
+      {/* To field — always visible */}
+      <div className="px-4 py-2 border-b border-fq-border">
+        <AddressField label="To" chips={toChips} onChipsChange={setToChips} contacts={contacts} />
       </div>
 
       {/* CC / BCC fields (expanded) */}
@@ -1586,6 +1595,23 @@ function ReplyPanel({
           </div>
         </div>
       )}
+
+      {/* Original email details strip */}
+      <div className="px-4 py-2.5 border-b border-fq-border bg-fq-bg/50">
+        <p className={`font-body text-[11.5px] ${tk.light} leading-relaxed`}>
+          <span className="font-medium text-fq-dark/60">From:</span>{' '}
+          {email.from_name && <span>{email.from_name} </span>}
+          {email.from_email && <span className="opacity-70">&lt;{email.from_email}&gt;</span>}
+        </p>
+        <p className={`font-body text-[11.5px] ${tk.light} leading-relaxed`}>
+          <span className="font-medium text-fq-dark/60">Date:</span>{' '}
+          {fmtFull(email.received_at)}
+        </p>
+        <p className={`font-body text-[11.5px] ${tk.light} leading-relaxed`}>
+          <span className="font-medium text-fq-dark/60">Subject:</span>{' '}
+          {email.subject}
+        </p>
+      </div>
 
       {/* Rich text toolbar */}
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
