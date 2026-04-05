@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect, ReactNode } from 'react';
 import Link from 'next/link';
 import { formatCountdown, formatDate } from '@/data/seed';
-import type { Project, CallNote, TeamMember } from '@/data/seed';
+import type { Project, CallNote, TeamMember, EventDay } from '@/data/seed';
 import QuickUploadButton from '@/components/QuickUploadButton';
+import AddEventDayModal from '@/components/AddEventDayModal';
 
 /* ── Inline editable text field ── */
 function EditableField({
@@ -502,6 +503,8 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
   };
   const [callNotes, setCallNotes] = useState(project.call_notes || []);
   const [editingNoteContent, setEditingNoteContent] = useState(false);
+  const [eventDays, setEventDays] = useState<EventDay[]>(project.event_days || []);
+  const [showAddEventDayModal, setShowAddEventDayModal] = useState(false);
 
   // Text color classes — lighter muted tones
   const t = {
@@ -556,7 +559,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         </div>
 
         {/* Concept on its own line */}
-        <div className="ml-5 mb-3">
+        <div className="ml-5 mb-1.5">
           <EditableField
             value={concept}
             onChange={(v) => { setConcept(v); patchProject({ concept: v }); }}
@@ -564,6 +567,16 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
             inputClassName={`text-[11px] font-body ${t.light} bg-fq-bg px-2.5 py-0.5 rounded-full`}
             placeholder="Concept..."
           />
+        </div>
+
+        {/* + Event Day button */}
+        <div className="ml-5 mb-3">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAddEventDayModal(true); }}
+            className={`font-body text-[11px] ${t.light} hover:text-fq-accent transition-colors`}
+          >
+            + Event Day
+          </button>
         </div>
 
         {/* Metadata rows — visibility controlled by card config */}
@@ -585,7 +598,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           )}
 
           {/* Additional event day venues */}
-          {(project.event_days || []).map((day) => (
+          {eventDays.map((day) => (
             <div key={day.id} className="ml-4 pl-3 border-l-2 border-fq-border/40 space-y-0.5">
               <div className="flex items-center gap-2">
                 <span className={`${t.icon} text-[9px]`}>◉</span>
@@ -901,6 +914,15 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           </div>
         </div>
       )}
+
+      <AddEventDayModal
+        open={showAddEventDayModal}
+        onClose={() => setShowAddEventDayModal(false)}
+        projectId={(project as any)._supabaseId || project.id}
+        weddingDate={project.event_date}
+        nextSortOrder={eventDays.length}
+        onSaved={(day) => { setEventDays(prev => [...prev, day]); setShowAddEventDayModal(false); }}
+      />
     </div>
   );
 }

@@ -53,6 +53,9 @@ export default function ImportPage() {
   const [uploadDescription, setUploadDescription] = useState('');
   const [selectedDriveSubfolder, setSelectedDriveSubfolder] = useState('');
   const [driveConnected, setDriveConnected] = useState(false);
+  const [importEventDays, setImportEventDays] = useState<{ id: string; day_name: string }[]>([]);
+  const [showAssignPanel, setShowAssignPanel] = useState(false);
+  const [vendorDayAssignments, setVendorDayAssignments] = useState<Record<number, string | null>>({});
   // Fetch projects for the project_id selector (on mount)
   const fetchProjects = useCallback(async () => {
     try {
@@ -75,6 +78,15 @@ export default function ImportPage() {
       .then(d => setDriveConnected(d.connected ?? false))
       .catch(() => {});
   }, [fetchProjects]);
+
+  // Fetch event days when importing vendors for a specific project
+  useEffect(() => {
+    if (table !== 'vendors' || !selectedProjectId) { setImportEventDays([]); return; }
+    fetch(`/api/event-days?project_id=${selectedProjectId}`)
+      .then(r => r.json())
+      .then(data => setImportEventDays(Array.isArray(data) ? data : []))
+      .catch(() => setImportEventDays([]));
+  }, [table, selectedProjectId]);
 
   const processRows = useCallback((rows: Record<string, string>[]) => {
     setRawData(rows);
@@ -195,11 +207,18 @@ export default function ImportPage() {
     });
   };
 
-  const handleImport = async () => {
+  const handleImport = async (assignments?: Record<number, string | null>) => {
+    // If importing vendors for a project with event days, show the assign panel first
+    if (!assignments && table === 'vendors' && importEventDays.length > 0) {
+      setVendorDayAssignments({});
+      setShowAssignPanel(true);
+      return;
+    }
+
     setImporting(true);
     setResult(null);
 
-    const mappedRows = rawData.map(row => {
+    const mappedRows = rawData.map((row, rowIdx) => {
       const mapped: Record<string, any> = {};
       mappings.forEach(m => {
         let val: any = row[m.sourceCol];
@@ -234,6 +253,14 @@ export default function ImportPage() {
         mapped.project_id = selectedProjectId;
       }
 
+      // Inject event_day_id from assignment panel (null = Wedding Day)
+      if (assignments && table === 'vendors') {
+        const assignedDayId = assignments[rowIdx] ?? null;
+        if (assignedDayId !== null) {
+          mapped.event_day_id = assignedDayId;
+        }
+      }
+
       // Auto-sync status ↔ completed for tasks
       if (table === 'tasks') {
         if (mapped.status && !('completed' in mapped)) {
@@ -259,6 +286,7 @@ export default function ImportPage() {
       });
       const data = await res.json();
       setResult(data);
+      setShowAssignPanel(false);
 
       // If a Drive subfolder is selected and we have a file, upload to Drive after import
       if (selectedDriveSubfolder && selectedProjectId && data.inserted && data.inserted > 0) {
@@ -504,8 +532,81 @@ export default function ImportPage() {
         </div>
       )}
 
+      {/* Vendor Day Assignment Panel */}
+      {showAssignPanel && table === 'vendors' && importEventDays.length > 0 && (
+        <div className="mb-8 border border-fq-border rounded-xl overflow-hidden">
+          <div className="px-5 py-4 bg-fq-light-accent border-b border-fq-border flex items-center justify-between">
+            <div>
+              <h3 className="font-heading text-[15px] font-semibold text-fq-dark">Assign vendors to event days</h3>
+              <p className="font-body text-[12px] text-fq-muted mt-0.5">Wedding Day is the default. Assign rows to a specific event day before importing.</p>
+            </div>
+            <button onClick={() => setShowAssignPanel(false)} className="text-fq-muted/50 hover:text-fq-dark text-[16px]">✕</button>
+          </div>
+
+          {/* Bulk assign */}
+          <div className="px-5 py-3 bg-fq-bg border-b border-fq-border flex items-center gap-3">
+            <span className="font-body text-[12px] text-fq-muted">Assign all to:</span>
+            <select
+              defaultValue=""
+              onChange={e => {
+                const val = e.target.value === '' ? null : e.target.value;
+                const all: Record<number, string | null> = {};
+                rawData.forEach((_, i) => { all[i] = val; });
+                setVendorDayAssignments(all);
+              }}
+              className="font-body text-[12px] px-2 py-1 border border-fq-border rounded bg-white text-fq-dark"
+            >
+              <option value="">Wedding Day</option>
+              {importEventDays.map(d => (
+                <option key={d.id} value={d.id}>{d.day_name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Per-row assignments */}
+          <div className="divide-y divide-fq-border max-h-[360px] overflow-y-auto">
+            {rawData.map((row, i) => {
+              const categoryMapping = mappings.find(m => m.targetCol === 'category');
+              const nameMapping = mappings.find(m => m.targetCol === 'vendor_name');
+              const category = categoryMapping ? row[categoryMapping.sourceCol] : '';
+              const vendorName = nameMapping ? row[nameMapping.sourceCol] : Object.values(row)[0] || '';
+              const assigned = vendorDayAssignments[i] ?? null;
+              return (
+                <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    {category && <span className="font-body text-[10px] text-fq-muted/70 uppercase tracking-wide mr-2">{category}</span>}
+                    <span className="font-body text-[13px] text-fq-dark">{vendorName || '—'}</span>
+                  </div>
+                  <select
+                    value={assigned ?? ''}
+                    onChange={e => setVendorDayAssignments(prev => ({ ...prev, [i]: e.target.value === '' ? null : e.target.value }))}
+                    className="font-body text-[12px] px-2 py-1 border border-fq-border rounded bg-white text-fq-dark shrink-0"
+                  >
+                    <option value="">Wedding Day</option>
+                    {importEventDays.map(d => (
+                      <option key={d.id} value={d.id}>{d.day_name}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="px-5 py-4 border-t border-fq-border flex items-center gap-3">
+            <button
+              onClick={() => handleImport(vendorDayAssignments)}
+              disabled={importing}
+              className="px-5 py-2 bg-fq-accent text-white rounded-lg font-body text-[13px] font-medium hover:bg-fq-dark transition-colors disabled:opacity-50"
+            >
+              {importing ? 'Importing...' : `Import ${rawData.length} vendors`}
+            </button>
+            <button onClick={() => setShowAssignPanel(false)} className="font-body text-[12px] text-fq-muted hover:text-fq-dark transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+
       {/* Step 4: Import */}
-      {sourceColumns.length > 0 && (
+      {sourceColumns.length > 0 && !showAssignPanel && (
         <div className="mb-8">
           {missingRequired.length > 0 && (
             <p className="text-fq-alert text-sm mb-3">
@@ -513,7 +614,7 @@ export default function ImportPage() {
             </p>
           )}
           <button
-            onClick={handleImport}
+            onClick={() => handleImport()}
             disabled={importing || missingRequired.length > 0}
             className="px-6 py-3 bg-fq-accent text-white rounded-lg font-medium hover:bg-fq-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
