@@ -356,7 +356,8 @@ function AttachmentList({ messageId, projectId }: { messageId: string; projectId
           <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group">
             <a
               href={`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`}
-              download={att.name}
+              target="_blank"
+              rel="noreferrer"
               className="flex items-center gap-2"
             >
               <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
