@@ -53,7 +53,7 @@ export default function ImportPage() {
   const [uploadDescription, setUploadDescription] = useState('');
   const [selectedDriveSubfolder, setSelectedDriveSubfolder] = useState('');
   const [driveConnected, setDriveConnected] = useState(false);
-  const [importEventDays, setImportEventDays] = useState<{ id: string; day_name: string }[]>([]);
+  const [importEventDays, setImportEventDays] = useState<{ id: string; day_name: string; sort_order: number }[]>([]);
   const [showAssignPanel, setShowAssignPanel] = useState(false);
   const [vendorDayAssignments, setVendorDayAssignments] = useState<Record<number, string | null>>({});
   // Fetch projects for the project_id selector (on mount)
