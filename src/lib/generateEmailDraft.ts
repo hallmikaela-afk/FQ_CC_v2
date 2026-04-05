@@ -26,15 +26,12 @@ interface EmailRow {
   project_id: string | null;
 }
 
-/** Generate a fresh draft reply for an email using full project context. */
-export async function generateEmailDraft(
+/** Build the project context string used in both initial generation and editing. */
+export async function buildProjectContext(
   email: EmailRow,
   supabase: SupabaseClient,
 ): Promise<string> {
   const today = new Date().toISOString().split('T')[0];
-  const emailBody = email.body || email.body_preview || '(no content)';
-
-  // ── Fetch rich project context ─────────────────────────────────────────────
   let projectContext = 'This email has not been linked to a project yet.';
 
   if (email.project_id) {
@@ -105,6 +102,18 @@ export async function generateEmailDraft(
       }
     }
   }
+
+  return projectContext;
+}
+
+/** Generate a fresh draft reply for an email using full project context. */
+export async function generateEmailDraft(
+  email: EmailRow,
+  supabase: SupabaseClient,
+): Promise<string> {
+  const today = new Date().toISOString().split('T')[0];
+  const emailBody = email.body || email.body_preview || '(no content)';
+  const projectContext = await buildProjectContext(email, supabase);
 
   // ── Build prompts ──────────────────────────────────────────────────────────
   const systemPrompt = `You are helping Mikaela Hall, owner of Fox & Quinn Events — a luxury wedding and event planning company.

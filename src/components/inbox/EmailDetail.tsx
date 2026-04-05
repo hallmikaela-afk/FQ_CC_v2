@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, ReplyAll, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, ReplyAll, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered, Link, Users } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
 import { buildReplyHtml, emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
@@ -532,10 +532,12 @@ function TriagePanel({
 /* ── AI Draft Card (shown above email body when draft_message_id is set) ── */
 function DraftCard({
   email,
+  projects,
   onPatch,
   showToast,
 }: {
   email: Email;
+  projects: Project[];
   onPatch: (id: string, updates: Record<string, unknown>) => void;
   showToast: (msg: string) => void;
 }) {
@@ -554,9 +556,15 @@ function DraftCard({
   const [ccChips,   setCcChips]             = useState<ContactChip[]>([]);
   const [bccChips,  setBccChips]            = useState<ContactChip[]>([]);
   const contacts = useContacts();
-  const bodyRef     = useRef<HTMLDivElement>(null);
-  const colorBtnRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [vendorOpen,        setVendorOpen]        = useState(false);
+  const [vendorLoading,     setVendorLoading]     = useState(false);
+  const [vendors,           setVendors]           = useState<Array<{ id: string; name: string; category: string | null; instagram: string | null }>>([]);
+  const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
+  const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
+  const bodyRef      = useRef<HTMLDivElement>(null);
+  const colorBtnRef  = useRef<HTMLDivElement>(null);
+  const vendorBtnRef = useRef<HTMLDivElement>(null);
+  const debounceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const COLORS = [
     { label: 'Black',      value: '#2C2C2C' },
@@ -565,6 +573,30 @@ function DraftCard({
     { label: 'Gray',       value: '#9B8E82' },
     { label: 'White',      value: '#FFFFFF' },
   ];
+
+  const fetchVendors = async (projectId: string) => {
+    setVendorLoading(true);
+    try {
+      const res = await fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`);
+      const data = await res.json();
+      setVendors(data ?? []);
+    } catch { setVendors([]); }
+    finally { setVendorLoading(false); }
+  };
+
+  const insertVendorCredits = () => {
+    const sel = vendors.filter(v => selectedVendorIds.has(v.id));
+    if (!sel.length) return;
+    const items = sel.map(v => {
+      const href = v.instagram ? `https://www.instagram.com/${v.instagram.replace(/^@/, '')}` : null;
+      const nameHtml = href ? `<a href="${href}">${v.name}</a>` : v.name;
+      return `<li>${v.category ? `<strong>${v.category}:</strong> ` : ''}${nameHtml}</li>`;
+    }).join('');
+    bodyRef.current?.focus();
+    document.execCommand('insertHTML', false, `<ul>${items}</ul>`);
+    setVendorOpen(false);
+    setSelectedVendorIds(new Set());
+  };
 
   // Fetch draft body from Graph on mount — store in state so the second
   // effect can write to bodyRef once the contentEditable div has mounted.
@@ -846,6 +878,87 @@ function DraftCard({
           {toolBtn('Bullet list',   'insertUnorderedList', <List size={13} />)}
           {toolBtn('Numbered list', 'insertOrderedList',   <ListOrdered size={13} />)}
           <div className="w-px h-4 bg-fq-border mx-1" />
+          {/* Hyperlink */}
+          <button type="button" title="Insert link"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              bodyRef.current?.focus();
+              const sel = window.getSelection();
+              if (sel && sel.toString().length > 0) {
+                const url = window.prompt('Enter URL:', 'https://');
+                if (url) document.execCommand('createLink', false, url);
+              } else {
+                const text = window.prompt('Display text:', '');
+                const url  = window.prompt('Enter URL:', 'https://');
+                if (text && url) document.execCommand('insertHTML', false, `<a href="${url}">${text}</a>`);
+              }
+            }}
+            className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+          >
+            <Link size={13} />
+          </button>
+          {/* Vendor credits */}
+          <div ref={vendorBtnRef} className="relative">
+            <button type="button" title="Insert vendor credits"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const pid = vendorProjectId || email.project_id;
+                if (!vendorOpen) {
+                  setVendorOpen(true);
+                  setSelectedVendorIds(new Set());
+                  if (pid) { setVendorProjectId(pid); fetchVendors(pid); }
+                  else { setVendors([]); setVendorLoading(false); }
+                } else { setVendorOpen(false); }
+              }}
+              className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+            >
+              <Users size={13} />
+            </button>
+            {vendorOpen && (
+              <div className="absolute bottom-full mb-1 left-0 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-2 min-w-[220px]">
+                {!vendorProjectId && !email.project_id ? (
+                  <div className="px-3 py-2">
+                    <p className={`font-body text-[11.5px] ${tk.light} mb-2`}>Select project:</p>
+                    <select onChange={(e) => { setVendorProjectId(e.target.value); if (e.target.value) fetchVendors(e.target.value); }}
+                      className={`w-full font-body text-[12px] ${tk.body} bg-fq-bg border border-fq-border rounded-lg px-2 py-1.5 focus:outline-none`}>
+                      <option value="">—</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                ) : vendorLoading ? (
+                  <div className="px-3 py-3 flex items-center gap-2">
+                    <span className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                    <span className={`font-body text-[12px] ${tk.light}`}>Loading…</span>
+                  </div>
+                ) : vendors.length === 0 ? (
+                  <p className={`px-3 py-2 font-body text-[12px] ${tk.light}`}>No vendors assigned to this project yet.</p>
+                ) : (
+                  <>
+                    <div className="max-h-48 overflow-y-auto">
+                      {vendors.map(v => (
+                        <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                          <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                            onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                            className="rounded border-fq-border text-fq-accent" />
+                          <span className="min-w-0">
+                            <span className={`font-body text-[12px] ${tk.body}`}>{v.name}</span>
+                            {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="border-t border-fq-border px-3 pt-2 pb-1">
+                      <button onMouseDown={(e) => { e.preventDefault(); insertVendorCredits(); }}
+                        className="font-body text-[12px] font-medium px-3 py-1.5 rounded-lg bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors w-full">
+                        Insert Credits
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="w-px h-4 bg-fq-border mx-1" />
           <div ref={colorBtnRef} className="relative">
             <button
               type="button"
@@ -930,28 +1043,38 @@ function DraftCard({
 /* ── Reply compose panel ── */
 function ReplyPanel({
   email,
+  projects,
   onClose,
   initialText = '',
   replyAll = false,
 }: {
   email: Email;
+  projects: Project[];
   onClose: () => void;
   initialText?: string;
   replyAll?: boolean;
 }) {
-  const [sending, setSending]           = useState(false);
-  const [sent, setSent]                 = useState(false);
-  const [draftLoading, setDraftLoading] = useState(false);
-  const [isEmpty, setIsEmpty]           = useState(true);
-  const [colorOpen,   setColorOpen]     = useState(false);
-  const [activeColor, setActiveColor]   = useState('#2C2C2C');
-  const [showCcBcc, setShowCcBcc]       = useState(false);
-  const [ccChips,   setCcChips]         = useState<ContactChip[]>([]);
-  const [bccChips,  setBccChips]        = useState<ContactChip[]>([]);
-  const contacts = useContacts();
-  const bodyRef     = useRef<HTMLDivElement>(null);
-  const sigRef      = useRef<HTMLDivElement>(null);
-  const colorBtnRef = useRef<HTMLDivElement>(null);
+  const [sending, setSending]               = useState(false);
+  const [sent, setSent]                     = useState(false);
+  const [draftLoading, setDraftLoading]     = useState(false);
+  const [isEmpty, setIsEmpty]               = useState(true);
+  const [colorOpen,   setColorOpen]         = useState(false);
+  const [activeColor, setActiveColor]       = useState('#2C2C2C');
+  const [showCcBcc, setShowCcBcc]           = useState(false);
+  const [ccChips,   setCcChips]             = useState<ContactChip[]>([]);
+  const [bccChips,  setBccChips]            = useState<ContactChip[]>([]);
+  const [reviseInstruction, setReviseInstruction] = useState('');
+  const [revising,          setRevising]          = useState(false);
+  const [vendorOpen,        setVendorOpen]        = useState(false);
+  const [vendorLoading,     setVendorLoading]     = useState(false);
+  const [vendors,           setVendors]           = useState<Array<{ id: string; name: string; category: string | null; instagram: string | null }>>([]);
+  const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
+  const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
+  const contacts     = useContacts();
+  const bodyRef      = useRef<HTMLDivElement>(null);
+  const sigRef       = useRef<HTMLDivElement>(null);
+  const colorBtnRef  = useRef<HTMLDivElement>(null);
+  const vendorBtnRef = useRef<HTMLDivElement>(null);
 
   // Focus on mount
   useEffect(() => { bodyRef.current?.focus(); }, []);
@@ -1007,6 +1130,54 @@ function ReplyPanel({
       {icon}
     </button>
   );
+
+  const fetchVendorsRP = async (projectId: string) => {
+    setVendorLoading(true);
+    try {
+      const res = await fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`);
+      const data = await res.json();
+      setVendors(data ?? []);
+    } catch { setVendors([]); }
+    finally { setVendorLoading(false); }
+  };
+
+  const insertVendorCreditsRP = () => {
+    const sel = vendors.filter(v => selectedVendorIds.has(v.id));
+    if (!sel.length) return;
+    const items = sel.map(v => {
+      const href = v.instagram ? `https://www.instagram.com/${v.instagram.replace(/^@/, '')}` : null;
+      const nameHtml = href ? `<a href="${href}">${v.name}</a>` : v.name;
+      return `<li>${v.category ? `<strong>${v.category}:</strong> ` : ''}${nameHtml}</li>`;
+    }).join('');
+    bodyRef.current?.focus();
+    document.execCommand('insertHTML', false, `<ul>${items}</ul>`);
+    setVendorOpen(false);
+    setSelectedVendorIds(new Set());
+  };
+
+  const handleRevise = async () => {
+    if (!reviseInstruction.trim() || revising) return;
+    setRevising(true);
+    try {
+      const res = await fetch('/api/emails/draft-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_id: email.id,
+          instruction: reviseInstruction.trim(),
+          current_draft: bodyRef.current?.innerText ?? '',
+        }),
+      });
+      const data = await res.json();
+      if (data.draft && bodyRef.current) {
+        bodyRef.current.innerHTML = `<span style="color:#2C2C2C">${data.draft.replace(/\n/g, '<br>')}</span>`;
+        setIsEmpty(false);
+        setReviseInstruction('');
+      }
+    } finally {
+      setRevising(false);
+    }
+  };
 
   const handleSend = async () => {
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
@@ -1121,6 +1292,87 @@ function ReplyPanel({
         {toolBtn('Bullet list', 'insertUnorderedList', <List size={13} />)}
         {toolBtn('Numbered list', 'insertOrderedList', <ListOrdered size={13} />)}
         <div className="w-px h-4 bg-fq-border mx-1" />
+        {/* Hyperlink */}
+        <button type="button" title="Insert link"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            bodyRef.current?.focus();
+            const sel = window.getSelection();
+            if (sel && sel.toString().length > 0) {
+              const url = window.prompt('Enter URL:', 'https://');
+              if (url) document.execCommand('createLink', false, url);
+            } else {
+              const text = window.prompt('Display text:', '');
+              const url  = window.prompt('Enter URL:', 'https://');
+              if (text && url) document.execCommand('insertHTML', false, `<a href="${url}">${text}</a>`);
+            }
+          }}
+          className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+        >
+          <Link size={13} />
+        </button>
+        {/* Vendor credits */}
+        <div ref={vendorBtnRef} className="relative">
+          <button type="button" title="Insert vendor credits"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const pid = vendorProjectId || email.project_id;
+              if (!vendorOpen) {
+                setVendorOpen(true);
+                setSelectedVendorIds(new Set());
+                if (pid) { setVendorProjectId(pid); fetchVendorsRP(pid); }
+                else { setVendors([]); setVendorLoading(false); }
+              } else { setVendorOpen(false); }
+            }}
+            className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+          >
+            <Users size={13} />
+          </button>
+          {vendorOpen && (
+            <div className="absolute bottom-full mb-1 left-0 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-2 min-w-[220px]">
+              {!vendorProjectId && !email.project_id ? (
+                <div className="px-3 py-2">
+                  <p className={`font-body text-[11.5px] ${tk.light} mb-2`}>Select project:</p>
+                  <select onChange={(e) => { setVendorProjectId(e.target.value); if (e.target.value) fetchVendorsRP(e.target.value); }}
+                    className={`w-full font-body text-[12px] ${tk.body} bg-fq-bg border border-fq-border rounded-lg px-2 py-1.5 focus:outline-none`}>
+                    <option value="">—</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              ) : vendorLoading ? (
+                <div className="px-3 py-3 flex items-center gap-2">
+                  <span className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                  <span className={`font-body text-[12px] ${tk.light}`}>Loading…</span>
+                </div>
+              ) : vendors.length === 0 ? (
+                <p className={`px-3 py-2 font-body text-[12px] ${tk.light}`}>No vendors assigned to this project yet.</p>
+              ) : (
+                <>
+                  <div className="max-h-48 overflow-y-auto">
+                    {vendors.map(v => (
+                      <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                        <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                          onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                          className="rounded border-fq-border text-fq-accent" />
+                        <span className="min-w-0">
+                          <span className={`font-body text-[12px] ${tk.body}`}>{v.name}</span>
+                          {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="border-t border-fq-border px-3 pt-2 pb-1">
+                    <button onMouseDown={(e) => { e.preventDefault(); insertVendorCreditsRP(); }}
+                      className="font-body text-[12px] font-medium px-3 py-1.5 rounded-lg bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors w-full">
+                      Insert Credits
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="w-px h-4 bg-fq-border mx-1" />
         <div ref={colorBtnRef} className="relative">
           <button
             type="button"
@@ -1165,6 +1417,28 @@ function ReplyPanel({
         className={`min-h-[150px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
           empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
       />
+
+      {/* AI revision bar */}
+      <div className="flex items-center gap-2 px-3 py-2 border-t border-fq-border bg-fq-bg/40">
+        <input
+          type="text"
+          value={reviseInstruction}
+          onChange={(e) => setReviseInstruction(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleRevise(); }}
+          disabled={revising}
+          placeholder="Ask AI to revise… e.g. 'Make it shorter' or 'Add venue contact ask'"
+          className={`flex-1 font-body text-[12px] ${tk.body} bg-fq-card border border-fq-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-fq-accent/30 placeholder:text-fq-muted/40 disabled:opacity-50`}
+        />
+        <button
+          type="button"
+          onClick={handleRevise}
+          disabled={revising || !reviseInstruction.trim()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium text-fq-dark/70 hover:bg-fq-light-accent hover:border-fq-accent/30 transition-colors disabled:opacity-40 shrink-0"
+        >
+          {revising ? <span className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" /> : null}
+          {revising ? 'Revising…' : 'Revise →'}
+        </button>
+      </div>
 
       {/* Editable signature preview */}
       <div className="px-4 pb-2">
@@ -2032,7 +2306,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
 
         {/* Composer zone — Draft card OR Reply panel (shared space, never both) */}
         {email.draft_message_id ? (
-          <DraftCard email={email} onPatch={onPatch} showToast={showToast} />
+          <DraftCard email={email} projects={projects} onPatch={onPatch} showToast={showToast} />
         ) : generatingDraft ? (
           <div className="rounded-xl border border-fq-border bg-fq-card" style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}>
             <div className="px-4 py-2.5 border-b border-fq-border bg-fq-amber-light/25 flex items-center gap-2">
@@ -2042,7 +2316,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
             <div className={`px-4 py-4 font-body text-[12.5px] ${tk.light}`}>Preparing your AI draft response…</div>
           </div>
         ) : replyOpen ? (
-          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} replyAll={replyAllMode} />
+          <ReplyPanel email={email} projects={projects} onClose={() => setReplyOpen(false)} initialText={draftText} replyAll={replyAllMode} />
         ) : forwardOpen ? (
           <ForwardPanel email={email} onClose={() => setForwardOpen(false)} />
         ) : onGenerateDraft ? (
