@@ -131,7 +131,7 @@ export default function InboxPage() {
   const [selectedId,         setSelectedId]         = useState<string | null>(null);
   const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
   const [draftFallbackText,  setDraftFallbackText]  = useState<string | null>(null);
-  const [triageCollapsed,    setTriageCollapsed]    = useState(false);
+  const [triageCollapsed,    setTriageCollapsed]    = useState(true);
   const [dismissedCount,     setDismissedCount]     = useState(0);
 
   /* ── Search state ── */
