@@ -38,6 +38,11 @@ export interface Database {
         Insert: Omit<VendorRow, 'id' | 'created_at'> & { id?: string };
         Update: Partial<VendorRow>;
       };
+      event_days: {
+        Row: EventDayRow;
+        Insert: Omit<EventDayRow, 'id' | 'created_at'> & { id?: string };
+        Update: Partial<EventDayRow>;
+      };
       call_notes: {
         Row: CallNoteRow;
         Insert: Omit<CallNoteRow, 'id' | 'created_at'> & { id?: string };
@@ -120,6 +125,7 @@ export interface ProjectRow {
   sharepoint_folder: string | null;
   project_colors: string[] | null;
   next_call_agenda: string[] | null;
+  primary_day_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -152,6 +158,7 @@ export interface SubtaskRow {
 export interface VendorRow {
   id: string;
   project_id: string;
+  event_day_id: string | null;
   category: string;
   vendor_name: string;
   contact_name: string | null;
@@ -159,6 +166,18 @@ export interface VendorRow {
   phone: string | null;
   website: string | null;
   instagram: string | null;
+  created_at: string;
+}
+
+export interface EventDayRow {
+  id: string;
+  project_id: string;
+  day_name: string;
+  event_date: string | null;
+  venue_name: string | null;
+  venue_street: string | null;
+  venue_city_state_zip: string | null;
+  sort_order: number;
   created_at: string;
 }
 

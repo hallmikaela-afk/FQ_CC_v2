@@ -101,7 +101,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
-  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
   const [driveConnected, setDriveConnected] = useState<boolean | null>(null);
   const [driveProjects, setDriveProjects] = useState<DriveProjectFolder[]>([]);
   const [driveSectionOpen, setDriveSectionOpen] = useState(true);

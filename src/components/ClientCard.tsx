@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect, ReactNode } from 'react';
 import Link from 'next/link';
 import { formatCountdown, formatDate } from '@/data/seed';
-import type { Project, CallNote, TeamMember } from '@/data/seed';
+import type { Project, CallNote, TeamMember, EventDay } from '@/data/seed';
 import QuickUploadButton from '@/components/QuickUploadButton';
+import AddEventDayModal from '@/components/AddEventDayModal';
 
 /* ── Inline editable text field ── */
 function EditableField({
@@ -502,6 +503,8 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
   };
   const [callNotes, setCallNotes] = useState(project.call_notes || []);
   const [editingNoteContent, setEditingNoteContent] = useState(false);
+  const [eventDays, setEventDays] = useState<EventDay[]>(project.event_days || []);
+  const [showAddEventDayModal, setShowAddEventDayModal] = useState(false);
 
   // Text color classes — lighter muted tones
   const t = {
@@ -556,7 +559,7 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
         </div>
 
         {/* Concept on its own line */}
-        <div className="ml-5 mb-3">
+        <div className="ml-5 mb-1.5">
           <EditableField
             value={concept}
             onChange={(v) => { setConcept(v); patchProject({ concept: v }); }}
@@ -564,6 +567,16 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
             inputClassName={`text-[11px] font-body ${t.light} bg-fq-bg px-2.5 py-0.5 rounded-full`}
             placeholder="Concept..."
           />
+        </div>
+
+        {/* + Event Day button */}
+        <div className="ml-5 mb-3">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAddEventDayModal(true); }}
+            className="font-body text-[11px] text-fq-accent hover:text-fq-dark border border-fq-accent/30 hover:border-fq-accent/60 rounded-full px-2.5 py-0.5 transition-colors"
+          >
+            + Event Day
+          </button>
         </div>
 
         {/* Metadata rows — visibility controlled by card config */}
@@ -583,6 +596,35 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
               streetPlaceholder="Venue street address..." cityPlaceholder="City, State ZIP..."
               showMapLink />
           )}
+
+          {/* Additional event day venues */}
+          {eventDays.map((day) => (
+            <div key={day.id} className="ml-4 pl-3 border-l-2 border-fq-border/40 space-y-0.5 group/day relative">
+              <div className="flex items-center gap-2 pr-5">
+                <span className={`${t.icon} text-[9px]`}>◉</span>
+                <span className={`font-body text-[12px] font-medium ${t.body}`}>{day.day_name}</span>
+                {day.event_date && <span className={`font-body text-[10px] ${t.light}`}>· {formatDate(day.event_date)}</span>}
+              </div>
+              {day.venue_name && (
+                <p className={`font-body text-[12px] ${t.light} ml-4`}>{day.venue_name}</p>
+              )}
+              {(day.venue_street || day.venue_city_state_zip) && (
+                <p className={`font-body text-[11px] ${t.light} opacity-70 ml-4`}>
+                  {[day.venue_street, day.venue_city_state_zip].filter(Boolean).join(', ')}
+                </p>
+              )}
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (!confirm(`Delete "${day.day_name}"?`)) return;
+                  await fetch(`/api/event-days?id=${day.id}`, { method: 'DELETE' });
+                  setEventDays(prev => prev.filter(d => d.id !== day.id));
+                }}
+                className="absolute top-0 right-0 opacity-0 group-hover/day:opacity-100 text-fq-muted/40 hover:text-red-500 transition-all text-[14px] p-1"
+                title="Delete event day"
+              >×</button>
+            </div>
+          ))}
 
           {isFieldVisible('guests', 'first') && (
             <div className="flex items-center gap-2">
@@ -882,6 +924,15 @@ export default function ClientCard({ project, getTeamMember = defaultLookup }: {
           </div>
         </div>
       )}
+
+      <AddEventDayModal
+        open={showAddEventDayModal}
+        onClose={() => setShowAddEventDayModal(false)}
+        projectId={(project as any)._supabaseId || project.id}
+        weddingDate={project.event_date}
+        nextSortOrder={eventDays.length}
+        onSaved={(day) => { setEventDays(prev => [...prev, day]); setShowAddEventDayModal(false); }}
+      />
     </div>
   );
 }
