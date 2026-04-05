@@ -36,6 +36,8 @@ interface Props {
   threadEmails?: Email[];
   /** Called when a thread email is clicked */
   onSelectThread?: (email: Email) => void;
+  /** Called once when attachments are fetched and at least one exists */
+  onAttachmentsFound?: () => void;
 }
 
 /* ── Design tokens ── */
@@ -322,14 +324,18 @@ function DriveAttachButton({ projectId, bodyRef }: { projectId: string | null; b
 }
 
 /* ── Attachment list ── */
-function AttachmentList({ messageId, projectId }: { messageId: string; projectId: string | null }) {
+function AttachmentList({ messageId, projectId, onFound }: { messageId: string; projectId: string | null; onFound?: () => void }) {
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; contentType: string; size: number }>>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}`)
       .then((r) => r.json())
-      .then((data) => setAttachments(data.attachments ?? []))
+      .then((data) => {
+        const list = data.attachments ?? [];
+        setAttachments(list);
+        if (list.length > 0) onFound?.();
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [messageId]);
@@ -1730,7 +1736,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed, threadEmails, onSelectThread }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed, threadEmails, onSelectThread, onAttachmentsFound }: Props) {
   const [replyOpen,    setReplyOpen]    = useState(false);
   const [replyAllMode, setReplyAllMode] = useState(false);
   const [forwardOpen,  setForwardOpen]  = useState(false);
@@ -2049,7 +2055,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
 
         {/* Attachments */}
         {email.message_id && (
-          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} />
+          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} onFound={onAttachmentsFound} />
         )}
 
         {/* Email body */}

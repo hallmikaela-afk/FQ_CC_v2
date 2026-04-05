@@ -1293,6 +1293,7 @@ export default function InboxPage() {
           onDraftFallbackConsumed={() => setDraftFallbackText(null)}
           threadEmails={threadEmails}
           onSelectThread={(e) => handleSelectEmail(e)}
+          onAttachmentsFound={() => patch(selected.id, { has_attachments: true })}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-fq-bg">

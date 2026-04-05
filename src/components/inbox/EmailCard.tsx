@@ -287,9 +287,12 @@ export default function EmailCard({
                 >
                   {email.from_name || email.from_email || 'Unknown'}
                 </span>
-                <span className={`font-body text-[11px] ${tk.light} shrink-0`}>
-                  {fmtTime(email.received_at)}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {email.has_attachments && <Paperclip size={11} className="text-fq-muted/50" />}
+                  <span className={`font-body text-[11px] ${tk.light}`}>
+                    {fmtTime(email.received_at)}
+                  </span>
+                </div>
               </div>
 
               {/* Row 2: subject */}
@@ -419,12 +422,6 @@ export default function EmailCard({
                   </span>
                 )}
 
-                {/* Attachment indicator */}
-                {email.has_attachments && (
-                  <span className="inline-flex items-center gap-1 font-body text-[11px] font-medium px-2 py-0.5 rounded-full bg-fq-light-accent text-fq-muted/70">
-                    <Paperclip size={10} />
-                  </span>
-                )}
               </div>
 
               {/* ── Inline triage panel (Untagged tab only) ── */}
