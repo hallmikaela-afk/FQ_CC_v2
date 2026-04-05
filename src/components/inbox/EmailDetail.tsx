@@ -535,23 +535,29 @@ function LinkModal({
   selectedText,
   onInsert,
   onClose,
+  projectId,
+  initialUrl = '',
 }: {
   open: boolean;
   selectedText: string;
   onInsert: (displayText: string, url: string) => void;
   onClose: () => void;
+  projectId?: string | null;
+  initialUrl?: string;
 }) {
   const [displayText, setDisplayText] = useState('');
   const [url, setUrl]                 = useState('https://');
+  const [driveOpen, setDriveOpen]     = useState(false);
   const urlRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setDisplayText(selectedText);
-      setUrl('https://');
+      setUrl(initialUrl || 'https://');
+      setDriveOpen(false);
       setTimeout(() => urlRef.current?.focus(), 0);
     }
-  }, [open, selectedText]);
+  }, [open, selectedText, initialUrl]);
 
   if (!open) return null;
 
@@ -562,9 +568,10 @@ function LinkModal({
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[9999] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[360px] p-6">
+      <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[380px] p-6">
         <h3 className={`font-heading text-[16px] font-semibold ${tk.heading} mb-4`}>Insert link</h3>
 
         {!selectedText && (
@@ -579,7 +586,7 @@ function LinkModal({
           </div>
         )}
 
-        <div className="mb-5">
+        <div className="mb-3">
           <label className={`font-body text-[12px] ${tk.light} block mb-1`}>URL</label>
           <input
             ref={urlRef}
@@ -590,6 +597,18 @@ function LinkModal({
             className={`w-full font-body text-[13px] ${tk.body} bg-fq-bg border border-fq-accent/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-fq-accent/30`}
           />
         </div>
+
+        {/* From Drive shortcut */}
+        <button
+          type="button"
+          onClick={() => setDriveOpen(true)}
+          className={`flex items-center gap-1.5 mb-5 font-body text-[12px] ${tk.light} hover:text-fq-accent transition-colors`}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 11.5l-8 4.5L8 22h8l4-6-8-4.5zM8.5 2L4 10l4 2.25L12 5.5 15.5 12 20 9.75 15.5 2H8.5z"/>
+          </svg>
+          From Drive
+        </button>
 
         <div className="flex items-center justify-end gap-2">
           <button
@@ -607,6 +626,19 @@ function LinkModal({
         </div>
       </div>
     </div>
+    {driveOpen && (
+      <DriveFilePicker
+        projectId={projectId ?? null}
+        title="Link a Drive file"
+        onClose={() => setDriveOpen(false)}
+        onSelect={(file) => {
+          setUrl(file.webViewLink);
+          setDisplayText((prev) => prev || file.name);
+          setDriveOpen(false);
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -644,6 +676,8 @@ function DraftCard({
   const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
   const [linkModalOpen,    setLinkModalOpen]    = useState(false);
   const [linkSelectedText, setLinkSelectedText] = useState('');
+  const [linkEditUrl,      setLinkEditUrl]      = useState('');
+  const [linkPopover, setLinkPopover] = useState<{ el: HTMLAnchorElement; top: number; left: number } | null>(null);
   const bodyRef        = useRef<HTMLDivElement>(null);
   const colorBtnRef    = useRef<HTMLDivElement>(null);
   const vendorBtnRef   = useRef<HTMLDivElement>(null);
@@ -709,6 +743,31 @@ function DraftCard({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [colorOpen]);
+
+  // Dismiss link popover on outside click
+  useEffect(() => {
+    if (!linkPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as Element)?.closest('[data-link-popover]')) setLinkPopover(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [linkPopover]);
+
+  const checkLinkAtCursor = () => {
+    const sel = window.getSelection();
+    if (!sel?.anchorNode || !bodyRef.current) { setLinkPopover(null); return; }
+    const node = sel.anchorNode.nodeType === Node.TEXT_NODE
+      ? sel.anchorNode.parentElement
+      : sel.anchorNode as Element;
+    const anchor = node?.closest?.('a');
+    if (anchor && bodyRef.current.contains(anchor)) {
+      const rect = anchor.getBoundingClientRect();
+      setLinkPopover({ el: anchor as HTMLAnchorElement, top: rect.bottom + 6, left: rect.left });
+    } else {
+      setLinkPopover(null);
+    }
+  };
 
   const execCmd   = (cmd: string) => { bodyRef.current?.focus(); document.execCommand(cmd, false, undefined); };
   const applyColor = (color: string) => {
@@ -866,8 +925,54 @@ function DraftCard({
       open={linkModalOpen}
       selectedText={linkSelectedText}
       onInsert={handleInsertLink}
-      onClose={() => setLinkModalOpen(false)}
+      onClose={() => { setLinkModalOpen(false); setLinkEditUrl(''); }}
+      projectId={email.project_id ?? null}
+      initialUrl={linkEditUrl}
     />
+    {/* Link edit/remove popover */}
+    {linkPopover && (
+      <div
+        data-link-popover=""
+        className="fixed z-[9998] bg-fq-card border border-fq-border rounded-xl shadow-xl px-3 py-2 flex items-center gap-3 max-w-[360px]"
+        style={{ top: linkPopover.top, left: linkPopover.left }}
+      >
+        <span className={`font-body text-[11.5px] ${tk.light} truncate flex-1 min-w-0`}>
+          {linkPopover.el.href}
+        </span>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            savedRangeRef.current = range.cloneRange();
+            const href = linkPopover.el.href;
+            const text = linkPopover.el.textContent ?? '';
+            document.execCommand('unlink');
+            setLinkSelectedText(text);
+            setLinkEditUrl(href);
+            setLinkModalOpen(true);
+            setLinkPopover(null);
+          }}
+          className="font-body text-[11px] text-fq-blue hover:underline shrink-0"
+        >Edit</button>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            document.execCommand('unlink');
+            setLinkPopover(null);
+          }}
+          className={`font-body text-[11px] ${tk.light} hover:text-red-500 shrink-0`}
+        >Remove</button>
+      </div>
+    )}
     <div
       className="rounded-xl border border-fq-border bg-fq-card"
       style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}
@@ -1101,6 +1206,8 @@ function DraftCard({
           suppressContentEditableWarning
           data-placeholder="Draft content…"
           onInput={triggerSave}
+          onMouseUp={checkLinkAtCursor}
+          onKeyUp={checkLinkAtCursor}
           style={{ color: '#2C2C2C' }}
           className={`min-h-[140px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
             empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
@@ -1171,6 +1278,8 @@ function ReplyPanel({
   const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
   const [linkModalOpen,    setLinkModalOpen]    = useState(false);
   const [linkSelectedText, setLinkSelectedText] = useState('');
+  const [linkEditUrl,      setLinkEditUrl]      = useState('');
+  const [linkPopover, setLinkPopover] = useState<{ el: HTMLAnchorElement; top: number; left: number } | null>(null);
   const contacts       = useContacts();
   const bodyRef        = useRef<HTMLDivElement>(null);
   const sigRef         = useRef<HTMLDivElement>(null);
@@ -1200,6 +1309,31 @@ function ReplyPanel({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [colorOpen]);
+
+  // Dismiss link popover on outside click
+  useEffect(() => {
+    if (!linkPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as Element)?.closest('[data-link-popover]')) setLinkPopover(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [linkPopover]);
+
+  const checkLinkAtCursor = () => {
+    const sel = window.getSelection();
+    if (!sel?.anchorNode || !bodyRef.current) { setLinkPopover(null); return; }
+    const node = sel.anchorNode.nodeType === Node.TEXT_NODE
+      ? sel.anchorNode.parentElement
+      : sel.anchorNode as Element;
+    const anchor = node?.closest?.('a');
+    if (anchor && bodyRef.current.contains(anchor)) {
+      const rect = anchor.getBoundingClientRect();
+      setLinkPopover({ el: anchor as HTMLAnchorElement, top: rect.bottom + 6, left: rect.left });
+    } else {
+      setLinkPopover(null);
+    }
+  };
 
   const execCmd = (cmd: string) => {
     bodyRef.current?.focus();
@@ -1360,8 +1494,54 @@ function ReplyPanel({
       open={linkModalOpen}
       selectedText={linkSelectedText}
       onInsert={handleInsertLink}
-      onClose={() => setLinkModalOpen(false)}
+      onClose={() => { setLinkModalOpen(false); setLinkEditUrl(''); }}
+      projectId={email.project_id ?? null}
+      initialUrl={linkEditUrl}
     />
+    {/* Link edit/remove popover */}
+    {linkPopover && (
+      <div
+        data-link-popover=""
+        className="fixed z-[9998] bg-fq-card border border-fq-border rounded-xl shadow-xl px-3 py-2 flex items-center gap-3 max-w-[360px]"
+        style={{ top: linkPopover.top, left: linkPopover.left }}
+      >
+        <span className={`font-body text-[11.5px] ${tk.light} truncate flex-1 min-w-0`}>
+          {linkPopover.el.href}
+        </span>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            savedRangeRef.current = range.cloneRange();
+            const href = linkPopover.el.href;
+            const text = linkPopover.el.textContent ?? '';
+            document.execCommand('unlink');
+            setLinkSelectedText(text);
+            setLinkEditUrl(href);
+            setLinkModalOpen(true);
+            setLinkPopover(null);
+          }}
+          className="font-body text-[11px] text-fq-blue hover:underline shrink-0"
+        >Edit</button>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            document.execCommand('unlink');
+            setLinkPopover(null);
+          }}
+          className={`font-body text-[11px] ${tk.light} hover:text-red-500 shrink-0`}
+        >Remove</button>
+      </div>
+    )}
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
       {/* Panel header */}
       <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
@@ -1529,6 +1709,8 @@ function ReplyPanel({
         suppressContentEditableWarning
         data-placeholder="Write your reply…"
         onInput={() => setIsEmpty(!(bodyRef.current?.innerText ?? '').trim())}
+        onMouseUp={checkLinkAtCursor}
+        onKeyUp={checkLinkAtCursor}
         style={{ color: '#2C2C2C' }}
         className={`min-h-[150px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
           empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
@@ -2139,6 +2321,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   const [sprintAdding, setSprintAdding]   = useState(false);
   const [draftText, setDraftText]         = useState('');
   const [toast, setToast]                 = useState<string | null>(null);
+  const [isExpanded, setIsExpanded]       = useState(false);
   const badgeRef    = useRef<HTMLDivElement>(null);
   const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
@@ -2248,21 +2431,40 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-fq-bg min-w-0 relative">
+    <div className={isExpanded ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-fq-bg" : "flex-1 flex flex-col overflow-hidden bg-fq-bg min-w-0 relative"}>
       {/* ── Header ── */}
       <div className="px-7 pt-6 pb-4 border-b border-fq-border bg-fq-card shrink-0">
         <div className="flex items-start justify-between gap-4 mb-3">
           <h2 className={`font-heading text-[18px] font-semibold ${tk.heading} leading-snug flex-1 min-w-0`}>
             {email.subject || '(no subject)'}
           </h2>
-          <button
-            onClick={onClose}
-            className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} shrink-0`}
-          >
-            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M5 5l10 10M15 5L5 15" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Pop-out / collapse button */}
+            <button
+              onClick={() => setIsExpanded(v => !v)}
+              title={isExpanded ? 'Collapse' : 'Expand to full screen'}
+              className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon}`}
+            >
+              {isExpanded ? (
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 3h4v4M3 17l6-6M7 17H3v-4M17 3l-6 6" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 13v4h4M17 7V3h-4M14 6l3-3M6 14l-3 3" />
+                </svg>
+              )}
+            </button>
+            {/* Close button */}
+            <button
+              onClick={onClose}
+              className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon}`}
+            >
+              <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M5 5l10 10M15 5L5 15" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* From / date / project */}
