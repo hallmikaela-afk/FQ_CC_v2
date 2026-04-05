@@ -431,29 +431,16 @@ export default function EmailCard({
                   className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-fq-border/60"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div
-                    ref={reassignContainerRef}
-                    className="relative flex-1"
+                  <select
+                    value={email.project_id ?? ''}
+                    onChange={(e) => handleReassignSelect(e.target.value || null)}
+                    className={`flex-1 px-2.5 py-1.5 font-body text-[11.5px] bg-fq-bg border border-fq-border rounded-lg ${tk.light} hover:border-fq-accent/30 focus:outline-none focus:ring-1 focus:ring-fq-accent/30 transition-colors`}
                   >
-                    <button
-                      onClick={() => setReassignOpen((v) => !v)}
-                      className={`w-full text-left px-2.5 py-1.5 font-body text-[11.5px] bg-fq-bg border border-fq-border rounded-lg ${tk.light} hover:border-fq-accent/30 transition-colors flex items-center justify-between`}
-                    >
-                      <span>Tag to project…</span>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 3.5l3 3 3-3" />
-                      </svg>
-                    </button>
-                    {reassignOpen && (
-                      <ReassignDropdown
-                        email={email}
-                        projects={projects}
-                        onSelect={handleReassignSelect}
-                        onClose={() => setReassignOpen(false)}
-                        upward
-                      />
-                    )}
-                  </div>
+                    <option value="">Tag to project…</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
                   <button
                     onClick={() => onDismiss(email)}
                     className={`px-2.5 py-1.5 font-body text-[11.5px] ${tk.light} hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-fq-border hover:border-red-200 shrink-0`}
