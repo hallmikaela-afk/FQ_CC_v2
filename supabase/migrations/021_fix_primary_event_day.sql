@@ -5,7 +5,7 @@
 INSERT INTO event_days (project_id, day_name, event_date, sort_order)
 SELECT
   p.id,
-  COALESCE(p.primary_day_name, 'Wedding Day'),
+  'Wedding Day',
   p.event_date,
   0
 FROM projects p
