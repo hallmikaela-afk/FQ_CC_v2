@@ -865,6 +865,12 @@ export default function InboxPage() {
     });
   }, []);
 
+  const handleSelectAll = useCallback(() => {
+    const allIds = filteredEmails.map((e) => e.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedEmailIds.has(id));
+    setSelectedEmailIds(allSelected ? new Set() : new Set(allIds));
+  }, [filteredEmails, selectedEmailIds]);
+
   const handleBulkToggle = useCallback((email: Email, shiftKey: boolean) => {
     setBulkDeleteConfirm(false);
     if (shiftKey && lastBulkSelectedIdRef.current) {
@@ -1106,6 +1112,16 @@ export default function InboxPage() {
               >
                 {isSelectMode ? 'Done' : 'Select'}
               </button>
+              {isSelectMode && (
+                <button
+                  onClick={handleSelectAll}
+                  className={`px-3 py-1.5 rounded-lg font-body text-[12px] transition-colors ${tk.light} hover:bg-fq-light-accent`}
+                >
+                  {filteredEmails.length > 0 && filteredEmails.every((e) => selectedEmailIds.has(e.id))
+                    ? 'Deselect all'
+                    : 'Select all'}
+                </button>
+              )}
               {/* Compose button */}
               <button
                 onClick={() => setComposeOpen(true)}
