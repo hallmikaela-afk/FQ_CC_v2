@@ -20,9 +20,15 @@ async function bufferToText(buffer: Buffer, mimeType: string, fileName: string):
 
   // PDF
   if (mimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
+    // Validate the buffer actually starts with PDF magic bytes
+    const header = buffer.slice(0, 5).toString('ascii');
+    if (!header.startsWith('%PDF')) {
+      // The download didn't return a PDF — surface what we got for debugging
+      const preview = buffer.slice(0, 200).toString('utf-8').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+      throw new Error(`Downloaded content is not a PDF (starts with: ${JSON.stringify(preview.slice(0, 80))})`);
+    }
+
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js' as any);
-    // Disable web workers — required for serverless/Node.js environments
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
     const loadingTask = pdfjsLib.getDocument({
       data: new Uint8Array(buffer),
       useSystemFonts: true,
@@ -90,11 +96,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!rawText) {
-      // Return the parse error (or a generic note) so the caller can surface it
       return NextResponse.json({
         text: '',
         truncated: false,
-        parseError: parseError || `No extractable text found in ${fileName} (may be an image-based or scanned PDF).`,
+        parseError: parseError || `No extractable text in ${fileName} (may be a scanned/image-based PDF).`,
       });
     }
 

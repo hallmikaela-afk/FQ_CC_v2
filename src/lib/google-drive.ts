@@ -380,7 +380,7 @@ export async function downloadDriveFileAsBuffer(
     res = await driveFetch(`/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`);
     effectiveMimeType = exportMimeType;
   } else {
-    res = await driveFetch(`/files/${fileId}?alt=media`);
+    res = await driveFetch(`/files/${fileId}?alt=media&acknowledgeAbuse=true`);
     effectiveMimeType = mimeType;
   }
 
