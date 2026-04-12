@@ -284,6 +284,15 @@ interface ReadFileResult {
 
 async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<ReadFileResult> {
   const nameLower = fileName.toLowerCase();
+
+  // PDFs: encoding as base64 exceeds token limits for proactive tool use.
+  // Return the Drive view link so the user can attach it directly for reading.
+  if (mimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
+    return {
+      toolContent: `PDF files are too large to read via proactive search. The file "${fileName}" is available here: https://drive.google.com/file/d/${fileId}/view\n\nTo read its contents, attach it using the "From Drive" button in the chat and ask your question — I'll be able to read it directly.`,
+    };
+  }
+
   let buffer: Buffer;
   let effectiveMimeType: string;
 
@@ -293,18 +302,6 @@ async function readDriveFile(fileId: string, fileName: string, mimeType: string)
     effectiveMimeType = result.effectiveMimeType;
   } catch (err: any) {
     return { toolContent: `Failed to download file: ${err.message}` };
-  }
-
-  // PDFs: tool_result content only supports text/image — attach the PDF as a document block
-  // alongside the tool result in the same user message turn (Anthropic allows mixing them).
-  if (effectiveMimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
-    return {
-      toolContent: `[PDF: ${fileName}] — document attached below for reading`,
-      documentBlock: {
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
-      },
-    };
   }
 
   // Plain text / CSV (Google Docs & Sheets exports)
