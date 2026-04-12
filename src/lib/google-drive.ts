@@ -354,6 +354,45 @@ export async function listSubfoldersInFolder(folderId: string): Promise<{ id: st
   return (data.files ?? []) as { id: string; name: string }[];
 }
 
+// ─── File download ────────────────────────────────────────────────────────────
+
+const GOOGLE_WORKSPACE_EXPORTS: Record<string, string> = {
+  'application/vnd.google-apps.document': 'text/plain',
+  'application/vnd.google-apps.spreadsheet': 'text/csv',
+  'application/vnd.google-apps.presentation': 'text/plain',
+};
+
+/**
+ * Downloads a Drive file as a Buffer.
+ * Google Workspace files (Docs, Sheets, Slides) are exported to plain text / CSV.
+ * All other files are downloaded as-is via alt=media.
+ */
+export async function downloadDriveFileAsBuffer(
+  fileId: string,
+  mimeType: string,
+): Promise<{ buffer: Buffer; effectiveMimeType: string }> {
+  const exportMimeType = GOOGLE_WORKSPACE_EXPORTS[mimeType];
+
+  let res: Response;
+  let effectiveMimeType: string;
+
+  if (exportMimeType) {
+    res = await driveFetch(`/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`);
+    effectiveMimeType = exportMimeType;
+  } else {
+    res = await driveFetch(`/files/${fileId}?alt=media`);
+    effectiveMimeType = mimeType;
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Failed to download Drive file: ${res.status} ${body}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  return { buffer: Buffer.from(arrayBuffer), effectiveMimeType };
+}
+
 // ─── File upload ───────────────────────────────────────────────────────────────
 
 /**

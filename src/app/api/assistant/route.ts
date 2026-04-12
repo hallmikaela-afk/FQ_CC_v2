@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { projects as seedProjects, team as seedTeam } from '@/data/seed';
 import { getISOWeek } from '@/lib/week';
+import { listFilesInFolder, getValidGoogleToken } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
 
@@ -152,6 +153,68 @@ async function buildContext(): Promise<string> {
   return context;
 }
 
+async function searchDriveFiles(projectName: string, subfolder?: string): Promise<string> {
+  const supabase = tryGetSupabase();
+  if (!supabase) return 'Database not available.';
+
+  const connected = await getValidGoogleToken();
+  if (!connected) return 'Google Drive is not connected.';
+
+  // Find project by name (case-insensitive)
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('id, name')
+    .ilike('name', `%${projectName}%`)
+    .limit(3);
+
+  if (!projects || projects.length === 0) {
+    return `No project found matching "${projectName}".`;
+  }
+
+  const project = projects[0];
+
+  // Look up Drive folder record
+  const { data: driveRow } = await supabase
+    .from('drive_folders')
+    .select('subfolder_ids')
+    .eq('project_id', project.id)
+    .single();
+
+  if (!driveRow) {
+    return `No Google Drive folder is set up for ${project.name}.`;
+  }
+
+  const subfolderIds: Record<string, string> = driveRow.subfolder_ids || {};
+
+  if (subfolder) {
+    const folderId = subfolderIds[subfolder];
+    if (!folderId) {
+      return `No "${subfolder}" subfolder found for ${project.name}.`;
+    }
+    const files = await listFilesInFolder(folderId);
+    if (files.length === 0) return `No files found in ${subfolder} for ${project.name}.`;
+    const list = files.map(f => `• ${f.name} — [View](${f.webViewLink})`).join('\n');
+    return `${subfolder} (${files.length} file${files.length > 1 ? 's' : ''}):\n${list}`;
+  }
+
+  // Search all subfolders
+  const results: string[] = [];
+  for (const [name, folderId] of Object.entries(subfolderIds)) {
+    try {
+      const files = await listFilesInFolder(folderId);
+      if (files.length > 0) {
+        const list = files.map(f => `  • ${f.name} — [View](${f.webViewLink})`).join('\n');
+        results.push(`${name} (${files.length} file${files.length > 1 ? 's' : ''}):\n${list}`);
+      }
+    } catch {
+      // Skip folders that fail to list
+    }
+  }
+
+  if (results.length === 0) return `No files found in Drive for ${project.name} yet.`;
+  return `Drive files for ${project.name}:\n\n${results.join('\n\n')}`;
+}
+
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
@@ -187,13 +250,67 @@ export async function POST(req: NextRequest) {
       return { role: m.role, content: m.content };
     });
 
-    const response = await getAnthropic().messages.create({
+    const tools: any[] = [
+      { type: 'web_search_20250305', name: 'web_search' },
+      {
+        name: 'search_drive_files',
+        description: 'Search Google Drive folders for a project to find files. Use this when Mikaela asks about documents, floor plans, contracts, timelines, budgets, photos, questionnaires, or any project files. Returns file names and direct links.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            project_name: {
+              type: 'string',
+              description: 'The project name as it appears in context (e.g. "Julia & Frank", "Tippi & Justin").',
+            },
+            subfolder: {
+              type: 'string',
+              description: 'Optional. One of: Budgets, Client Questionnaires, Design Boards & Mockups, Design Invoices & Contracts, Floorplans, Paper Goods, Photos, Planning Checklists, Processional, RSVP Summaries, Timelines, Vendor Contracts & Proposals, Venue Documents. Omit to search all subfolders.',
+            },
+          },
+          required: ['project_name'],
+        },
+      },
+    ];
+
+    // Agentic loop — handles custom tool calls (search_drive_files).
+    // web_search is a server-side built-in and never triggers stop_reason: tool_use here.
+    let currentMessages = [...apiMessages];
+    let response = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       system: context,
-      messages: apiMessages,
-      tools: [{ type: 'web_search_20250305', name: 'web_search' } as any],
+      messages: currentMessages,
+      tools,
     });
+
+    for (let iteration = 0; iteration < 5 && response.stop_reason === 'tool_use'; iteration++) {
+      const toolUseBlocks = response.content.filter((c: any) => c.type === 'tool_use');
+      const toolResults: any[] = [];
+
+      for (const block of toolUseBlocks) {
+        if (block.name === 'search_drive_files') {
+          const input = block.input as { project_name: string; subfolder?: string };
+          const result = await searchDriveFiles(input.project_name, input.subfolder);
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+        }
+      }
+
+      if (toolResults.length === 0) break;
+
+      currentMessages = [
+        ...currentMessages,
+        { role: 'assistant' as const, content: response.content },
+        { role: 'user' as const, content: toolResults },
+      ];
+
+      response = await getAnthropic().messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: context,
+        messages: currentMessages,
+        tools,
+      });
+    }
 
     // Collect all text blocks — web search responses interleave tool_use/tool_result with text
     const rawText = response.content
