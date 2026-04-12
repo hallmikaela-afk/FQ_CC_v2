@@ -426,7 +426,10 @@ export default function AssistantPage() {
         }),
       });
 
-      if (!res.ok) throw new Error('API error');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
 
       const data = await res.json();
       const aiMsg: ChatMessage = {

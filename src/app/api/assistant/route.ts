@@ -277,7 +277,12 @@ async function searchEmails(opts: {
   return `Found ${emails.length} email${emails.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`;
 }
 
-async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<string> {
+interface ReadFileResult {
+  toolContent: string;
+  documentBlock?: any;
+}
+
+async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<ReadFileResult> {
   const nameLower = fileName.toLowerCase();
   let buffer: Buffer;
   let effectiveMimeType: string;
@@ -287,32 +292,24 @@ async function readDriveFile(fileId: string, fileName: string, mimeType: string)
     buffer = result.buffer;
     effectiveMimeType = result.effectiveMimeType;
   } catch (err: any) {
-    return `Failed to download file: ${err.message}`;
+    return { toolContent: `Failed to download file: ${err.message}` };
   }
 
-  // PDFs: tool results only support text/image content — use a Haiku sub-call to extract text
+  // PDFs: tool_result content only supports text/image — attach the PDF as a document block
+  // alongside the tool result in the same user message turn (Anthropic allows mixing them).
   if (effectiveMimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
-    try {
-      const extraction = await getAnthropic().messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } },
-            { type: 'text', text: 'Extract and return the full text content of this document verbatim. Include all names, dates, clauses, terms, and details.' },
-          ],
-        }],
-      });
-      return (extraction.content[0] as any).text || 'Could not extract text from PDF.';
-    } catch (err: any) {
-      return `Failed to read PDF: ${err.message}`;
-    }
+    return {
+      toolContent: `[PDF: ${fileName}] — document attached below for reading`,
+      documentBlock: {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+      },
+    };
   }
 
   // Plain text / CSV (Google Docs & Sheets exports)
   if (effectiveMimeType === 'text/plain' || effectiveMimeType === 'text/csv' || nameLower.endsWith('.csv') || nameLower.endsWith('.txt')) {
-    return buffer.toString('utf-8').slice(0, 60000);
+    return { toolContent: buffer.toString('utf-8').slice(0, 60000) };
   }
 
   // DOCX
@@ -323,7 +320,7 @@ async function readDriveFile(fileId: string, fileName: string, mimeType: string)
   ) {
     const mammoth = await import('mammoth');
     const result = await mammoth.default.extractRawText({ buffer });
-    return result.value.slice(0, 60000);
+    return { toolContent: result.value.slice(0, 60000) };
   }
 
   // XLSX
@@ -339,10 +336,10 @@ async function readDriveFile(fileId: string, fileName: string, mimeType: string)
       const sheet = workbook.Sheets[sheetName];
       parts.push(`[Sheet: ${sheetName}]\n${XLSX.utils.sheet_to_csv(sheet)}`);
     }
-    return parts.join('\n\n').slice(0, 60000);
+    return { toolContent: parts.join('\n\n').slice(0, 60000) };
   }
 
-  return `Cannot extract text from file type: ${effectiveMimeType}`;
+  return { toolContent: `Cannot extract text from file type: ${effectiveMimeType}` };
 }
 
 export async function POST(req: NextRequest) {
@@ -480,6 +477,7 @@ export async function POST(req: NextRequest) {
     for (let iteration = 0; iteration < 5 && response.stop_reason === 'tool_use'; iteration++) {
       const toolUseBlocks = (response.content as any[]).filter((c) => c.type === 'tool_use');
       const toolResults: any[] = [];
+      const extraDocumentBlocks: any[] = [];
 
       for (const block of toolUseBlocks) {
         if (block.name === 'search_emails') {
@@ -491,17 +489,21 @@ export async function POST(req: NextRequest) {
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
         } else if (block.name === 'read_drive_file') {
           const input = block.input as { file_id: string; file_name: string; mime_type: string };
-          const content = await readDriveFile(input.file_id, input.file_name, input.mime_type);
-          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
+          const { toolContent, documentBlock } = await readDriveFile(input.file_id, input.file_name, input.mime_type);
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: toolContent });
+          if (documentBlock) extraDocumentBlocks.push(documentBlock);
         }
       }
 
       if (toolResults.length === 0) break;
 
+      // Anthropic allows document blocks to be mixed with tool_result blocks in the same user turn
+      const userTurnContent = [...toolResults, ...extraDocumentBlocks];
+
       currentMessages = [
         ...currentMessages,
         { role: 'assistant' as const, content: response.content },
-        { role: 'user' as const, content: toolResults },
+        { role: 'user' as const, content: userTurnContent },
       ];
 
       response = await getAnthropic().messages.create({
