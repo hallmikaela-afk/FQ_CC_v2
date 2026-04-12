@@ -149,6 +149,7 @@ async function buildContext(): Promise<string> {
 
   context += `\nRESEARCH LINKS: When listing vendors or companies, format as: - [Company Name](https://url) - Brief description. Only link to real, well-known sites. Always use markdown links [text](url).\n`;
   context += `\nWEB SEARCH: You have access to a web_search tool. Use it whenever Mikaela asks about venues, vendors, pricing, contact info, current events, or anything that benefits from live information. Search proactively — don't tell her you can't look something up.`;
+  context += `\nEMAIL SEARCH: You have access to a search_emails tool. Use it whenever Mikaela asks about emails — finding a message, checking if someone replied, looking for emails from a vendor, etc. Search proactively instead of saying you can't check email.`;
 
   return context;
 }
@@ -215,6 +216,67 @@ async function searchDriveFiles(projectName: string, subfolder?: string): Promis
   return `Drive files for ${project.name}:\n\n${results.join('\n\n')}`;
 }
 
+async function searchEmails(opts: {
+  query?: string;
+  from?: string;
+  project_name?: string;
+  has_attachment?: boolean;
+  needs_followup?: boolean;
+  needs_response?: boolean;
+}): Promise<string> {
+  const supabase = tryGetSupabase();
+  if (!supabase) return 'Database not available.';
+
+  let q = supabase
+    .from('emails')
+    .select('subject, from_name, from_email, body_preview, received_at, needs_followup, needs_response, resolved, project_id, projects:project_id(name)')
+    .eq('dismissed', false)
+    .order('received_at', { ascending: false })
+    .limit(20);
+
+  if (opts.query?.trim()) {
+    const term = `%${opts.query.trim()}%`;
+    q = q.or(`subject.ilike.${term},from_name.ilike.${term},from_email.ilike.${term},body_preview.ilike.${term}`);
+  }
+  if (opts.from?.trim()) {
+    const term = `%${opts.from.trim()}%`;
+    q = q.or(`from_name.ilike.${term},from_email.ilike.${term}`);
+  }
+  if (opts.has_attachment) q = q.eq('has_attachments', true);
+  if (opts.needs_followup) q = q.eq('needs_followup', true);
+  if (opts.needs_response) q = q.eq('needs_response', true);
+
+  // Filter by project name if provided
+  if (opts.project_name?.trim()) {
+    const { data: proj } = await supabase
+      .from('projects')
+      .select('id')
+      .ilike('name', `%${opts.project_name.trim()}%`)
+      .limit(1)
+      .single();
+    if (proj) q = q.eq('project_id', proj.id);
+    else return `No project found matching "${opts.project_name}".`;
+  }
+
+  const { data: emails, error } = await q;
+  if (error) return `Email search failed: ${error.message}`;
+  if (!emails || emails.length === 0) return 'No emails found matching those criteria.';
+
+  const lines = emails.map((e: any, i: number) => {
+    const date = e.received_at ? new Date(e.received_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'unknown date';
+    const from = [e.from_name, e.from_email].filter(Boolean).join(' <') + (e.from_email ? '>' : '');
+    const flags = [
+      e.needs_response ? 'Needs Response' : null,
+      e.needs_followup ? 'Needs Follow-up' : null,
+      e.resolved ? 'Resolved' : null,
+      (e.projects as any)?.name ? `Filed: ${(e.projects as any).name}` : null,
+    ].filter(Boolean).join(' · ');
+    return `${i + 1}. **${e.subject || '(no subject)'}**\n   From: ${from} — ${date}${flags ? `\n   ${flags}` : ''}\n   ${e.body_preview || ''}`;
+  });
+
+  return `Found ${emails.length} email${emails.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`;
+}
+
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
@@ -253,6 +315,40 @@ export async function POST(req: NextRequest) {
     const tools: any[] = [
       { type: 'web_search_20250305', name: 'web_search' },
       {
+        name: 'search_emails',
+        description: 'Search emails in the inbox. Use when Mikaela asks to find emails — by subject keyword, sender, project, or status (needs response, needs follow-up). Returns matching emails with subject, sender, date, and preview.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Text to search in subject, sender name, or body preview.',
+            },
+            from: {
+              type: 'string',
+              description: 'Filter by sender name or email address.',
+            },
+            project_name: {
+              type: 'string',
+              description: 'Filter emails filed to a specific project (e.g. "Julia & Frank").',
+            },
+            has_attachment: {
+              type: 'boolean',
+              description: 'If true, only return emails with attachments.',
+            },
+            needs_followup: {
+              type: 'boolean',
+              description: 'If true, only return emails marked Needs Follow-up.',
+            },
+            needs_response: {
+              type: 'boolean',
+              description: 'If true, only return emails marked Needs Response.',
+            },
+          },
+          required: [],
+        },
+      },
+      {
         name: 'search_drive_files',
         description: 'Search Google Drive folders for a project to find files. Use this when Mikaela asks about documents, floor plans, contracts, timelines, budgets, photos, questionnaires, or any project files. Returns file names and direct links.',
         input_schema: {
@@ -288,7 +384,10 @@ export async function POST(req: NextRequest) {
       const toolResults: any[] = [];
 
       for (const block of toolUseBlocks) {
-        if (block.name === 'search_drive_files') {
+        if (block.name === 'search_emails') {
+          const result = await searchEmails(block.input as any);
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+        } else if (block.name === 'search_drive_files') {
           const input = block.input as { project_name: string; subfolder?: string };
           const result = await searchDriveFiles(input.project_name, input.subfolder);
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
