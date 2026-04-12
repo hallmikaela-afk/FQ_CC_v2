@@ -1014,7 +1014,9 @@ function decodeHtmlEntities(text: string): string {
 
 /* ─────────────── Summary Generation (returns bullet array) ─────────────── */
 function generateSummaryBullets(text: string): string[] {
-  const clean = decodeHtmlEntities(text.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const clean = decodeHtmlEntities(text.replace(/<[^>]+>/g, ' '))
+    .replace(/https?:\/\/\S+/gi, '')   // strip URLs
+    .replace(/\s+/g, ' ').trim();
   const sentences = clean.split(/(?<=[.!?])\s+/).filter(s => s.length > 10);
   if (sentences.length === 0) return [clean].filter(Boolean);
   if (sentences.length <= 4) return sentences;
@@ -1536,7 +1538,7 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
                   </div>
 
                   {!isNoteCollapsed && (
-                    <div onDoubleClick={() => setExpandedNote(note)} className="cursor-default" title="Double-click to expand">
+                    <div onDoubleClick={() => setExpandedNote(note)} className="cursor-default max-h-[260px] overflow-y-auto pr-1" title="Double-click to expand">
                       {/* Summary — click to edit inline */}
                       {note.summary ? (
                         <div className="mb-3">
