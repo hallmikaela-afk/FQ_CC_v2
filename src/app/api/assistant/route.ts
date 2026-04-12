@@ -284,15 +284,6 @@ interface ReadFileResult {
 
 async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<ReadFileResult> {
   const nameLower = fileName.toLowerCase();
-
-  // PDFs: encoding as base64 exceeds token limits for proactive tool use.
-  // Return the Drive view link so the user can attach it directly for reading.
-  if (mimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
-    return {
-      toolContent: `PDF files are too large to read via proactive search. The file "${fileName}" is available here: https://drive.google.com/file/d/${fileId}/view\n\nTo read its contents, attach it using the "From Drive" button in the chat and ask your question — I'll be able to read it directly.`,
-    };
-  }
-
   let buffer: Buffer;
   let effectiveMimeType: string;
 
@@ -302,6 +293,22 @@ async function readDriveFile(fileId: string, fileName: string, mimeType: string)
     effectiveMimeType = result.effectiveMimeType;
   } catch (err: any) {
     return { toolContent: `Failed to download file: ${err.message}` };
+  }
+
+  // PDFs: extract text with pdf-parse (Node.js-native, no worker/bundling issues)
+  if (effectiveMimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const pdfParse = require('pdf-parse');
+      const data = await pdfParse(buffer);
+      const text = data.text?.trim();
+      if (!text) {
+        return { toolContent: `"${fileName}" appears to be a scanned/image-based PDF with no extractable text. Attach it from Drive to let me read it visually.` };
+      }
+      return { toolContent: text.slice(0, 60000) };
+    } catch (err: any) {
+      return { toolContent: `Could not extract text from "${fileName}": ${err.message}` };
+    }
   }
 
   // Plain text / CSV (Google Docs & Sheets exports)

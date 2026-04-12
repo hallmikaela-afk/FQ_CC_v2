@@ -18,6 +18,14 @@ async function bufferToText(buffer: Buffer, mimeType: string, fileName: string):
     return buffer.toString('utf-8');
   }
 
+  // PDF — extract text with pdf-parse (Node.js-native, no worker/bundling issues)
+  if (mimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = require('pdf-parse');
+    const data = await pdfParse(buffer);
+    return data.text?.trim() || '';
+  }
+
   // DOCX / DOC
   if (
     mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -59,11 +67,6 @@ export async function POST(req: NextRequest) {
     }
 
     const { buffer, effectiveMimeType } = await downloadDriveFileAsBuffer(fileId, mimeType);
-
-    // PDFs: return as base64 for Claude to read natively (pdfjs is unreliable in serverless)
-    if (effectiveMimeType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
-      return NextResponse.json({ base64: buffer.toString('base64'), mimeType: 'application/pdf' });
-    }
 
     let rawText = '';
     let parseError = '';
