@@ -1532,41 +1532,30 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button onClick={() => navigator.clipboard.writeText(note.summary || decodeHtmlEntities(note.raw_text.replace(/<[^>]+>/g, ' ')))} className={`font-body text-[12px] ${t.light} hover:text-fq-dark transition-colors flex items-center gap-1`}>📋 Copy</button>
+                      <button onClick={() => setExpandedNote(note)} className={`font-body text-[12px] ${t.light} hover:text-fq-dark transition-colors flex items-center gap-1`} title="Full view">↗ View</button>
                       <button onClick={() => deleteNote(note.id)} className={`font-body text-[12px] text-fq-muted/40 hover:text-fq-alert transition-colors flex items-center gap-1`}>🗑</button>
                       <ActionItemsPanel noteContent={note.raw_text} tasks={tasks} onAccept={(item, parentId) => handleAcceptAction(note.id, item, parentId)} />
                     </div>
                   </div>
 
                   {!isNoteCollapsed && (
-                    <div onDoubleClick={() => setExpandedNote(note)} className="cursor-default max-h-[260px] overflow-y-auto pr-1" title="Double-click to expand">
-                      {/* Summary — click to edit inline */}
-                      {note.summary ? (
+                    <div className="max-h-[260px] overflow-y-auto pr-1">
+                      {/* Manual summary — shown above note content if set */}
+                      {note.summary && (
                         <div className="mb-3">
                           <EditableSummary
                             value={note.summary}
                             onChange={(v) => updateNote(note.id, { summary: v })}
-                            textClass={`font-body text-[13px] ${t.body} leading-relaxed`}
-                          />
-                        </div>
-                      ) : autoSummaryBullets && autoSummaryBullets.length > 0 && (
-                        <div className="mb-3">
-                          <span className={`font-body text-[10px] ${t.light} uppercase tracking-wider`}>Auto-summary</span>
-                          <EditableSummary
-                            value={autoSummaryBullets.join('\n')}
-                            onChange={(v) => updateNote(note.id, { summary: v })}
-                            bullets={autoSummaryBullets}
-                            textClass={`font-body text-[13px] ${t.body} leading-relaxed`}
+                            textClass={`font-body text-[12px] ${t.light} leading-relaxed`}
                           />
                         </div>
                       )}
 
-                      {/* Show raw text preview (truncated) for notes with summary */}
-                      {note.summary && (
-                        <div
-                          className={`font-body text-[12px] ${t.light} leading-relaxed line-clamp-3 mb-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5`}
-                          dangerouslySetInnerHTML={{ __html: note.raw_text }}
-                        />
-                      )}
+                      {/* Formatted note content — rendered HTML preserves bullets, bold, etc. */}
+                      <div
+                        className={`font-body text-[13px] ${t.body} leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_u]:underline`}
+                        dangerouslySetInnerHTML={{ __html: note.raw_text }}
+                      />
 
                       {note.extracted_actions.length > 0 && (
                         <div className="mt-3">
