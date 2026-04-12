@@ -951,14 +951,35 @@ export default function AssistantPage() {
           projectId={null}
           title="Attach from Drive"
           onClose={() => setDrivePickerOpen(false)}
-          onSelect={(file: DrivePickerFile) => {
+          onSelect={async (file: DrivePickerFile) => {
             setDrivePickerOpen(false);
-            setPendingFiles(prev => [...prev, {
-              name: file.name,
-              fileType: file.mimeType,
-              size: '',
-              parsedText: `[Google Drive file: ${file.name}]\nLink: ${file.webViewLink}`,
-            }]);
+            setFileUploading(true);
+            try {
+              const res = await fetch('/api/drive/file-content', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fileId: file.id, mimeType: file.mimeType, fileName: file.name }),
+              });
+              const data = await res.json();
+              const parsedText = data.text
+                ? `[Google Drive: ${file.name}]\n${data.text}`
+                : `[Google Drive file: ${file.name}]\nLink: ${file.webViewLink}`;
+              setPendingFiles(prev => [...prev, {
+                name: file.name,
+                fileType: file.mimeType,
+                size: '',
+                parsedText,
+              }]);
+            } catch {
+              setPendingFiles(prev => [...prev, {
+                name: file.name,
+                fileType: file.mimeType,
+                size: '',
+                parsedText: `[Google Drive file: ${file.name}]\nLink: ${file.webViewLink}`,
+              }]);
+            } finally {
+              setFileUploading(false);
+            }
           }}
         />
       )}
