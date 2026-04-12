@@ -9,6 +9,7 @@ import ProjectFileUpload from '@/components/ProjectFileUpload';
 import UploadModal from '@/components/UploadModal';
 import ComposePanel from '@/components/inbox/ComposePanel';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
+import { getISOWeek } from '@/lib/week';
 import type { Project, Vendor, CallNote, Task, SubTask, TeamMember, EventDay } from '@/data/seed';
 import ProjectDriveTab from '@/components/drive/ProjectDriveTab';
 import AddEventDayModal from '@/components/AddEventDayModal';
@@ -958,7 +959,17 @@ function RichTextEditor({
           onKeyUp={updateActiveFormats}
           onMouseUp={updateActiveFormats}
           onFocus={updateActiveFormats}
-          className="min-h-[120px] max-h-[300px] overflow-y-auto p-3 font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5"
+          onPaste={(e) => {
+            e.preventDefault();
+            const html = e.clipboardData.getData('text/html');
+            if (html) {
+              document.execCommand('insertHTML', false, html);
+            } else {
+              document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+            }
+            handleInput();
+          }}
+          className="min-h-[120px] max-h-[400px] overflow-y-auto p-3 font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5"
         />
       </div>
     </div>
@@ -1074,6 +1085,21 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
     setItems(items.filter(i => i !== item));
   };
 
+  const addToWeek = (item: string) => {
+    fetch('/api/sprint-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: item,
+        bucket: 'Fox & Quinn — Operations',
+        sprint_week: getISOWeek(),
+        sort_order: 0,
+        done: false,
+      }),
+    });
+    setItems(items.filter(i => i !== item));
+  };
+
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
   if (items.length === 0) {
@@ -1091,7 +1117,7 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
         <p className={`font-body text-[12px] font-medium ${t.heading}`}>Suggested Actions ({items.length})</p>
         <button onClick={() => setItems([])} className={`font-body text-[11px] ${t.light} hover:text-fq-dark`}>Clear</button>
       </div>
-      <div className="space-y-2">
+      <div className="max-h-[240px] overflow-y-auto space-y-2 pr-1">
         {items.map((item, i) => {
           const matchedTask = findMatchingTask(item, tasks);
           return (
@@ -1101,6 +1127,12 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
                 title="Add to task list"
               >
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-0 group-hover/action:opacity-100"><path d="M2 5h6M5 2v6" /></svg>
+              </button>
+              <button onClick={() => addToWeek(item)}
+                className="w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 transition-colors border border-fq-border hover:border-fq-blue hover:bg-fq-blue hover:text-white"
+                title="Add to My Week"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-0 group-hover/action:opacity-100"><rect x="1" y="2" width="8" height="7" rx="1" /><path d="M1 4.5h8M3.5 1v2M6.5 1v2" /></svg>
               </button>
               <div className="flex-1 min-w-0">
                 <span className={`font-body text-[12px] ${t.body}`}>{item}</span>
@@ -1232,7 +1264,7 @@ function NoteDetailModal({
             ) : (
               <div
                 onDoubleClick={() => setEditingContent(true)}
-                className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap cursor-default hover:bg-fq-bg/30 rounded-lg p-2 -m-2 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
+                className={`max-h-[400px] overflow-y-auto font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap cursor-default hover:bg-fq-bg/30 rounded-lg p-2 -m-2 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
                 dangerouslySetInnerHTML={{ __html: note.raw_text }}
               />
             )}
