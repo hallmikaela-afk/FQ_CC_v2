@@ -371,23 +371,74 @@ function VendorTile({ vendor, onRemove }: { vendor: Vendor; onRemove: () => void
   const [website, setWebsite] = useState(vendor.website || '');
   const [instagram, setInstagram] = useState(vendor.instagram || '');
   const [category, setCategory] = useState(vendor.category);
+  const [directoryId, setDirectoryId] = useState(vendor.directory_vendor_id ?? null);
+  const [showBindSearch, setShowBindSearch] = useState(false);
+  const [bindResults, setBindResults] = useState<{ id: string; name: string; category: string }[]>([]);
+  const [bindSearching, setBindSearching] = useState(false);
   const t = { heading: 'text-fq-dark/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
   const patchVendor = (updates: Record<string, unknown>) => {
     fetch('/api/vendors', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: vendor.id, ...updates }) });
   };
 
+  const openBindSearch = async () => {
+    setShowBindSearch(true);
+    setBindSearching(true);
+    try {
+      const res = await fetch(`/api/vendor-directory?search=${encodeURIComponent(name)}`);
+      if (res.ok) setBindResults(await res.json());
+    } finally {
+      setBindSearching(false);
+    }
+  };
+
+  const handleBind = async (directoryVendor: { id: string; name: string; category: string }) => {
+    patchVendor({ directory_vendor_id: directoryVendor.id });
+    setDirectoryId(directoryVendor.id);
+    setShowBindSearch(false);
+  };
+
   return (
     <div className="bg-fq-card rounded-xl border border-fq-border shadow-sm p-4 flex flex-col group/tile">
       <div className="flex items-center justify-between mb-2">
         <EditableField value={category} onChange={(v) => { setCategory(v); patchVendor({ category: v }); }} className="text-[11px] font-body font-medium text-fq-accent bg-fq-light-accent px-2 py-0.5 rounded-full" placeholder="Category..." />
-        <button onClick={onRemove} className="text-fq-muted/30 hover:text-fq-alert transition-colors opacity-0 group-hover/tile:opacity-100" title="Remove vendor">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-1.5 opacity-0 group-hover/tile:opacity-100 transition-opacity">
+          {/* Find in directory / linked indicator */}
+          {directoryId ? (
+            <Link href={`/vendors/${directoryId}`} title="View in vendor directory" className="text-fq-accent/60 hover:text-fq-accent transition-colors">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <circle cx="5.5" cy="5.5" r="3.5" />
+                <path d="M8.5 8.5l2.5 2.5" />
+              </svg>
+            </Link>
+          ) : (
+            <button onClick={openBindSearch} title="Find in vendor directory" className="text-fq-muted/40 hover:text-fq-accent transition-colors">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <circle cx="5.5" cy="5.5" r="3.5" />
+                <path d="M8.5 8.5l2.5 2.5" />
+              </svg>
+            </button>
+          )}
+          <button onClick={onRemove} className="text-fq-muted/30 hover:text-fq-alert transition-colors" title="Remove vendor">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 4h10M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M4.5 4l.5 8a1 1 0 001 1h4a1 1 0 001-1l.5-8" />
+            </svg>
+          </button>
+        </div>
       </div>
-      <EditableField value={name} onChange={(v) => { setName(v); patchVendor({ vendor_name: v }); }} className={`font-body text-[15px] font-medium ${t.heading} mb-2`} placeholder="Vendor name..." />
+
+      {/* Vendor name: link to directory if bound, otherwise inline-editable */}
+      {directoryId ? (
+        <Link
+          href={`/vendors/${directoryId}`}
+          className={`font-body text-[15px] font-medium ${t.heading} mb-2 hover:text-fq-accent transition-colors underline-offset-2 hover:underline`}
+        >
+          {name}
+        </Link>
+      ) : (
+        <EditableField value={name} onChange={(v) => { setName(v); patchVendor({ vendor_name: v }); }} className={`font-body text-[15px] font-medium ${t.heading} mb-2`} placeholder="Vendor name..." />
+      )}
+
       <div className="space-y-1 flex-1">
         <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>♗</span><EditableField value={contact} onChange={(v) => { setContact(v); patchVendor({ contact_name: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Contact name..." /></div>
         <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>✉</span><EditableField value={email} onChange={(v) => { setEmail(v); patchVendor({ email: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Email..." /></div>
@@ -395,6 +446,36 @@ function VendorTile({ vendor, onRemove }: { vendor: Vendor; onRemove: () => void
         <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>⊕</span><EditableField value={website} onChange={(v) => { setWebsite(v); patchVendor({ website: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="Website..." /></div>
         <div className="flex items-center gap-1.5"><span className={`${t.icon} text-[10px] w-3 shrink-0`}>📷</span><EditableField value={instagram} onChange={(v) => { setInstagram(v); patchVendor({ instagram: v }); }} className={`font-body text-[12px] ${t.light}`} placeholder="@instagram..." /></div>
       </div>
+
+      {/* Directory bind search results */}
+      {showBindSearch && (
+        <div className="mt-3 pt-3 border-t border-fq-border">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-body text-[11px] text-fq-muted">Find in directory</p>
+            <button onClick={() => setShowBindSearch(false)} className="text-fq-muted/40 hover:text-fq-muted transition-colors">
+              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 2l7 7M9 2L2 9" /></svg>
+            </button>
+          </div>
+          {bindSearching ? (
+            <p className="font-body text-[11px] text-fq-muted/60">Searching…</p>
+          ) : bindResults.length === 0 ? (
+            <p className="font-body text-[11px] text-fq-muted/60">No matches found.</p>
+          ) : (
+            <div className="space-y-1 max-h-28 overflow-y-auto">
+              {bindResults.slice(0, 5).map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => handleBind(r)}
+                  className="w-full flex items-center gap-2 text-left px-2 py-1.5 rounded-md hover:bg-fq-light-accent/50 transition-colors"
+                >
+                  <span className="font-body text-[12px] text-fq-dark truncate">{r.name}</span>
+                  <span className="font-body text-[10px] text-fq-muted/60 shrink-0">{r.category}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

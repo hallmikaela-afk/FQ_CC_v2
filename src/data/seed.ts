@@ -16,6 +16,7 @@ export interface Vendor {
   website?: string;
   instagram?: string;
   event_day_id?: string | null;
+  directory_vendor_id?: string | null;
 }
 
 export interface EventDay {

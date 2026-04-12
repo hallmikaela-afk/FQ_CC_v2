@@ -38,6 +38,26 @@ export interface Database {
         Insert: Omit<VendorRow, 'id' | 'created_at'> & { id?: string };
         Update: Partial<VendorRow>;
       };
+      vendor_directory: {
+        Row: VendorDirectoryRow;
+        Insert: Omit<VendorDirectoryRow, 'id' | 'created_at' | 'updated_at'> & { id?: string };
+        Update: Partial<VendorDirectoryRow>;
+      };
+      vendor_contacts: {
+        Row: VendorContactRow;
+        Insert: Omit<VendorContactRow, 'id' | 'created_at'> & { id?: string };
+        Update: Partial<VendorContactRow>;
+      };
+      vendor_documents: {
+        Row: VendorDocumentRow;
+        Insert: Omit<VendorDocumentRow, 'id' | 'created_at'> & { id?: string };
+        Update: Partial<VendorDocumentRow>;
+      };
+      vendor_project_links: {
+        Row: VendorProjectLinkRow;
+        Insert: Omit<VendorProjectLinkRow, 'id' | 'created_at'> & { id?: string };
+        Update: Partial<VendorProjectLinkRow>;
+      };
       event_days: {
         Row: EventDayRow;
         Insert: Omit<EventDayRow, 'id' | 'created_at'> & { id?: string };
@@ -165,6 +185,55 @@ export interface VendorRow {
   phone: string | null;
   website: string | null;
   instagram: string | null;
+  directory_vendor_id: string | null;
+  created_at: string;
+}
+
+export interface VendorDirectoryRow {
+  id: string;
+  name: string;
+  company: string | null;
+  category: string;
+  email: string | null;
+  phone: string | null;
+  instagram: string | null;
+  website: string | null;
+  notes: string | null;
+  ai_summary: string | null;
+  ai_summary_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VendorContactRow {
+  id: string;
+  vendor_id: string;
+  name: string;
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  is_primary: boolean;
+  created_at: string;
+}
+
+export interface VendorDocumentRow {
+  id: string;
+  vendor_id: string;
+  display_name: string;
+  drive_url: string | null;
+  drive_file_id: string | null;
+  doc_type: string;
+  status: 'Unsigned' | 'Executed' | 'Superseded' | 'Archived';
+  date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface VendorProjectLinkRow {
+  id: string;
+  vendor_id: string;
+  project_id: string;
+  role_notes: string | null;
   created_at: string;
 }
 

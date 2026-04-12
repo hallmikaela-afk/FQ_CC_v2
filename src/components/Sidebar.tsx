@@ -54,6 +54,18 @@ const navItems = [
     ),
   },
   {
+    label: 'Vendors',
+    href: '/vendors',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="10" cy="6" r="3" />
+        <path d="M5 17c0-3 2-5 5-5s5 2 5 5" />
+        <path d="M13 9a3 3 0 100-6" />
+        <path d="M17 17c0-2.5-1.5-4.5-4-5" />
+      </svg>
+    ),
+  },
+  {
     label: 'Inbox',
     href: '/inbox',
     badgeKey: 'inboxFollowup' as const,
