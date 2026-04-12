@@ -441,13 +441,13 @@ export default function AssistantPage() {
         await saveMessageToSession(sid, aiMsg);
         setHistory(prev => prev.map(c => c.id === sid ? { ...c, updatedAt: new Date().toISOString() } : c));
       }
-    } catch {
+    } catch (err: any) {
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: 'assistant',
-        content: getSimulatedResponse(text),
+        content: err?.message || 'Something went wrong. Please try again.',
         timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
-        toolUses: getSimulatedTools(text),
+        toolUses: [],
       };
       setMessages(prev => [...prev, aiMsg]);
       if (sid) await saveMessageToSession(sid, aiMsg);

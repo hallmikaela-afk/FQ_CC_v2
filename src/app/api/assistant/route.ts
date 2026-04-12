@@ -277,7 +277,7 @@ async function searchEmails(opts: {
   return `Found ${emails.length} email${emails.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`;
 }
 
-async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<string | any[]> {
+async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<string> {
   const nameLower = fileName.toLowerCase();
   let buffer: Buffer;
   let effectiveMimeType: string;
@@ -290,9 +290,24 @@ async function readDriveFile(fileId: string, fileName: string, mimeType: string)
     return `Failed to download file: ${err.message}`;
   }
 
-  // PDFs: return as document block for Claude's native reading
+  // PDFs: tool results only support text/image content — use a Haiku sub-call to extract text
   if (effectiveMimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
-    return [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }];
+    try {
+      const extraction = await getAnthropic().messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } },
+            { type: 'text', text: 'Extract and return the full text content of this document verbatim. Include all names, dates, clauses, terms, and details.' },
+          ],
+        }],
+      });
+      return (extraction.content[0] as any).text || 'Could not extract text from PDF.';
+    } catch (err: any) {
+      return `Failed to read PDF: ${err.message}`;
+    }
   }
 
   // Plain text / CSV (Google Docs & Sheets exports)
