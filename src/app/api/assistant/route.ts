@@ -302,10 +302,18 @@ export async function POST(req: NextRequest) {
         Array.isArray(imageAttachments) &&
         imageAttachments.length > 0
       ) {
-        const parts: any[] = imageAttachments.map((img: any) => ({
-          type: 'image',
-          source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
-        }));
+        const parts: any[] = imageAttachments.map((img: any) => {
+          if (img.mediaType === 'application/pdf') {
+            return {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: img.base64 },
+            };
+          }
+          return {
+            type: 'image',
+            source: { type: 'base64', media_type: img.mediaType, data: img.base64 },
+          };
+        });
         parts.push({ type: 'text', text: m.content });
         return { role: m.role, content: parts };
       }

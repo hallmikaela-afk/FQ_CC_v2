@@ -961,22 +961,45 @@ export default function AssistantPage() {
                 body: JSON.stringify({ fileId: file.id, mimeType: file.mimeType, fileName: file.name }),
               });
               const data = await res.json();
-              let parsedText: string;
-              if (data.text) {
-                parsedText = `[Google Drive: ${file.name}]\n${data.text}`;
+              if (data.base64) {
+                // PDF — send as base64 document block for Claude to read natively
+                setPendingFiles(prev => [...prev, {
+                  name: file.name,
+                  fileType: file.mimeType,
+                  size: '',
+                  parsedText: '',
+                  base64: data.base64,
+                  mediaType: data.mimeType,
+                }]);
+              } else if (data.text) {
+                setPendingFiles(prev => [...prev, {
+                  name: file.name,
+                  fileType: file.mimeType,
+                  size: '',
+                  parsedText: `[Google Drive: ${file.name}]\n${data.text}`,
+                }]);
               } else if (data.error) {
-                parsedText = `[Google Drive: ${file.name}]\nNote: ${data.error}\nLink: ${file.webViewLink}`;
+                setPendingFiles(prev => [...prev, {
+                  name: file.name,
+                  fileType: file.mimeType,
+                  size: '',
+                  parsedText: `[Google Drive: ${file.name}]\nNote: ${data.error}\nLink: ${file.webViewLink}`,
+                }]);
               } else if (data.parseError) {
-                parsedText = `[Google Drive: ${file.name}]\nNote: ${data.parseError}\nLink: ${file.webViewLink}`;
+                setPendingFiles(prev => [...prev, {
+                  name: file.name,
+                  fileType: file.mimeType,
+                  size: '',
+                  parsedText: `[Google Drive: ${file.name}]\nNote: ${data.parseError}\nLink: ${file.webViewLink}`,
+                }]);
               } else {
-                parsedText = `[Google Drive: ${file.name}]\nNote: File content could not be extracted.\nLink: ${file.webViewLink}`;
+                setPendingFiles(prev => [...prev, {
+                  name: file.name,
+                  fileType: file.mimeType,
+                  size: '',
+                  parsedText: `[Google Drive: ${file.name}]\nNote: File content could not be extracted.\nLink: ${file.webViewLink}`,
+                }]);
               }
-              setPendingFiles(prev => [...prev, {
-                name: file.name,
-                fileType: file.mimeType,
-                size: '',
-                parsedText,
-              }]);
             } catch (err: any) {
               setPendingFiles(prev => [...prev, {
                 name: file.name,

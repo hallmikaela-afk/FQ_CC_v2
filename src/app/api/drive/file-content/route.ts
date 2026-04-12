@@ -18,32 +18,6 @@ async function bufferToText(buffer: Buffer, mimeType: string, fileName: string):
     return buffer.toString('utf-8');
   }
 
-  // PDF
-  if (mimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
-    // Validate the buffer actually starts with PDF magic bytes
-    const header = buffer.slice(0, 5).toString('ascii');
-    if (!header.startsWith('%PDF')) {
-      // The download didn't return a PDF — surface what we got for debugging
-      const preview = buffer.slice(0, 200).toString('utf-8').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
-      throw new Error(`Downloaded content is not a PDF (starts with: ${JSON.stringify(preview.slice(0, 80))})`);
-    }
-
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js' as any);
-    const loadingTask = pdfjsLib.getDocument({
-      data: new Uint8Array(buffer),
-      useSystemFonts: true,
-      isEvalSupported: false,
-    });
-    const pdf = await loadingTask.promise;
-    const parts: string[] = [];
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      parts.push(content.items.map((item: any) => item.str).join(' '));
-    }
-    return parts.join('\n');
-  }
-
   // DOCX / DOC
   if (
     mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -85,6 +59,11 @@ export async function POST(req: NextRequest) {
     }
 
     const { buffer, effectiveMimeType } = await downloadDriveFileAsBuffer(fileId, mimeType);
+
+    // PDFs: return as base64 for Claude to read natively (pdfjs is unreliable in serverless)
+    if (effectiveMimeType === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')) {
+      return NextResponse.json({ base64: buffer.toString('base64'), mimeType: 'application/pdf' });
+    }
 
     let rawText = '';
     let parseError = '';
