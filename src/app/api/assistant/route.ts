@@ -284,7 +284,7 @@ export async function POST(req: NextRequest) {
     });
 
     for (let iteration = 0; iteration < 5 && response.stop_reason === 'tool_use'; iteration++) {
-      const toolUseBlocks = response.content.filter((c: any) => c.type === 'tool_use');
+      const toolUseBlocks = (response.content as any[]).filter((c) => c.type === 'tool_use');
       const toolResults: any[] = [];
 
       for (const block of toolUseBlocks) {
