@@ -2613,7 +2613,7 @@ export default function ProjectDetailPage() {
             onPendingDayConsumed={() => setPendingNewDay(null)}
           /></div>
 
-          <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
+          <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={(project as any)._supabaseId || project.id} /></div>
 
           <div className="mb-8">
             <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />
