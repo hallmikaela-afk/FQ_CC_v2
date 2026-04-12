@@ -1368,6 +1368,10 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
 
       const notePayload = { project_id: projectId, date: new Date().toISOString().split('T')[0], raw_text: text };
       const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || 'Server error saving note');
+      }
       const newNote: CallNote = await res.json();
       setNotes([{ ...newNote, extracted_actions: newNote.extracted_actions || [] }, ...notes]);
     } catch (err) {
@@ -1382,11 +1386,21 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
   const addNewNote = async () => {
     if (!newNoteContent.replace(/<[^>]+>/g, '').trim()) return;
     const notePayload = { project_id: projectId, date: new Date().toISOString().split('T')[0], raw_text: newNoteContent };
-    const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
-    const newNote: CallNote = await res.json();
-    setNotes([{ ...newNote, extracted_actions: [] }, ...notes]);
-    setNewNoteContent('');
-    setShowNewNote(false);
+    try {
+      const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert((err as any).error || 'Could not save note. Please try again.');
+        return;
+      }
+      const newNote: CallNote = await res.json();
+      setNotes([{ ...newNote, extracted_actions: [] }, ...notes]);
+      setNewNoteContent('');
+      setShowNewNote(false);
+    } catch (err) {
+      console.error('addNewNote error:', err);
+      alert('Could not save note. Please try again.');
+    }
   };
 
   const handleAcceptAction = (noteId: string, actionText: string, parentTaskId?: string) => {
