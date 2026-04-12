@@ -953,63 +953,68 @@ export default function AssistantPage() {
         <DriveFilePicker
           projectId={null}
           title="Attach from Drive"
+          multiSelect={true}
           onClose={() => setDrivePickerOpen(false)}
-          onSelect={async (file: DrivePickerFile) => {
+          onSelect={() => {}}
+          onSelectMultiple={async (files: DrivePickerFile[]) => {
             setDrivePickerOpen(false);
             setFileUploading(true);
             try {
-              const res = await fetch('/api/drive/file-content', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fileId: file.id, mimeType: file.mimeType, fileName: file.name }),
-              });
-              const data = await res.json();
-              if (data.base64) {
-                // PDF — send as base64 document block for Claude to read natively
-                setPendingFiles(prev => [...prev, {
-                  name: file.name,
-                  fileType: file.mimeType,
-                  size: '',
-                  parsedText: '',
-                  base64: data.base64,
-                  mediaType: data.mimeType,
-                }]);
-              } else if (data.text) {
-                setPendingFiles(prev => [...prev, {
-                  name: file.name,
-                  fileType: file.mimeType,
-                  size: '',
-                  parsedText: `[Google Drive: ${file.name}]\n${data.text}`,
-                }]);
-              } else if (data.error) {
-                setPendingFiles(prev => [...prev, {
-                  name: file.name,
-                  fileType: file.mimeType,
-                  size: '',
-                  parsedText: `[Google Drive: ${file.name}]\nNote: ${data.error}\nLink: ${file.webViewLink}`,
-                }]);
-              } else if (data.parseError) {
-                setPendingFiles(prev => [...prev, {
-                  name: file.name,
-                  fileType: file.mimeType,
-                  size: '',
-                  parsedText: `[Google Drive: ${file.name}]\nNote: ${data.parseError}\nLink: ${file.webViewLink}`,
-                }]);
-              } else {
-                setPendingFiles(prev => [...prev, {
-                  name: file.name,
-                  fileType: file.mimeType,
-                  size: '',
-                  parsedText: `[Google Drive: ${file.name}]\nNote: File content could not be extracted.\nLink: ${file.webViewLink}`,
-                }]);
-              }
-            } catch (err: any) {
-              setPendingFiles(prev => [...prev, {
-                name: file.name,
-                fileType: file.mimeType,
-                size: '',
-                parsedText: `[Google Drive: ${file.name}]\nNote: Could not fetch file content (${err?.message || 'network error'}).\nLink: ${file.webViewLink}`,
-              }]);
+              await Promise.all(files.map(async (file) => {
+                try {
+                  const res = await fetch('/api/drive/file-content', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fileId: file.id, mimeType: file.mimeType, fileName: file.name }),
+                  });
+                  const data = await res.json();
+                  if (data.base64) {
+                    setPendingFiles(prev => [...prev, {
+                      name: file.name,
+                      fileType: file.mimeType,
+                      size: '',
+                      parsedText: '',
+                      base64: data.base64,
+                      mediaType: data.mimeType,
+                    }]);
+                  } else if (data.text) {
+                    setPendingFiles(prev => [...prev, {
+                      name: file.name,
+                      fileType: file.mimeType,
+                      size: '',
+                      parsedText: `[Google Drive: ${file.name}]\n${data.text}`,
+                    }]);
+                  } else if (data.error) {
+                    setPendingFiles(prev => [...prev, {
+                      name: file.name,
+                      fileType: file.mimeType,
+                      size: '',
+                      parsedText: `[Google Drive: ${file.name}]\nNote: ${data.error}\nLink: ${file.webViewLink}`,
+                    }]);
+                  } else if (data.parseError) {
+                    setPendingFiles(prev => [...prev, {
+                      name: file.name,
+                      fileType: file.mimeType,
+                      size: '',
+                      parsedText: `[Google Drive: ${file.name}]\nNote: ${data.parseError}\nLink: ${file.webViewLink}`,
+                    }]);
+                  } else {
+                    setPendingFiles(prev => [...prev, {
+                      name: file.name,
+                      fileType: file.mimeType,
+                      size: '',
+                      parsedText: `[Google Drive: ${file.name}]\nNote: File content could not be extracted.\nLink: ${file.webViewLink}`,
+                    }]);
+                  }
+                } catch (err: any) {
+                  setPendingFiles(prev => [...prev, {
+                    name: file.name,
+                    fileType: file.mimeType,
+                    size: '',
+                    parsedText: `[Google Drive: ${file.name}]\nNote: Could not fetch file content (${err?.message || 'network error'}).\nLink: ${file.webViewLink}`,
+                  }]);
+                }
+              }));
             } finally {
               setFileUploading(false);
             }

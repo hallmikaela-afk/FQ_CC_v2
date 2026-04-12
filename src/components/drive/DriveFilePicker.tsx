@@ -26,6 +26,9 @@ interface Props {
   onSelect: (file: DrivePickerFile) => void;
   onClose: () => void;
   title?: string;
+  /** Enable multi-select mode — use onSelectMultiple instead of onSelect */
+  multiSelect?: boolean;
+  onSelectMultiple?: (files: DrivePickerFile[]) => void;
 }
 
 type Status = 'loading' | 'not_connected' | 'no_project' | 'not_provisioned' | 'ready';
@@ -34,7 +37,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export default function DriveFilePicker({ projectId, onSelect, onClose, title = 'Pick from Drive' }: Props) {
+export default function DriveFilePicker({ projectId, onSelect, onClose, title = 'Pick from Drive', multiSelect, onSelectMultiple }: Props) {
   const [status, setStatus] = useState<Status>('loading');
   const [provisioning, setProvisioning] = useState(false);
   const [effectiveProjectId, setEffectiveProjectId] = useState<string | null>(projectId);
@@ -47,6 +50,7 @@ export default function DriveFilePicker({ projectId, onSelect, onClose, title = 
   const [clientLoading, setClientLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<DrivePickerFile | null>(null);
+  const [multiSelected, setMultiSelected] = useState<Map<string, DrivePickerFile>>(new Map());
 
   useEffect(() => {
     const init = async () => {
@@ -262,28 +266,39 @@ export default function DriveFilePicker({ projectId, onSelect, onClose, title = 
                               {!isLoading && files.length === 0 && (
                                 <p className="px-3 py-1.5 font-body text-[11.5px] text-fq-muted/50">No files in this folder yet</p>
                               )}
-                              {!isLoading && files.map(file => (
-                                <button
-                                  key={file.id}
-                                  onClick={() => setSelected(file)}
-                                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors text-left ${
-                                    selected?.id === file.id
-                                      ? 'bg-fq-light-accent border border-fq-accent/30'
-                                      : 'hover:bg-fq-bg'
-                                  }`}
-                                >
-                                  <DriveFileIcon mimeType={file.mimeType} size={22} />
-                                  <div className="flex-1 min-w-0">
-                                    <p className="font-body text-[12px] text-fq-dark truncate">{file.name}</p>
-                                    <p className="font-body text-[10px] text-fq-muted/55">{fmtDate(file.modifiedTime)}</p>
-                                  </div>
-                                  {selected?.id === file.id && (
-                                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent shrink-0">
-                                      <path d="M3 8l4 4 6-6" />
-                                    </svg>
-                                  )}
-                                </button>
-                              ))}
+                              {!isLoading && files.map(file => {
+                                const isActive = multiSelect ? multiSelected.has(file.id) : selected?.id === file.id;
+                                return (
+                                  <button
+                                    key={file.id}
+                                    onClick={() => {
+                                      if (multiSelect) {
+                                        setMultiSelected(prev => {
+                                          const next = new Map(prev);
+                                          next.has(file.id) ? next.delete(file.id) : next.set(file.id, file);
+                                          return next;
+                                        });
+                                      } else {
+                                        setSelected(file);
+                                      }
+                                    }}
+                                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors text-left ${
+                                      isActive ? 'bg-fq-light-accent border border-fq-accent/30' : 'hover:bg-fq-bg'
+                                    }`}
+                                  >
+                                    <DriveFileIcon mimeType={file.mimeType} size={22} />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-body text-[12px] text-fq-dark truncate">{file.name}</p>
+                                      <p className="font-body text-[10px] text-fq-muted/55">{fmtDate(file.modifiedTime)}</p>
+                                    </div>
+                                    {isActive && (
+                                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent shrink-0">
+                                        <path d="M3 8l4 4 6-6" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -298,28 +313,39 @@ export default function DriveFilePicker({ projectId, onSelect, onClose, title = 
                     {!clientLoading && filterFiles(clientFiles).length === 0 && (
                       <p className="px-3 py-4 font-body text-[12.5px] text-fq-muted/55">No files in the Client Shared folder yet</p>
                     )}
-                    {!clientLoading && filterFiles(clientFiles).map(file => (
-                      <button
-                        key={file.id}
-                        onClick={() => setSelected(file)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors text-left ${
-                          selected?.id === file.id
-                            ? 'bg-fq-light-accent border border-fq-accent/30'
-                            : 'hover:bg-fq-bg'
-                        }`}
-                      >
-                        <DriveFileIcon mimeType={file.mimeType} size={22} />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-body text-[12px] text-fq-dark truncate">{file.name}</p>
-                          <p className="font-body text-[10px] text-fq-muted/55">{fmtDate(file.modifiedTime)}</p>
-                        </div>
-                        {selected?.id === file.id && (
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent shrink-0">
-                            <path d="M3 8l4 4 6-6" />
-                          </svg>
-                        )}
-                      </button>
-                    ))}
+                    {!clientLoading && filterFiles(clientFiles).map(file => {
+                      const isActive = multiSelect ? multiSelected.has(file.id) : selected?.id === file.id;
+                      return (
+                        <button
+                          key={file.id}
+                          onClick={() => {
+                            if (multiSelect) {
+                              setMultiSelected(prev => {
+                                const next = new Map(prev);
+                                next.has(file.id) ? next.delete(file.id) : next.set(file.id, file);
+                                return next;
+                              });
+                            } else {
+                              setSelected(file);
+                            }
+                          }}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors text-left ${
+                            isActive ? 'bg-fq-light-accent border border-fq-accent/30' : 'hover:bg-fq-bg'
+                          }`}
+                        >
+                          <DriveFileIcon mimeType={file.mimeType} size={22} />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-body text-[12px] text-fq-dark truncate">{file.name}</p>
+                            <p className="font-body text-[10px] text-fq-muted/55">{fmtDate(file.modifiedTime)}</p>
+                          </div>
+                          {isActive && (
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fq-accent shrink-0">
+                              <path d="M3 8l4 4 6-6" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -330,7 +356,11 @@ export default function DriveFilePicker({ projectId, onSelect, onClose, title = 
         {/* Footer */}
         {status === 'ready' && (
           <div className="flex items-center justify-between px-5 py-3.5 border-t border-fq-border shrink-0">
-            {selected ? (
+            {multiSelect ? (
+              <p className="font-body text-[11.5px] text-fq-muted">
+                {multiSelected.size === 0 ? 'No files selected' : `${multiSelected.size} file${multiSelected.size > 1 ? 's' : ''} selected`}
+              </p>
+            ) : selected ? (
               <p className="font-body text-[11.5px] text-fq-muted truncate max-w-[240px]">{selected.name}</p>
             ) : (
               <p className="font-body text-[11.5px] text-fq-muted/50">No file selected</p>
@@ -340,11 +370,20 @@ export default function DriveFilePicker({ projectId, onSelect, onClose, title = 
                 Cancel
               </button>
               <button
-                onClick={() => selected && onSelect(selected)}
-                disabled={!selected}
+                onClick={() => {
+                  if (multiSelect) {
+                    if (multiSelected.size > 0 && onSelectMultiple) {
+                      onSelectMultiple(Array.from(multiSelected.values()));
+                      onClose();
+                    }
+                  } else {
+                    if (selected) onSelect(selected);
+                  }
+                }}
+                disabled={multiSelect ? multiSelected.size === 0 : !selected}
                 className="font-body text-[12.5px] font-medium bg-fq-accent text-white px-5 py-1.5 rounded-lg hover:bg-fq-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Select
+                {multiSelect ? (multiSelected.size > 1 ? `Attach ${multiSelected.size} files` : 'Attach') : 'Select'}
               </button>
             </div>
           </div>
