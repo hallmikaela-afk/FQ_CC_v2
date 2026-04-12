@@ -148,8 +148,8 @@ async function buildContext(): Promise<string> {
   context += `  Reopen:   {"type":"update_sprint_task","task_id":"...","updates":{"done":false}}\n`;
 
   context += `\nRESEARCH LINKS: When listing vendors or companies, format as: - [Company Name](https://url) - Brief description. Only link to real, well-known sites. Always use markdown links [text](url).\n`;
-  context += `\nWEB SEARCH: You have access to a web_search tool. Use it whenever Mikaela asks about venues, vendors, pricing, contact info, current events, or anything that benefits from live information. Search proactively — don't tell her you can't look something up.`;
-  context += `\nEMAIL SEARCH: You have access to a search_emails tool. Use it whenever Mikaela asks about emails — finding a message, checking if someone replied, looking for emails from a vendor, etc. Search proactively instead of saying you can't check email.`;
+  context += `\nEMAIL SEARCH: You have a search_emails tool that searches the real inbox. ALWAYS use search_emails (never web_search) when Mikaela asks about emails, messages, whether someone replied, or emails from a specific person or vendor. Do not say you can't check email — use the tool.`;
+  context += `\nWEB SEARCH: Use web_search for venues, vendors, pricing, contact info, current events, or anything requiring live internet data. Do NOT use web_search for inbox questions — use search_emails instead.`;
 
   return context;
 }
@@ -229,7 +229,7 @@ async function searchEmails(opts: {
 
   let q = supabase
     .from('emails')
-    .select('subject, from_name, from_email, body_preview, received_at, needs_followup, needs_response, resolved, project_id, projects:project_id(name)')
+    .select('subject, from_name, from_email, body_preview, received_at, needs_followup, needs_response, resolved, project_id, project:projects(name)')
     .eq('dismissed', false)
     .order('received_at', { ascending: false })
     .limit(20);
@@ -269,7 +269,7 @@ async function searchEmails(opts: {
       e.needs_response ? 'Needs Response' : null,
       e.needs_followup ? 'Needs Follow-up' : null,
       e.resolved ? 'Resolved' : null,
-      (e.projects as any)?.name ? `Filed: ${(e.projects as any).name}` : null,
+      (e.project as any)?.name ? `Filed: ${(e.project as any).name}` : null,
     ].filter(Boolean).join(' · ');
     return `${i + 1}. **${e.subject || '(no subject)'}**\n   From: ${from} — ${date}${flags ? `\n   ${flags}` : ''}\n   ${e.body_preview || ''}`;
   });

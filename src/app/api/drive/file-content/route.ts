@@ -21,7 +21,13 @@ async function bufferToText(buffer: Buffer, mimeType: string, fileName: string):
   // PDF
   if (mimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
     const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.js' as any);
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+    // Disable web workers — required for serverless/Node.js environments
+    pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    const loadingTask = pdfjsLib.getDocument({
+      data: new Uint8Array(buffer),
+      useSystemFonts: true,
+      isEvalSupported: false,
+    });
     const pdf = await loadingTask.promise;
     const parts: string[] = [];
     for (let i = 1; i <= pdf.numPages; i++) {
@@ -62,7 +68,6 @@ async function bufferToText(buffer: Buffer, mimeType: string, fileName: string):
     return parts.join('\n\n');
   }
 
-  // Unsupported — return empty so caller can fall back gracefully
   return '';
 }
 
@@ -74,10 +79,23 @@ export async function POST(req: NextRequest) {
     }
 
     const { buffer, effectiveMimeType } = await downloadDriveFileAsBuffer(fileId, mimeType);
-    const rawText = await bufferToText(buffer, effectiveMimeType, fileName);
+
+    let rawText = '';
+    let parseError = '';
+    try {
+      rawText = await bufferToText(buffer, effectiveMimeType, fileName);
+    } catch (parseErr: any) {
+      parseError = parseErr.message || 'Text extraction failed';
+      console.error('[drive/file-content] parse error:', parseErr);
+    }
 
     if (!rawText) {
-      return NextResponse.json({ text: '', truncated: false });
+      // Return the parse error (or a generic note) so the caller can surface it
+      return NextResponse.json({
+        text: '',
+        truncated: false,
+        parseError: parseError || `No extractable text found in ${fileName} (may be an image-based or scanned PDF).`,
+      });
     }
 
     const truncated = rawText.length > MAX_CHARS;

@@ -465,22 +465,28 @@ export default function FloatingChat() {
                 body: JSON.stringify({ fileId: file.id, mimeType: file.mimeType, fileName: file.name }),
               });
               const data = await res.json();
-              const parsedText = data.text
-                ? `[Google Drive: ${file.name}]\n${data.text}`
-                : `[Google Drive file: ${file.name}]\nLink: ${file.webViewLink}`;
+              let parsedText: string;
+              if (data.text) {
+                parsedText = `[Google Drive: ${file.name}]\n${data.text}`;
+              } else if (data.error) {
+                parsedText = `[Google Drive: ${file.name}]\nNote: ${data.error}\nLink: ${file.webViewLink}`;
+              } else if (data.parseError) {
+                parsedText = `[Google Drive: ${file.name}]\nNote: ${data.parseError}\nLink: ${file.webViewLink}`;
+              } else {
+                parsedText = `[Google Drive: ${file.name}]\nNote: File content could not be extracted.\nLink: ${file.webViewLink}`;
+              }
               setPendingFiles(prev => [...prev, {
                 name: file.name,
                 fileType: file.mimeType,
                 size: '',
                 parsedText,
               }]);
-            } catch {
-              // Fallback to link-only if content fetch fails
+            } catch (err: any) {
               setPendingFiles(prev => [...prev, {
                 name: file.name,
                 fileType: file.mimeType,
                 size: '',
-                parsedText: `[Google Drive file: ${file.name}]\nLink: ${file.webViewLink}`,
+                parsedText: `[Google Drive: ${file.name}]\nNote: Could not fetch file content (${err?.message || 'network error'}).\nLink: ${file.webViewLink}`,
               }]);
             } finally {
               setFileUploading(false);
