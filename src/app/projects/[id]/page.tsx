@@ -9,6 +9,7 @@ import ProjectFileUpload from '@/components/ProjectFileUpload';
 import UploadModal from '@/components/UploadModal';
 import ComposePanel from '@/components/inbox/ComposePanel';
 import { formatCountdown, formatDate, formatMonthYear } from '@/data/seed';
+import { getISOWeek } from '@/lib/week';
 import type { Project, Vendor, CallNote, Task, SubTask, TeamMember, EventDay } from '@/data/seed';
 import ProjectDriveTab from '@/components/drive/ProjectDriveTab';
 import AddEventDayModal from '@/components/AddEventDayModal';
@@ -958,7 +959,17 @@ function RichTextEditor({
           onKeyUp={updateActiveFormats}
           onMouseUp={updateActiveFormats}
           onFocus={updateActiveFormats}
-          className="min-h-[120px] max-h-[300px] overflow-y-auto p-3 font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5"
+          onPaste={(e) => {
+            e.preventDefault();
+            const html = e.clipboardData.getData('text/html');
+            if (html) {
+              document.execCommand('insertHTML', false, html);
+            } else {
+              document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+            }
+            handleInput();
+          }}
+          className="min-h-[120px] max-h-[400px] overflow-y-auto p-3 font-body text-[13px] text-fq-muted/90 leading-relaxed outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5"
         />
       </div>
     </div>
@@ -1003,7 +1014,9 @@ function decodeHtmlEntities(text: string): string {
 
 /* ─────────────── Summary Generation (returns bullet array) ─────────────── */
 function generateSummaryBullets(text: string): string[] {
-  const clean = decodeHtmlEntities(text.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const clean = decodeHtmlEntities(text.replace(/<[^>]+>/g, ' '))
+    .replace(/https?:\/\/\S+/gi, '')   // strip URLs
+    .replace(/\s+/g, ' ').trim();
   const sentences = clean.split(/(?<=[.!?])\s+/).filter(s => s.length > 10);
   if (sentences.length === 0) return [clean].filter(Boolean);
   if (sentences.length <= 4) return sentences;
@@ -1074,6 +1087,21 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
     setItems(items.filter(i => i !== item));
   };
 
+  const addToWeek = (item: string) => {
+    fetch('/api/sprint-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: item,
+        bucket: 'Fox & Quinn — Operations',
+        sprint_week: getISOWeek(),
+        sort_order: 0,
+        done: false,
+      }),
+    });
+    setItems(items.filter(i => i !== item));
+  };
+
   const t = { heading: 'text-fq-dark/90', body: 'text-fq-muted/90', light: 'text-fq-muted/70', icon: 'text-fq-muted/60' };
 
   if (items.length === 0) {
@@ -1091,7 +1119,7 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
         <p className={`font-body text-[12px] font-medium ${t.heading}`}>Suggested Actions ({items.length})</p>
         <button onClick={() => setItems([])} className={`font-body text-[11px] ${t.light} hover:text-fq-dark`}>Clear</button>
       </div>
-      <div className="space-y-2">
+      <div className="max-h-[240px] overflow-y-auto space-y-2 pr-1">
         {items.map((item, i) => {
           const matchedTask = findMatchingTask(item, tasks);
           return (
@@ -1101,6 +1129,12 @@ function ActionItemsPanel({ noteContent, tasks, onAccept }: { noteContent: strin
                 title="Add to task list"
               >
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-0 group-hover/action:opacity-100"><path d="M2 5h6M5 2v6" /></svg>
+              </button>
+              <button onClick={() => addToWeek(item)}
+                className="w-5 h-5 rounded flex items-center justify-center shrink-0 mt-0.5 transition-colors border border-fq-border hover:border-fq-blue hover:bg-fq-blue hover:text-white"
+                title="Add to My Week"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-0 group-hover/action:opacity-100"><rect x="1" y="2" width="8" height="7" rx="1" /><path d="M1 4.5h8M3.5 1v2M6.5 1v2" /></svg>
               </button>
               <div className="flex-1 min-w-0">
                 <span className={`font-body text-[12px] ${t.body}`}>{item}</span>
@@ -1232,7 +1266,7 @@ function NoteDetailModal({
             ) : (
               <div
                 onDoubleClick={() => setEditingContent(true)}
-                className={`font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap cursor-default hover:bg-fq-bg/30 rounded-lg p-2 -m-2 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
+                className={`max-h-[400px] overflow-y-auto font-body text-[13px] ${t.body} leading-relaxed whitespace-pre-wrap cursor-default hover:bg-fq-bg/30 rounded-lg p-2 -m-2 transition-colors [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5`}
                 dangerouslySetInnerHTML={{ __html: note.raw_text }}
               />
             )}
@@ -1368,6 +1402,10 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
 
       const notePayload = { project_id: projectId, date: new Date().toISOString().split('T')[0], raw_text: text };
       const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || 'Server error saving note');
+      }
       const newNote: CallNote = await res.json();
       setNotes([{ ...newNote, extracted_actions: newNote.extracted_actions || [] }, ...notes]);
     } catch (err) {
@@ -1382,11 +1420,21 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
   const addNewNote = async () => {
     if (!newNoteContent.replace(/<[^>]+>/g, '').trim()) return;
     const notePayload = { project_id: projectId, date: new Date().toISOString().split('T')[0], raw_text: newNoteContent };
-    const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
-    const newNote: CallNote = await res.json();
-    setNotes([{ ...newNote, extracted_actions: [] }, ...notes]);
-    setNewNoteContent('');
-    setShowNewNote(false);
+    try {
+      const res = await fetch('/api/call-notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(notePayload) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert((err as any).error || 'Could not save note. Please try again.');
+        return;
+      }
+      const newNote: CallNote = await res.json();
+      setNotes([{ ...newNote, extracted_actions: [] }, ...notes]);
+      setNewNoteContent('');
+      setShowNewNote(false);
+    } catch (err) {
+      console.error('addNewNote error:', err);
+      alert('Could not save note. Please try again.');
+    }
   };
 
   const handleAcceptAction = (noteId: string, actionText: string, parentTaskId?: string) => {
@@ -1484,41 +1532,30 @@ function CallNotesSection({ notes: initialNotes, tasks, projectId }: { notes: Ca
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button onClick={() => navigator.clipboard.writeText(note.summary || decodeHtmlEntities(note.raw_text.replace(/<[^>]+>/g, ' ')))} className={`font-body text-[12px] ${t.light} hover:text-fq-dark transition-colors flex items-center gap-1`}>📋 Copy</button>
+                      <button onClick={() => setExpandedNote(note)} className={`font-body text-[12px] ${t.light} hover:text-fq-dark transition-colors flex items-center gap-1`} title="Full view">↗ View</button>
                       <button onClick={() => deleteNote(note.id)} className={`font-body text-[12px] text-fq-muted/40 hover:text-fq-alert transition-colors flex items-center gap-1`}>🗑</button>
                       <ActionItemsPanel noteContent={note.raw_text} tasks={tasks} onAccept={(item, parentId) => handleAcceptAction(note.id, item, parentId)} />
                     </div>
                   </div>
 
                   {!isNoteCollapsed && (
-                    <div onDoubleClick={() => setExpandedNote(note)} className="cursor-default" title="Double-click to expand">
-                      {/* Summary — click to edit inline */}
-                      {note.summary ? (
+                    <div className="max-h-[260px] overflow-y-auto pr-1">
+                      {/* Manual summary — shown above note content if set */}
+                      {note.summary && (
                         <div className="mb-3">
                           <EditableSummary
                             value={note.summary}
                             onChange={(v) => updateNote(note.id, { summary: v })}
-                            textClass={`font-body text-[13px] ${t.body} leading-relaxed`}
-                          />
-                        </div>
-                      ) : autoSummaryBullets && autoSummaryBullets.length > 0 && (
-                        <div className="mb-3">
-                          <span className={`font-body text-[10px] ${t.light} uppercase tracking-wider`}>Auto-summary</span>
-                          <EditableSummary
-                            value={autoSummaryBullets.join('\n')}
-                            onChange={(v) => updateNote(note.id, { summary: v })}
-                            bullets={autoSummaryBullets}
-                            textClass={`font-body text-[13px] ${t.body} leading-relaxed`}
+                            textClass={`font-body text-[12px] ${t.light} leading-relaxed`}
                           />
                         </div>
                       )}
 
-                      {/* Show raw text preview (truncated) for notes with summary */}
-                      {note.summary && (
-                        <div
-                          className={`font-body text-[12px] ${t.light} leading-relaxed line-clamp-3 mb-4 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5`}
-                          dangerouslySetInnerHTML={{ __html: note.raw_text }}
-                        />
-                      )}
+                      {/* Formatted note content — rendered HTML preserves bullets, bold, etc. */}
+                      <div
+                        className={`font-body text-[13px] ${t.body} leading-relaxed [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1 [&_li]:my-0.5 [&_p]:mb-2 [&_strong]:font-semibold [&_em]:italic [&_u]:underline`}
+                        dangerouslySetInnerHTML={{ __html: note.raw_text }}
+                      />
 
                       {note.extracted_actions.length > 0 && (
                         <div className="mt-3">
@@ -2599,7 +2636,7 @@ export default function ProjectDetailPage() {
             onPendingDayConsumed={() => setPendingNewDay(null)}
           /></div>
 
-          <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={project.id} /></div>
+          <div className="mb-8"><CallNotesSection notes={project.call_notes || []} tasks={project.tasks || []} projectId={(project as any)._supabaseId || project.id} /></div>
 
           <div className="mb-8">
             <TaskListSection tasks={project.tasks || []} projectColor={project.color} assignedTo={project.assigned_to} projectId={project.id} />

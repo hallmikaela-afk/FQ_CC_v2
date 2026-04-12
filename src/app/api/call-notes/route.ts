@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { getServiceSupabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const supabase = getServiceSupabase();
   const projectId = req.nextUrl.searchParams.get('project_id');
 
   let query = supabase.from('call_notes').select(`*, extracted_actions(*)`).order('date', { ascending: false });
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const supabase = getServiceSupabase();
   const body = await req.json();
   const { extracted_actions, ...noteData } = body;
 
@@ -32,6 +34,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const supabase = getServiceSupabase();
   const body = await req.json();
   const { id, extracted_actions, ...updates } = body;
 
@@ -44,6 +47,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const supabase = getServiceSupabase();
   const id = req.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
