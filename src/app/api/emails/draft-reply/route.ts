@@ -12,7 +12,7 @@
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { getServiceSupabase } from '@/lib/supabase';
-import { generateEmailDraft } from '@/lib/generateEmailDraft';
+import { generateEmailDraft, buildProjectContext } from '@/lib/generateEmailDraft';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -47,7 +47,13 @@ export async function POST(request: Request) {
   if (instruction && current_draft !== undefined) {
     const emailBody = email.body || email.body_preview || '(no content)';
 
+    // Fetch the same project context used during initial generation
+    const projectContext = await buildProjectContext(email, supabase);
+
     const systemPrompt = `You are editing an email draft for Mikaela Hall, Owner & Creative Director of Fox & Quinn, a luxury wedding planning studio. Apply the requested changes to the draft while keeping her warm, professional voice.
+
+PROJECT CONTEXT:
+${projectContext}
 
 Do NOT add any preamble, explanation, or meta-commentary — output ONLY the revised email body text.
 Do NOT include any signature block, contact info (phone, email, website), or footer — the system appends those automatically.`;
@@ -68,7 +74,7 @@ ${current_draft}
 INSTRUCTION:
 ${instruction}
 
-Return only the revised draft text.`;
+Apply the instruction while keeping all relevant project details accurate. Return only the revised draft text.`;
 
     try {
       const response = await getAnthropic().messages.create({

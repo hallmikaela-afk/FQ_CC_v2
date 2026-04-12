@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, Mail, ChevronDown, ChevronRight, Inbox } from 'lucide-react';
+import { Search, X, Mail, ChevronDown, ChevronRight, Inbox, Paperclip } from 'lucide-react';
 import FolderSidebar, { type Folder, DISMISSED_FOLDER_ID } from '@/components/inbox/FolderSidebar';
 import EmailCard, { type Email, type Project } from '@/components/inbox/EmailCard';
+import EmailThreadGroup from '@/components/inbox/EmailThreadGroup';
 import EmailDetail from '@/components/inbox/EmailDetail';
 import ComposePanel from '@/components/inbox/ComposePanel';
 
@@ -131,15 +132,20 @@ export default function InboxPage() {
   const [selectedId,         setSelectedId]         = useState<string | null>(null);
   const [generatingDraftFor, setGeneratingDraftFor] = useState<string | null>(null);
   const [draftFallbackText,  setDraftFallbackText]  = useState<string | null>(null);
-  const [triageCollapsed,    setTriageCollapsed]    = useState(false);
+  const [triageCollapsed,    setTriageCollapsed]    = useState(true);
   const [dismissedCount,     setDismissedCount]     = useState(0);
 
   /* ── Search state ── */
   const [searchQuery,        setSearchQuery]        = useState('');
+  const [searchFrom,         setSearchFrom]         = useState('');
+  const [searchHasAttachment,setSearchHasAttachment] = useState(false);
   const [searchResults,      setSearchResults]      = useState<Email[] | null>(null);
   const [searchLoading,      setSearchLoading]      = useState(false);
   const [searchedGraph,      setSearchedGraph]      = useState(false);
   const searchDebounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* ── Context menu state ── */
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; email: Email } | null>(null);
 
   /* ── Compose state ── */
   const [composeOpen, setComposeOpen] = useState(false);
@@ -158,6 +164,16 @@ export default function InboxPage() {
   const [migrating,         setMigrating]         = useState(false);
   const [migrateProgress,   setMigrateProgress]   = useState<{ total: number; moved: number } | null>(null);
   const [migrateToast,      setMigrateToast]      = useState<string | null>(null);
+
+  /* ── Thread expand/collapse state ── */
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+
+  /* ── Bulk select state ── */
+  const [isSelectMode,     setIsSelectMode]     = useState(false);
+  const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
+  const lastBulkSelectedIdRef                   = useRef<string | null>(null);
+  const [bulkFileOpen,     setBulkFileOpen]     = useState(false);
+  const [bulkDeleteConfirm,setBulkDeleteConfirm]= useState(false);
 
   /* ── "now" tick — updates relative "synced X ago" label every minute ── */
   useEffect(() => {
@@ -424,10 +440,13 @@ export default function InboxPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedFolder]);
 
+  /* ── Derived: whether any search / filter is active ── */
+  const isSearchActive = !!(searchQuery.trim() || searchFrom.trim() || searchHasAttachment);
+
   /* ── Debounced search ── */
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!searchQuery.trim()) {
+    if (!isSearchActive) {
       setSearchResults(null);
       setSearchLoading(false);
       setSearchedGraph(false);
@@ -437,7 +456,11 @@ export default function InboxPage() {
     setSearchedGraph(false);
     searchDebounceRef.current = setTimeout(async () => {
       try {
-        const res  = await fetch(`/api/emails/search?q=${encodeURIComponent(searchQuery)}`);
+        const params = new URLSearchParams();
+        if (searchQuery.trim()) params.set('q', searchQuery.trim());
+        if (searchFrom.trim()) params.set('from', searchFrom.trim());
+        if (searchHasAttachment) params.set('has_attachment', 'true');
+        const res  = await fetch(`/api/emails/search?${params}`);
         const data = await res.json();
         setSearchResults(data.emails ?? []);
         setSearchedGraph(data.searchedGraph ?? false);
@@ -450,7 +473,17 @@ export default function InboxPage() {
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchFrom, searchHasAttachment, isSearchActive]);
+
+  /* ── Close context menu on outside click / Escape ── */
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', onKey); };
+  }, [contextMenu]);
 
   /* ── Derived email list ── */
   // Dismissed emails are already excluded by the API; shouldFilterEmail is a client-side safety net.
@@ -488,7 +521,7 @@ export default function InboxPage() {
         default:
           return false;
       }
-    }).filter((e) => tabFilter === 'untagged' || tabFilter === 'all' || !projectFilter || e.project_id === projectFilter);
+    }).filter((e) => tabFilter === 'untagged' || !projectFilter || e.project_id === projectFilter);
 
     if (tabFilter === 'all' || tabFilter === 'untagged') {
       return [...byTab].sort((a, b) =>
@@ -528,18 +561,52 @@ export default function InboxPage() {
   );
 
   /* ── Triage banner: untagged emails shown at top of "All" tab ── */
-  const triageEmails = useMemo(
-    () =>
-      visibleEmails
-        .filter((e) => !e.project_id && !e.dismissed)
-        .sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? '')),
-    [visibleEmails],
-  );
+  const triageEmails = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffStr = cutoff.toISOString();
+    return visibleEmails
+      .filter((e) => !e.project_id && !e.dismissed && (e.received_at ?? '') >= cutoffStr)
+      .sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? ''));
+  }, [visibleEmails]);
 
   const totalUnread = visibleEmails.filter((e) => !e.is_read && !!e.project_id && !e.resolved).length;
   const selected    = selectedId
     ? (emails.find((e) => e.id === selectedId) ?? searchResults?.find((e) => e.id === selectedId) ?? null)
     : null;
+
+  const threadEmails = useMemo(() => {
+    if (!selected?.conversation_id) return [];
+    return emails
+      .filter((e) => e.conversation_id === selected.conversation_id && e.id !== selected.id)
+      .sort((a, b) => (a.received_at ?? '').localeCompare(b.received_at ?? ''));
+  }, [selected, emails]);
+
+  /* ── Thread grouping for the email list ── */
+  const conversationGroups = useMemo(() => {
+    const displayEmails = filteredEmails.filter((e) => tabFilter !== 'all' || !!e.project_id || e.dismissed);
+    const groups = new Map<string, Email[]>();
+    for (const email of displayEmails) {
+      const key = email.conversation_id ?? email.id;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(email);
+    }
+    for (const group of groups.values()) {
+      group.sort((a, b) => (b.received_at ?? '').localeCompare(a.received_at ?? ''));
+    }
+    return [...groups.values()].sort(
+      (a, b) => (b[0].received_at ?? '').localeCompare(a[0].received_at ?? ''),
+    );
+  }, [filteredEmails, tabFilter]);
+
+  const toggleThread = useCallback((conversationId: string) => {
+    setExpandedThreads((prev) => {
+      const next = new Set(prev);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      return next;
+    });
+  }, []);
 
   /* ── Email actions ── */
   const patch = useCallback(async (id: string, updates: Record<string, unknown>) => {
@@ -557,6 +624,16 @@ export default function InboxPage() {
       body: JSON.stringify({ id, ...updates }),
     });
   }, []);
+
+  const dismissThreadSiblings = useCallback((email: Email) => {
+    if (!email.conversation_id) return;
+    const siblings = emails.filter(
+      (e) => e.conversation_id === email.conversation_id && e.id !== email.id,
+    );
+    for (const sibling of siblings) {
+      patch(sibling.id, { dismissed: true });
+    }
+  }, [emails, patch]);
 
   const handleSelectEmail = (email: Email) => {
     setSelectedId(email.id);
@@ -601,25 +678,27 @@ export default function InboxPage() {
     [patch, showToast],
   );
 
-  const handleToggleFollowup = (email: Email) => {
+  const handleToggleFollowup = useCallback((email: Email) => {
     // Turning on follow-up clears needs_response (mutually exclusive)
     if (!email.needs_followup) {
       patch(email.id, { needs_followup: true, needs_response: false });
+      dismissThreadSiblings(email);
     } else {
       patch(email.id, { needs_followup: false });
     }
-  };
+  }, [patch, dismissThreadSiblings]);
 
   const handleNeedsResponse = useCallback(
     (email: Email) => {
       // Turning on needs_response clears needs_followup (mutually exclusive)
       if (!email.needs_response) {
         patch(email.id, { needs_response: true, needs_followup: false });
+        dismissThreadSiblings(email);
       } else {
         patch(email.id, { needs_response: false });
       }
     },
-    [patch],
+    [patch, dismissThreadSiblings],
   );
 
   const handleDraftResponse = useCallback(
@@ -710,19 +789,19 @@ export default function InboxPage() {
     async (email: Email, projectId: string | null) => {
       // Optimistic update
       const targetProject = projectId ? projects.find((p) => p.id === projectId) ?? null : null;
+      const updatedFields = {
+        project_id:       projectId,
+        match_confidence: projectId ? 'exact' as const : null,
+        dismissed:        false,
+        projects: targetProject
+          ? { id: targetProject.id, name: targetProject.name, type: targetProject.type, color: targetProject.color, event_date: null }
+          : null,
+      };
       setEmails((prev) =>
-        prev.map((e) => {
-          if (e.id !== email.id) return e;
-          return {
-            ...e,
-            project_id:       projectId,
-            match_confidence: projectId ? 'exact' : null,
-            dismissed:        false,
-            projects: targetProject
-              ? { id: targetProject.id, name: targetProject.name, type: targetProject.type, color: targetProject.color, event_date: null }
-              : null,
-          };
-        }),
+        prev.map((e) => e.id !== email.id ? e : { ...e, ...updatedFields }),
+      );
+      setSearchResults((prev) =>
+        prev ? prev.map((e) => e.id !== email.id ? e : { ...e, ...updatedFields }) : prev,
       );
       await fetch('/api/emails/reassign', {
         method: 'POST',
@@ -773,6 +852,94 @@ export default function InboxPage() {
       }));
     }
   };
+
+  /* ── Bulk select handlers ── */
+  const toggleSelectMode = useCallback(() => {
+    setIsSelectMode((v) => {
+      if (v) {
+        setSelectedEmailIds(new Set());
+        lastBulkSelectedIdRef.current = null;
+        setBulkDeleteConfirm(false);
+      }
+      return !v;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    const allIds = filteredEmails.map((e) => e.id);
+    const allSelected = allIds.length > 0 && allIds.every((id) => selectedEmailIds.has(id));
+    setSelectedEmailIds(allSelected ? new Set() : new Set(allIds));
+  }, [filteredEmails, selectedEmailIds]);
+
+  const handleBulkToggle = useCallback((email: Email, shiftKey: boolean) => {
+    setBulkDeleteConfirm(false);
+    if (shiftKey && lastBulkSelectedIdRef.current) {
+      const ids = filteredEmails.map((e) => e.id);
+      const lastIdx = ids.indexOf(lastBulkSelectedIdRef.current);
+      const currIdx = ids.indexOf(email.id);
+      if (lastIdx !== -1 && currIdx !== -1) {
+        const [from, to] = lastIdx < currIdx ? [lastIdx, currIdx] : [currIdx, lastIdx];
+        setSelectedEmailIds((prev) => {
+          const next = new Set(prev);
+          for (let i = from; i <= to; i++) next.add(ids[i]);
+          return next;
+        });
+        return;
+      }
+    }
+    lastBulkSelectedIdRef.current = email.id;
+    setSelectedEmailIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(email.id)) next.delete(email.id);
+      else next.add(email.id);
+      return next;
+    });
+  }, [filteredEmails]);
+
+  const handleBulkMarkRead = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    await Promise.all(ids.map((id) => patch(id, { is_read: true })));
+    setSelectedEmailIds(new Set());
+  }, [selectedEmailIds, patch]);
+
+  const handleBulkResolve = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    await Promise.all(ids.map((id) => patch(id, { resolved: true, needs_followup: false, needs_response: false })));
+    setSelectedEmailIds(new Set());
+  }, [selectedEmailIds, patch]);
+
+  const handleBulkDismiss = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    await Promise.all(ids.map((id) => patch(id, { dismissed: true })));
+    setDismissedCount((c) => c + ids.length);
+    setSelectedEmailIds(new Set());
+  }, [selectedEmailIds, patch]);
+
+  const handleBulkDelete = useCallback(async () => {
+    const ids = [...selectedEmailIds];
+    setEmails((prev) => prev.filter((e) => !ids.includes(e.id)));
+    if (selectedId && ids.includes(selectedId)) setSelectedId(null);
+    await Promise.all(ids.map((id) =>
+      fetch('/api/emails', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, delete_from_outlook: false }),
+      }).catch(() => {}),
+    ));
+    setSelectedEmailIds(new Set());
+    setBulkDeleteConfirm(false);
+  }, [selectedEmailIds, selectedId]);
+
+  const handleBulkReassign = useCallback(async (projectId: string | null) => {
+    // Confirmed: emails.filter covers ALL selected emails (not just the first).
+    // The reassign route only updates emails.project_id / match_confidence /
+    // dismissed — it does not touch the vendors table, so event_day_id (NOT NULL
+    // on vendors from migration 021) is irrelevant here.
+    const emailsToUpdate = emails.filter((e) => selectedEmailIds.has(e.id));
+    await Promise.all(emailsToUpdate.map((e) => handleReassign(e, projectId)));
+    setSelectedEmailIds(new Set());
+    setBulkFileOpen(false);
+  }, [selectedEmailIds, emails, handleReassign]);
 
   /* ── Migrate all tagged emails to their correct Outlook folders ── */
   const handleMigrateOutlookFolders = async () => {
@@ -934,6 +1101,27 @@ export default function InboxPage() {
                   <path d="M4 10a6 6 0 1 0 1.3-3.8" /><path d="M4 6v4h4" />
                 </svg>
               </button>
+              {/* Select mode toggle */}
+              <button
+                onClick={toggleSelectMode}
+                className={`px-3 py-1.5 rounded-lg font-body text-[12px] transition-colors ${
+                  isSelectMode
+                    ? 'bg-fq-sage-light text-fq-sage font-medium'
+                    : `${tk.light} hover:bg-fq-light-accent`
+                }`}
+              >
+                {isSelectMode ? 'Done' : 'Select'}
+              </button>
+              {isSelectMode && (
+                <button
+                  onClick={handleSelectAll}
+                  className={`px-3 py-1.5 rounded-lg font-body text-[12px] transition-colors ${tk.light} hover:bg-fq-light-accent`}
+                >
+                  {filteredEmails.length > 0 && filteredEmails.every((e) => selectedEmailIds.has(e.id))
+                    ? 'Deselect all'
+                    : 'Select all'}
+                </button>
+              )}
               {/* Compose button */}
               <button
                 onClick={() => setComposeOpen(true)}
@@ -969,18 +1157,14 @@ export default function InboxPage() {
 
         {/* Search bar */}
         <div className="px-5 pt-3 pb-1">
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${searchQuery ? 'border-fq-accent/30 bg-fq-card' : 'border-fq-border bg-fq-card'} transition-colors`}>
-            <Search size={13} className={`shrink-0 ${searchQuery ? 'text-fq-accent' : tk.icon}`} />
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${isSearchActive ? 'border-fq-accent/30 bg-fq-card' : 'border-fq-border bg-fq-card'} transition-colors`}>
+            <Search size={13} className={`shrink-0 ${isSearchActive ? 'text-fq-accent' : tk.icon}`} />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
-                // Clear folder + filter when searching
-                if (e.target.value) {
-                  setSelectedFolder(null);
-                  setSelectedId(null);
-                }
+                if (e.target.value) { setSelectedFolder(null); setSelectedId(null); }
               }}
               placeholder="Search emails…"
               className={`flex-1 font-body text-[12.5px] ${tk.body} bg-transparent border-none outline-none placeholder:text-fq-muted/45`}
@@ -988,19 +1172,51 @@ export default function InboxPage() {
             {searchLoading && (
               <div className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin shrink-0" />
             )}
-            {searchQuery && !searchLoading && (
+            {isSearchActive && !searchLoading && (
               <button
-                onClick={() => { setSearchQuery(''); setSearchResults(null); }}
+                onClick={() => { setSearchQuery(''); setSearchFrom(''); setSearchHasAttachment(false); setSearchResults(null); }}
                 className={`shrink-0 p-0.5 rounded hover:bg-fq-light-accent transition-colors ${tk.icon}`}
               >
                 <X size={12} />
               </button>
             )}
           </div>
+
+          {/* Filter chips */}
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {/* From filter */}
+            <div className={`inline-flex items-center gap-1 rounded-full border transition-colors ${searchFrom ? 'bg-fq-accent/10 border-fq-accent/30' : 'border-fq-border bg-fq-card'}`}>
+              <span className={`font-body text-[10.5px] pl-2 ${searchFrom ? 'text-fq-accent' : tk.light}`}>From:</span>
+              <input
+                type="text"
+                value={searchFrom}
+                onChange={(e) => { setSearchFrom(e.target.value); if (e.target.value) { setSelectedFolder(null); setSelectedId(null); } }}
+                placeholder="sender…"
+                className={`font-body text-[10.5px] bg-transparent border-none outline-none w-16 placeholder:text-fq-muted/35 ${searchFrom ? 'text-fq-accent' : tk.light} pr-1.5 py-0.5`}
+              />
+              {searchFrom && (
+                <button onClick={() => setSearchFrom('')} className={`pr-1.5 ${tk.light} hover:text-fq-dark`}>
+                  <X size={9} />
+                </button>
+              )}
+            </div>
+
+            {/* Has Attachment toggle */}
+            <button
+              onClick={() => { setSearchHasAttachment((v) => !v); setSelectedFolder(null); setSelectedId(null); }}
+              className={`inline-flex items-center gap-1 font-body text-[10.5px] px-2 py-0.5 rounded-full border transition-colors ${
+                searchHasAttachment
+                  ? 'bg-fq-accent/10 border-fq-accent/30 text-fq-accent'
+                  : `border-fq-border bg-fq-card ${tk.light} hover:border-fq-accent/20`
+              }`}
+            >
+              <Paperclip size={9} />
+              Has attachment
+            </button>
+          </div>
+
           {searchedGraph && (
-            <p className={`font-body text-[11px] ${tk.light} mt-1 px-1`}>
-              Searching all email…
-            </p>
+            <p className={`font-body text-[11px] ${tk.light} mt-1 px-1`}>Searching all email…</p>
           )}
         </div>
 
@@ -1026,7 +1242,7 @@ export default function InboxPage() {
         )}
 
         {/* Tab filter bar — hidden when searching or in dismissed view */}
-        {!searchQuery && !isDismissedView && (
+        {!isSearchActive && !isDismissedView && (
           <div className="flex items-center gap-1 px-5 pt-4 pb-2 flex-wrap">
             {[
               ...TAB_FILTERS,
@@ -1059,7 +1275,7 @@ export default function InboxPage() {
         )}
 
         {/* Project filter dropdown — hidden when searching */}
-        {!searchQuery && (
+        {!isSearchActive && (
           <div className="px-5 pb-3">
             <select
               value={projectFilter}
@@ -1075,10 +1291,10 @@ export default function InboxPage() {
         )}
 
         {/* Email list */}
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
+        <div className={`relative flex-1 overflow-y-auto px-4 ${isSelectMode && selectedEmailIds.size > 0 ? 'pb-20' : 'pb-6'}`}>
 
           {/* ── Search results mode ── */}
-          {searchQuery && (
+          {isSearchActive && (
             <>
               {searchLoading && (
                 <div className="flex flex-col items-center justify-center mt-16 gap-3">
@@ -1088,7 +1304,7 @@ export default function InboxPage() {
               )}
               {!searchLoading && searchResults !== null && searchResults.length === 0 && (
                 <div className="text-center mt-12">
-                  <p className={`font-body text-[13px] ${tk.light}`}>No results for &ldquo;{searchQuery}&rdquo;</p>
+                  <p className={`font-body text-[13px] ${tk.light}`}>No results found.</p>
                 </div>
               )}
               {!searchLoading && searchResults?.map((email) => (
@@ -1098,6 +1314,9 @@ export default function InboxPage() {
                   isSelected={selectedId === email.id}
                   projects={projects}
                   onSelect={() => handleSelectEmail(email)}
+                  isSelectMode={isSelectMode}
+                  isBulkSelected={selectedEmailIds.has(email.id)}
+                  onBulkToggle={(shiftKey) => handleBulkToggle(email, shiftKey)}
                   onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
@@ -1108,13 +1327,15 @@ export default function InboxPage() {
                   onDismiss={handleDismiss}
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
+                  onViewThread={(e) => handleSelectEmail(e)}
+                  onRightClick={(email, x, y) => setContextMenu({ x, y, email })}
                 />
               ))}
             </>
           )}
 
           {/* ── Normal list mode ── */}
-          {!searchQuery && (
+          {!isSearchActive && (
             <>
               {/* Only block the list on very first load when cache is empty */}
               {loading && (
@@ -1184,6 +1405,9 @@ export default function InboxPage() {
                           showTriage
                           projects={projects}
                           onSelect={() => handleSelectEmail(email)}
+                          isSelectMode={isSelectMode}
+                          isBulkSelected={selectedEmailIds.has(email.id)}
+                          onBulkToggle={(shiftKey) => handleBulkToggle(email, shiftKey)}
                           onReply={handleReply}
                           onConfirmSuggested={handleConfirmSuggested}
                           onDismissSuggested={handleDismissSuggested}
@@ -1192,8 +1416,10 @@ export default function InboxPage() {
                           onNeedsResponse={handleNeedsResponse}
                           onDraftResponse={handleDraftResponse}
                           onDismiss={handleDismiss}
-                  onDelete={handleDeleteEmail}
+                          onDelete={handleDeleteEmail}
                           onReassign={handleReassign}
+                          onViewThread={(e) => handleSelectEmail(e)}
+                          onRightClick={(email, x, y) => setContextMenu({ x, y, email })}
                         />
                       ))}
                     </div>
@@ -1201,15 +1427,20 @@ export default function InboxPage() {
                 </div>
               )}
 
-              {!loading && filteredEmails.filter((e) => tabFilter !== 'all' || !!e.project_id || e.dismissed).map((email) => (
-                <EmailCard
-                  key={email.id}
-                  email={email}
-                  isSelected={selectedId === email.id}
+              {!loading && conversationGroups.map((group) => (
+                <EmailThreadGroup
+                  key={group[0].conversation_id ?? group[0].id}
+                  emails={group}
+                  expanded={!!group[0].conversation_id && expandedThreads.has(group[0].conversation_id)}
+                  onToggleExpand={() => group[0].conversation_id && toggleThread(group[0].conversation_id)}
+                  isSelected={(id) => id === selectedId}
                   showStatusPill={tabFilter === 'all'}
                   showTriage={tabFilter === 'untagged'}
                   projects={projects}
-                  onSelect={() => handleSelectEmail(email)}
+                  onSelect={handleSelectEmail}
+                  isSelectMode={isSelectMode}
+                  selectedEmailIds={selectedEmailIds}
+                  onBulkToggle={handleBulkToggle}
                   onReply={handleReply}
                   onConfirmSuggested={handleConfirmSuggested}
                   onDismissSuggested={handleDismissSuggested}
@@ -1220,11 +1451,12 @@ export default function InboxPage() {
                   onDismiss={handleDismiss}
                   onDelete={handleDeleteEmail}
                   onReassign={handleReassign}
+                  onRightClick={(email, x, y) => setContextMenu({ x, y, email })}
                 />
               ))}
 
               {/* Load more older emails */}
-              {!loading && !searchQuery && typeof window !== 'undefined' &&
+              {!loading && !isSearchActive && filteredEmails.length > 0 && typeof window !== 'undefined' &&
                 localStorage.getItem('inbox_initial_sync_done') &&
                 !noMoreHistory &&
                 !localStorage.getItem('inbox_no_more_history') && (
@@ -1239,6 +1471,106 @@ export default function InboxPage() {
                 </div>
               )}
             </>
+          )}
+
+          {/* ── Bulk action bar ── */}
+          {isSelectMode && selectedEmailIds.size > 0 && (
+            <div className="absolute bottom-3 left-3 right-3 z-20 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-fq-dark text-white shadow-lg">
+              <span className="font-body text-[11.5px] text-white/55 shrink-0 mr-1">
+                {selectedEmailIds.size} selected
+              </span>
+              <div className="w-px h-3.5 bg-white/15 shrink-0" />
+
+              <button
+                onClick={handleBulkMarkRead}
+                className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                Mark Read
+              </button>
+
+              <button
+                onClick={handleBulkResolve}
+                className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                Resolve
+              </button>
+
+              {/* File to Project */}
+              <div className="relative">
+                <button
+                  onClick={() => { setBulkFileOpen((v) => !v); setBulkDeleteConfirm(false); }}
+                  className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap flex items-center gap-1"
+                >
+                  File to Project
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 2.5l3 3 3-3" />
+                  </svg>
+                </button>
+                {bulkFileOpen && (
+                  <div className="absolute bottom-full mb-1 left-0 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+                    {projects.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => handleBulkReassign(p.id)}
+                        className={`w-full text-left px-3 py-1.5 font-body text-[12px] hover:bg-fq-light-accent transition-colors ${tk.body}`}
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                    <div className="border-t border-fq-border my-1" />
+                    <button
+                      onClick={() => handleBulkReassign(null)}
+                      className={`w-full text-left px-3 py-1.5 font-body text-[12px] hover:bg-fq-light-accent transition-colors ${tk.light}`}
+                    >
+                      Untagged
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={handleBulkDismiss}
+                className="font-body text-[11.5px] text-white/75 hover:text-white px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+              >
+                Dismiss
+              </button>
+
+              {/* Delete with two-click confirmation */}
+              {!bulkDeleteConfirm ? (
+                <button
+                  onClick={() => { setBulkDeleteConfirm(true); setBulkFileOpen(false); }}
+                  className="font-body text-[11.5px] text-white/55 hover:text-red-400 px-2 py-1 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap"
+                >
+                  Delete
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleBulkDelete}
+                    className="font-body text-[11.5px] text-red-400 font-medium px-2 py-1 rounded-lg hover:bg-red-500/20 transition-colors whitespace-nowrap"
+                  >
+                    Delete {selectedEmailIds.size}?
+                  </button>
+                  <button
+                    onClick={() => setBulkDeleteConfirm(false)}
+                    className="font-body text-[11.5px] text-white/40 hover:text-white px-1 py-1 rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+
+              <div className="flex-1" />
+              <button
+                onClick={() => { setSelectedEmailIds(new Set()); setBulkDeleteConfirm(false); setBulkFileOpen(false); }}
+                className="p-1 rounded-lg hover:bg-white/10 transition-colors text-white/40 hover:text-white shrink-0"
+                title="Clear selection"
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 2l8 8M10 2L2 10" />
+                </svg>
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1267,6 +1599,29 @@ export default function InboxPage() {
         </div>
       )}
 
+      {/* ── Right-click context menu ── */}
+      {contextMenu && (
+        <div
+          className="fixed z-[999] bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <button
+            className={`w-full text-left px-4 py-2 font-body text-[12.5px] ${tk.body} hover:bg-fq-light-accent transition-colors`}
+            onClick={() => {
+              const sender = contextMenu.email.from_email || contextMenu.email.from_name || '';
+              setSearchFrom(sender);
+              setSearchQuery('');
+              setSelectedFolder(null);
+              setSelectedId(null);
+              setContextMenu(null);
+            }}
+          >
+            More from <span className="font-medium text-fq-dark/80">{contextMenu.email.from_name || contextMenu.email.from_email}</span>
+          </button>
+        </div>
+      )}
+
       {/* ── Detail panel ── */}
       {selected ? (
         <EmailDetail
@@ -1280,6 +1635,9 @@ export default function InboxPage() {
           onGenerateDraft={() => handleDraftResponse(selected)}
           draftFallbackText={draftFallbackText}
           onDraftFallbackConsumed={() => setDraftFallbackText(null)}
+          threadEmails={threadEmails}
+          onSelectThread={(e) => handleSelectEmail(e)}
+          onAttachmentsFound={() => patch(selected.id, { has_attachments: true })}
         />
       ) : (
         <div className="flex-1 flex items-center justify-center bg-fq-bg">

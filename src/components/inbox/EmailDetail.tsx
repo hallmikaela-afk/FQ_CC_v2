@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, ReplyAll, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered } from 'lucide-react';
+import { ChevronDown, Check, CheckSquare, ListPlus, Calendar, Reply, ReplyAll, CornerUpRight, Trash2, Paperclip, Bold, Italic, Underline, List, ListOrdered, Link, Users } from 'lucide-react';
 import type { Email, Project } from './EmailCard';
 import { getISOWeek } from '@/lib/week';
 import { buildReplyHtml, emailSignatureHtml, wrapHtmlEmail } from '@/lib/emailSignature';
@@ -32,6 +32,12 @@ interface Props {
   draftFallbackText?: string | null;
   /** Called once the fallback text has been consumed so parent can clear it */
   onDraftFallbackConsumed?: () => void;
+  /** Other emails in the same conversation thread */
+  threadEmails?: Email[];
+  /** Called when a thread email is clicked */
+  onSelectThread?: (email: Email) => void;
+  /** Called once when attachments are fetched and at least one exists */
+  onAttachmentsFound?: () => void;
 }
 
 /* ── Design tokens ── */
@@ -318,27 +324,89 @@ function DriveAttachButton({ projectId, bodyRef }: { projectId: string | null; b
 }
 
 /* ── Attachment list ── */
-function AttachmentList({ messageId, projectId }: { messageId: string; projectId: string | null }) {
-  const [attachments, setAttachments] = useState<Array<{ id: string; name: string; contentType: string; size: number }>>([]);
-  const [loading, setLoading] = useState(true);
+type AttachmentMeta = { id: string; name: string; contentType: string; size: number };
+type PreviewType = 'pdf' | 'image' | 'docx' | 'xlsx';
+type PreviewData =
+  | { type: 'html'; content: string }
+  | { type: 'table'; sheets: { name: string; rows: unknown[][] }[] };
+
+function getPreviewType(contentType: string, name: string): PreviewType | null {
+  const ct  = contentType.toLowerCase();
+  const ext = (name.split('.').pop() ?? '').toLowerCase();
+  if (ct === 'application/pdf' || ext === 'pdf') return 'pdf';
+  if (ct.startsWith('image/')) return 'image';
+  if (ct.includes('wordprocessingml') || ct.includes('msword') || ext === 'docx' || ext === 'doc') return 'docx';
+  if (ct.includes('spreadsheetml') || ct.includes('ms-excel') || ct === 'text/csv' || ['xlsx','xls','csv'].includes(ext)) return 'xlsx';
+  return null;
+}
+
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function AttachmentList({ messageId, projectId, onFound }: { messageId: string; projectId: string | null; onFound?: () => void }) {
+  const [attachments,    setAttachments]    = useState<AttachmentMeta[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [previewAtt,     setPreviewAtt]     = useState<AttachmentMeta | null>(null);
+  const [previewData,    setPreviewData]    = useState<PreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [activeSheet,    setActiveSheet]    = useState(0);
 
   useEffect(() => {
     fetch(`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}`)
       .then((r) => r.json())
-      .then((data) => setAttachments(data.attachments ?? []))
+      .then((data) => {
+        const list = data.attachments ?? [];
+        setAttachments(list);
+        if (list.length > 0) onFound?.();
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [messageId]);
 
-  if (loading || attachments.length === 0) return null;
+  // Close preview on Escape
+  useEffect(() => {
+    if (!previewAtt) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPreviewAtt(null); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [previewAtt]);
 
-  function fmtSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
+  const openPreview = async (att: AttachmentMeta) => {
+    const type = getPreviewType(att.contentType, att.name);
+    if (!type) return;
+    setPreviewAtt(att);
+    setPreviewData(null);
+    setActiveSheet(0);
+    if (type === 'pdf' || type === 'image') return; // URL-based, no fetch needed
+    setPreviewLoading(true);
+    try {
+      const res = await fetch(
+        `/api/emails/attachments/convert?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`
+      );
+      const data: PreviewData = await res.json();
+      setPreviewData(data);
+    } catch { setPreviewData(null); }
+    finally { setPreviewLoading(false); }
+  };
+
+  if (!loading && attachments.length === 0) return null;
+  if (loading) return (
+    <div className="flex items-center gap-2 px-1 py-2">
+      <Paperclip size={12} className="text-fq-muted/40 animate-pulse" />
+      <span className="font-body text-[12px] text-fq-muted/50 animate-pulse">Loading attachments…</span>
+    </div>
+  );
+
+  const attUrl = (att: AttachmentMeta) =>
+    `/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`;
+
+  const previewType = previewAtt ? getPreviewType(previewAtt.contentType, previewAtt.name) : null;
 
   return (
+    <>
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
       <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40">
         <span className="font-body text-[11.5px] font-medium text-fq-dark/70">
@@ -346,24 +414,198 @@ function AttachmentList({ messageId, projectId }: { messageId: string; projectId
         </span>
       </div>
       <div className="p-3 flex flex-wrap gap-2">
-        {attachments.map((att) => (
-          <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group">
-            <a
-              href={`/api/emails/attachments?message_id=${encodeURIComponent(messageId)}&attachment_id=${encodeURIComponent(att.id)}`}
-              download={att.name}
-              className="flex items-center gap-2"
-            >
-              <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
-              <div className="min-w-0">
-                <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[160px]">{att.name}</p>
-                <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
-              </div>
-            </a>
-            <SaveToDriveButton messageId={messageId} attachmentId={att.id} projectId={projectId} />
-          </div>
-        ))}
+        {attachments.map((att) => {
+          const canPreview = !!getPreviewType(att.contentType, att.name);
+          return (
+            <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-fq-border bg-fq-bg hover:border-fq-accent/30 hover:bg-fq-light-accent transition-colors group">
+              <a
+                href={attUrl(att)}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2"
+              >
+                <Paperclip size={12} className="text-fq-muted/55 group-hover:text-fq-accent shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-body text-[12px] text-fq-dark/80 truncate max-w-[140px]">{att.name}</p>
+                  <p className="font-body text-[10.5px] text-fq-muted/55">{fmtSize(att.size)}</p>
+                </div>
+              </a>
+              {canPreview && (
+                <button
+                  onClick={() => openPreview(att)}
+                  title="Preview"
+                  className={`p-1 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 shrink-0`}
+                >
+                  {/* Eye icon */}
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 10s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" />
+                    <circle cx="10" cy="10" r="2.5" />
+                  </svg>
+                </button>
+              )}
+              <SaveToDriveButton messageId={messageId} attachmentId={att.id} projectId={projectId} />
+            </div>
+          );
+        })}
       </div>
     </div>
+
+    {/* ── Attachment preview modal ── */}
+    {previewAtt && (
+      <div
+        className="fixed inset-0 z-[9999] flex items-stretch justify-stretch p-6"
+        onClick={() => setPreviewAtt(null)}
+      >
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        <div
+          className="relative flex flex-col w-full bg-fq-card rounded-2xl border border-fq-border shadow-2xl overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-fq-border bg-fq-light-accent/40 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <Paperclip size={13} className="text-fq-muted/55 shrink-0" />
+              <span className="font-body text-[13px] text-fq-dark/80 truncate">{previewAtt.name}</span>
+              <span className={`font-body text-[11px] ${tk.light}`}>{fmtSize(previewAtt.size)}</span>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <a
+                href={attUrl(previewAtt)}
+                target="_blank"
+                rel="noreferrer"
+                className={`font-body text-[11.5px] ${tk.light} hover:text-fq-accent transition-colors`}
+              >
+                Open in tab ↗
+              </a>
+              <button
+                onClick={() => setPreviewAtt(null)}
+                className={`p-1.5 rounded-lg hover:bg-fq-border transition-colors ${tk.icon}`}
+              >
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Modal body */}
+          <div className="flex-1 overflow-auto min-h-0 bg-white">
+            {/* Loading */}
+            {previewLoading && (
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <span className="w-6 h-6 border-2 border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                <span className={`font-body text-[12.5px] ${tk.light}`}>Loading preview…</span>
+              </div>
+            )}
+
+            {/* PDF */}
+            {!previewLoading && previewType === 'pdf' && (
+              <iframe
+                src={attUrl(previewAtt)}
+                className="w-full h-full border-none"
+                title={previewAtt.name}
+              />
+            )}
+
+            {/* Image */}
+            {!previewLoading && previewType === 'image' && (
+              <div className="flex items-center justify-center min-h-full p-8 bg-fq-bg/50">
+                <img
+                  src={attUrl(previewAtt)}
+                  alt={previewAtt.name}
+                  className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-lg"
+                />
+              </div>
+            )}
+
+            {/* DOCX → HTML */}
+            {!previewLoading && previewData?.type === 'html' && (
+              <div
+                className="p-8 font-body text-[13.5px] text-fq-dark/85 leading-relaxed max-w-3xl mx-auto prose prose-sm"
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(previewData.content) }}
+              />
+            )}
+
+            {/* XLSX → Table */}
+            {!previewLoading && previewData?.type === 'table' && (() => {
+              const sheet = previewData.sheets[activeSheet];
+              return (
+                <div className="flex flex-col h-full">
+                  {/* Sheet tabs */}
+                  {previewData.sheets.length > 1 && (
+                    <div className="flex items-center gap-1 px-4 pt-3 pb-0 border-b border-fq-border bg-fq-light-accent/30 shrink-0">
+                      {previewData.sheets.map((s, i) => (
+                        <button
+                          key={i}
+                          onClick={() => setActiveSheet(i)}
+                          className={`px-3 py-1.5 font-body text-[12px] rounded-t-lg border-x border-t transition-colors ${
+                            i === activeSheet
+                              ? 'border-fq-border bg-white text-fq-dark/80 font-medium -mb-px'
+                              : `border-transparent ${tk.light} hover:bg-fq-light-accent`
+                          }`}
+                        >
+                          {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* Table */}
+                  <div className="flex-1 overflow-auto p-4">
+                    {sheet && sheet.rows.length > 0 ? (
+                      <table className="w-full border-collapse text-left font-body text-[12.5px]">
+                        <thead>
+                          <tr>
+                            {(sheet.rows[0] as unknown[]).map((cell, ci) => (
+                              <th
+                                key={ci}
+                                className="px-3 py-2 border border-fq-border bg-fq-light-accent/60 text-fq-dark/70 font-medium whitespace-nowrap"
+                              >
+                                {String(cell ?? '')}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sheet.rows.slice(1).map((row, ri) => (
+                            <tr key={ri} className="odd:bg-white even:bg-fq-bg/40 hover:bg-fq-light-accent/50">
+                              {(row as unknown[]).map((cell, ci) => (
+                                <td key={ci} className="px-3 py-1.5 border border-fq-border/60 text-fq-dark/75">
+                                  {String(cell ?? '')}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className={`font-body text-[12.5px] ${tk.light} p-4`}>This sheet is empty.</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Conversion failed / unsupported */}
+            {!previewLoading && (previewType === 'docx' || previewType === 'xlsx') && !previewData && (
+              <div className="flex flex-col items-center justify-center h-full gap-3 p-8">
+                <p className={`font-body text-[13px] ${tk.light} text-center`}>
+                  Preview could not be generated for this file.
+                </p>
+                <a
+                  href={attUrl(previewAtt)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-body text-[12.5px] font-medium px-4 py-2 rounded-lg bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors"
+                >
+                  Download instead
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -512,13 +754,170 @@ function TriagePanel({
   );
 }
 
+/* ── Styled link insertion modal ── */
+function LinkModal({
+  open,
+  selectedText,
+  onInsert,
+  onClose,
+  projectId,
+  initialUrl = '',
+}: {
+  open: boolean;
+  selectedText: string;
+  onInsert: (displayText: string, url: string) => void;
+  onClose: () => void;
+  projectId?: string | null;
+  initialUrl?: string;
+}) {
+  const [displayText, setDisplayText] = useState('');
+  const [url, setUrl]                 = useState('https://');
+  const [driveOpen, setDriveOpen]     = useState(false);
+  const urlRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setDisplayText(selectedText);
+      setUrl(initialUrl || 'https://');
+      setDriveOpen(false);
+      setTimeout(() => urlRef.current?.focus(), 0);
+    }
+  }, [open, selectedText, initialUrl]);
+
+  if (!open) return null;
+
+  // When Drive picker is open, render only it — avoids z-index/blur conflict with our backdrop
+  if (driveOpen) {
+    return (
+      <DriveFilePicker
+        projectId={projectId ?? null}
+        title="Link a Drive file"
+        onClose={() => setDriveOpen(false)}
+        onSelect={(file) => {
+          setUrl(file.webViewLink);
+          setDisplayText((prev) => prev || file.name);
+          setDriveOpen(false);
+        }}
+      />
+    );
+  }
+
+  const handleOk = () => {
+    const text = displayText.trim() || url;
+    if (!url.trim() || url === 'https://') return;
+    onInsert(text, url.trim());
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-fq-card rounded-2xl border border-fq-border shadow-2xl w-[380px] p-6">
+        <h3 className={`font-heading text-[16px] font-semibold ${tk.heading} mb-4`}>Insert link</h3>
+
+        {!selectedText && (
+          <div className="mb-3">
+            <label className={`font-body text-[12px] ${tk.light} block mb-1`}>Display text</label>
+            <input
+              type="text"
+              value={displayText}
+              onChange={(e) => setDisplayText(e.target.value)}
+              className={`w-full font-body text-[13px] ${tk.body} bg-fq-bg border border-fq-accent/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-fq-accent/30`}
+            />
+          </div>
+        )}
+
+        <div className="mb-3">
+          <label className={`font-body text-[12px] ${tk.light} block mb-1`}>URL</label>
+          <input
+            ref={urlRef}
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleOk(); if (e.key === 'Escape') onClose(); }}
+            className={`w-full font-body text-[13px] ${tk.body} bg-fq-bg border border-fq-accent/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-fq-accent/30`}
+          />
+        </div>
+
+        {/* From Drive shortcut */}
+        <button
+          type="button"
+          onClick={() => setDriveOpen(true)}
+          className={`flex items-center gap-1.5 mb-5 font-body text-[12px] ${tk.light} hover:text-fq-accent transition-colors`}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 11.5l-8 4.5L8 22h8l4-6-8-4.5zM8.5 2L4 10l4 2.25L12 5.5 15.5 12 20 9.75 15.5 2H8.5z"/>
+          </svg>
+          From Drive
+        </button>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className={`px-4 py-2 rounded-lg font-body text-[13px] ${tk.light} bg-fq-light-accent hover:bg-fq-border transition-colors`}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleOk}
+            className="px-4 py-2 rounded-lg font-body text-[13px] font-medium bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Vendor credits helpers ── */
+type VendorForCredits = {
+  id: string;
+  vendor_name: string;
+  category: string | null;
+  instagram: string | null;
+  event_day_id: string | null;
+};
+type EventDayBrief = { id: string; day_name: string; sort_order: number };
+
+function buildVendorCreditsHtml(
+  selected: VendorForCredits[],
+  eventDays: EventDayBrief[],
+): string {
+  const makeItem = (v: VendorForCredits) => {
+    const href = v.instagram ? `https://www.instagram.com/${v.instagram.replace(/^@/, '')}` : null;
+    const nameHtml = href ? `<a href="${href}">${v.vendor_name}</a>` : v.vendor_name;
+    return `<li>${v.category ? `<strong>${v.category}:</strong> ` : ''}${nameHtml}</li>`;
+  };
+  if (eventDays.length <= 1) {
+    return `<ul>${selected.map(makeItem).join('')}</ul>`;
+  }
+  // Multiple days — group by event_day_id, sorted by sort_order
+  const dayMap = new Map<string | null, VendorForCredits[]>();
+  for (const v of selected) {
+    const key = v.event_day_id;
+    if (!dayMap.has(key)) dayMap.set(key, []);
+    dayMap.get(key)!.push(v);
+  }
+  let html = '';
+  const sorted = [...eventDays].sort((a, b) => a.sort_order - b.sort_order);
+  for (const day of sorted) {
+    const vends = dayMap.get(day.id);
+    if (vends?.length) html += `<p><strong>${day.day_name}</strong></p><ul>${vends.map(makeItem).join('')}</ul>`;
+  }
+  const unassigned = dayMap.get(null);
+  if (unassigned?.length) html += `<ul>${unassigned.map(makeItem).join('')}</ul>`;
+  return html;
+}
+
 /* ── AI Draft Card (shown above email body when draft_message_id is set) ── */
 function DraftCard({
   email,
+  projects,
   onPatch,
   showToast,
 }: {
   email: Email;
+  projects: Project[];
   onPatch: (id: string, updates: Record<string, unknown>) => void;
   showToast: (msg: string) => void;
 }) {
@@ -537,9 +936,21 @@ function DraftCard({
   const [ccChips,   setCcChips]             = useState<ContactChip[]>([]);
   const [bccChips,  setBccChips]            = useState<ContactChip[]>([]);
   const contacts = useContacts();
-  const bodyRef     = useRef<HTMLDivElement>(null);
-  const colorBtnRef = useRef<HTMLDivElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [vendorOpen,        setVendorOpen]        = useState(false);
+  const [vendorLoading,     setVendorLoading]     = useState(false);
+  const [vendors,           setVendors]           = useState<VendorForCredits[]>([]);
+  const [eventDays,         setEventDays]         = useState<EventDayBrief[]>([]);
+  const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
+  const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
+  const [linkModalOpen,    setLinkModalOpen]    = useState(false);
+  const [linkSelectedText, setLinkSelectedText] = useState('');
+  const [linkEditUrl,      setLinkEditUrl]      = useState('');
+  const [linkPopover, setLinkPopover] = useState<{ el: HTMLAnchorElement; top: number; left: number } | null>(null);
+  const bodyRef        = useRef<HTMLDivElement>(null);
+  const colorBtnRef    = useRef<HTMLDivElement>(null);
+  const vendorBtnRef   = useRef<HTMLDivElement>(null);
+  const debounceRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedRangeRef  = useRef<Range | null>(null);
 
   const COLORS = [
     { label: 'Black',      value: '#2C2C2C' },
@@ -548,6 +959,28 @@ function DraftCard({
     { label: 'Gray',       value: '#9B8E82' },
     { label: 'White',      value: '#FFFFFF' },
   ];
+
+  const fetchVendors = async (projectId: string) => {
+    setVendorLoading(true);
+    try {
+      const [vendorRes, dayRes] = await Promise.all([
+        fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`),
+        fetch(`/api/event-days?project_id=${encodeURIComponent(projectId)}`),
+      ]);
+      setVendors((await vendorRes.json()) ?? []);
+      setEventDays((await dayRes.json()) ?? []);
+    } catch { setVendors([]); setEventDays([]); }
+    finally { setVendorLoading(false); }
+  };
+
+  const insertVendorCredits = () => {
+    const sel = vendors.filter(v => selectedVendorIds.has(v.id));
+    if (!sel.length) return;
+    bodyRef.current?.focus();
+    document.execCommand('insertHTML', false, buildVendorCreditsHtml(sel, eventDays));
+    setVendorOpen(false);
+    setSelectedVendorIds(new Set());
+  };
 
   // Fetch draft body from Graph on mount — store in state so the second
   // effect can write to bodyRef once the contentEditable div has mounted.
@@ -576,6 +1009,31 @@ function DraftCard({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [colorOpen]);
+
+  // Dismiss link popover on outside click
+  useEffect(() => {
+    if (!linkPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as Element)?.closest('[data-link-popover]')) setLinkPopover(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [linkPopover]);
+
+  const checkLinkAtCursor = () => {
+    const sel = window.getSelection();
+    if (!sel?.anchorNode || !bodyRef.current) { setLinkPopover(null); return; }
+    const node = sel.anchorNode.nodeType === Node.TEXT_NODE
+      ? sel.anchorNode.parentElement
+      : sel.anchorNode as Element;
+    const anchor = node?.closest?.('a');
+    if (anchor && bodyRef.current.contains(anchor)) {
+      const rect = anchor.getBoundingClientRect();
+      setLinkPopover({ el: anchor as HTMLAnchorElement, top: rect.bottom + 6, left: rect.left });
+    } else {
+      setLinkPopover(null);
+    }
+  };
 
   const execCmd   = (cmd: string) => { bodyRef.current?.focus(); document.execCommand(cmd, false, undefined); };
   const applyColor = (color: string) => {
@@ -712,9 +1170,75 @@ function DraftCard({
     }
   };
 
+  const handleInsertLink = (displayText: string, url: string) => {
+    setLinkModalOpen(false);
+    const html = `<a href="${url}" style="color:#6B2737;text-decoration:underline;">${displayText}</a>`;
+    bodyRef.current?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current) {
+      sel?.removeAllRanges();
+      sel?.addRange(savedRangeRef.current);
+    }
+    document.execCommand('insertHTML', false, html);
+    savedRangeRef.current = null;
+  };
+
   if (sent) return null;
 
   return (
+    <>
+    <LinkModal
+      open={linkModalOpen}
+      selectedText={linkSelectedText}
+      onInsert={handleInsertLink}
+      onClose={() => { setLinkModalOpen(false); setLinkEditUrl(''); }}
+      projectId={email.project_id ?? null}
+      initialUrl={linkEditUrl}
+    />
+    {/* Link edit/remove popover */}
+    {linkPopover && (
+      <div
+        data-link-popover=""
+        className="fixed z-[9998] bg-fq-card border border-fq-border rounded-xl shadow-xl px-3 py-2 flex items-center gap-3 max-w-[360px]"
+        style={{ top: linkPopover.top, left: linkPopover.left }}
+      >
+        <span className={`font-body text-[11.5px] ${tk.light} truncate flex-1 min-w-0`}>
+          {linkPopover.el.href}
+        </span>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            savedRangeRef.current = range.cloneRange();
+            const href = linkPopover.el.href;
+            const text = linkPopover.el.textContent ?? '';
+            document.execCommand('unlink');
+            setLinkSelectedText(text);
+            setLinkEditUrl(href);
+            setLinkModalOpen(true);
+            setLinkPopover(null);
+          }}
+          className="font-body text-[11px] text-fq-blue hover:underline shrink-0"
+        >Edit</button>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            document.execCommand('unlink');
+            setLinkPopover(null);
+          }}
+          className={`font-body text-[11px] ${tk.light} hover:text-red-500 shrink-0`}
+        >Remove</button>
+      </div>
+    )}
     <div
       className="rounded-xl border border-fq-border bg-fq-card"
       style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}
@@ -829,6 +1353,117 @@ function DraftCard({
           {toolBtn('Bullet list',   'insertUnorderedList', <List size={13} />)}
           {toolBtn('Numbered list', 'insertOrderedList',   <ListOrdered size={13} />)}
           <div className="w-px h-4 bg-fq-border mx-1" />
+          {/* Hyperlink */}
+          <button type="button" title="Insert link"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const sel = window.getSelection();
+              savedRangeRef.current = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0).cloneRange() : null;
+              setLinkSelectedText(sel?.toString() ?? '');
+              setLinkModalOpen(true);
+            }}
+            className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+          >
+            <Link size={13} />
+          </button>
+          {/* Vendor credits */}
+          <div ref={vendorBtnRef} className="relative">
+            <button type="button" title="Insert vendor credits"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                const pid = vendorProjectId || email.project_id;
+                if (!vendorOpen) {
+                  setVendorOpen(true);
+                  setSelectedVendorIds(new Set());
+                  if (pid) { setVendorProjectId(pid); fetchVendors(pid); }
+                  else { setVendors([]); setVendorLoading(false); }
+                } else { setVendorOpen(false); }
+              }}
+              className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+            >
+              <Users size={13} />
+            </button>
+            {vendorOpen && (
+              <div className="absolute bottom-full mb-1 left-0 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-2 min-w-[220px]">
+                {!vendorProjectId && !email.project_id ? (
+                  <div className="px-3 py-2">
+                    <p className={`font-body text-[11.5px] ${tk.light} mb-2`}>Select project:</p>
+                    <select onChange={(e) => { setVendorProjectId(e.target.value); if (e.target.value) fetchVendors(e.target.value); }}
+                      className={`w-full font-body text-[12px] ${tk.body} bg-fq-bg border border-fq-border rounded-lg px-2 py-1.5 focus:outline-none`}>
+                      <option value="">—</option>
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                ) : vendorLoading ? (
+                  <div className="px-3 py-3 flex items-center gap-2">
+                    <span className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                    <span className={`font-body text-[12px] ${tk.light}`}>Loading…</span>
+                  </div>
+                ) : vendors.length === 0 ? (
+                  <p className={`px-3 py-2 font-body text-[12px] ${tk.light}`}>No vendors assigned to this project yet.</p>
+                ) : (
+                  <>
+                    <div className="max-h-48 overflow-y-auto">
+                      {eventDays.length <= 1 ? (
+                        vendors.map(v => (
+                          <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                            <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                              onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                              className="rounded border-fq-border text-fq-accent" />
+                            <span className="min-w-0">
+                              <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                              {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                            </span>
+                          </label>
+                        ))
+                      ) : (
+                        [...eventDays]
+                          .sort((a, b) => a.sort_order - b.sort_order)
+                          .flatMap(day => {
+                            const dayVendors = vendors.filter(v => v.event_day_id === day.id);
+                            if (!dayVendors.length) return [];
+                            return [
+                              <p key={`hd-${day.id}`} className={`px-3 pt-2 pb-0.5 font-body text-[10.5px] uppercase tracking-wide ${tk.light}`}>{day.day_name}</p>,
+                              ...dayVendors.map(v => (
+                                <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                                  <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                    onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                    className="rounded border-fq-border text-fq-accent" />
+                                  <span className="min-w-0">
+                                    <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                    {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                                  </span>
+                                </label>
+                              )),
+                            ];
+                          })
+                          .concat(
+                            vendors.filter(v => !v.event_day_id).map(v => (
+                              <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                                <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                  onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                  className="rounded border-fq-border text-fq-accent" />
+                                <span className="min-w-0">
+                                  <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                  {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                                </span>
+                              </label>
+                            ))
+                          )
+                      )}
+                    </div>
+                    <div className="border-t border-fq-border px-3 pt-2 pb-1">
+                      <button onMouseDown={(e) => { e.preventDefault(); insertVendorCredits(); }}
+                        className="font-body text-[12px] font-medium px-3 py-1.5 rounded-lg bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors w-full">
+                        Insert Credits
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="w-px h-4 bg-fq-border mx-1" />
           <div ref={colorBtnRef} className="relative">
             <button
               type="button"
@@ -873,6 +1508,8 @@ function DraftCard({
           suppressContentEditableWarning
           data-placeholder="Draft content…"
           onInput={triggerSave}
+          onMouseUp={checkLinkAtCursor}
+          onKeyUp={checkLinkAtCursor}
           style={{ color: '#2C2C2C' }}
           className={`min-h-[140px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
             empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
@@ -907,34 +1544,54 @@ function DraftCard({
         </button>
       </div>
     </div>
+    </>
   );
 }
 
 /* ── Reply compose panel ── */
 function ReplyPanel({
   email,
+  projects,
   onClose,
   initialText = '',
   replyAll = false,
 }: {
   email: Email;
+  projects: Project[];
   onClose: () => void;
   initialText?: string;
   replyAll?: boolean;
 }) {
-  const [sending, setSending]           = useState(false);
-  const [sent, setSent]                 = useState(false);
-  const [draftLoading, setDraftLoading] = useState(false);
-  const [isEmpty, setIsEmpty]           = useState(true);
-  const [colorOpen,   setColorOpen]     = useState(false);
-  const [activeColor, setActiveColor]   = useState('#2C2C2C');
-  const [showCcBcc, setShowCcBcc]       = useState(false);
-  const [ccChips,   setCcChips]         = useState<ContactChip[]>([]);
-  const [bccChips,  setBccChips]        = useState<ContactChip[]>([]);
-  const contacts = useContacts();
-  const bodyRef     = useRef<HTMLDivElement>(null);
-  const sigRef      = useRef<HTMLDivElement>(null);
-  const colorBtnRef = useRef<HTMLDivElement>(null);
+  const [sending, setSending]               = useState(false);
+  const [sent, setSent]                     = useState(false);
+  const [draftLoading, setDraftLoading]     = useState(false);
+  const [isEmpty, setIsEmpty]               = useState(true);
+  const [colorOpen,   setColorOpen]         = useState(false);
+  const [activeColor, setActiveColor]       = useState('#2C2C2C');
+  const [showCcBcc, setShowCcBcc]           = useState(false);
+  const [toChips,    setToChips]            = useState<ContactChip[]>(
+    email.from_email ? [{ name: email.from_name ?? '', email: email.from_email }] : []
+  );
+  const [ccChips,   setCcChips]             = useState<ContactChip[]>([]);
+  const [bccChips,  setBccChips]            = useState<ContactChip[]>([]);
+  const [reviseInstruction, setReviseInstruction] = useState('');
+  const [revising,          setRevising]          = useState(false);
+  const [vendorOpen,        setVendorOpen]        = useState(false);
+  const [vendorLoading,     setVendorLoading]     = useState(false);
+  const [vendors,           setVendors]           = useState<VendorForCredits[]>([]);
+  const [eventDays,         setEventDays]         = useState<EventDayBrief[]>([]);
+  const [selectedVendorIds, setSelectedVendorIds] = useState<Set<string>>(new Set());
+  const [vendorProjectId,   setVendorProjectId]   = useState<string | null>(email.project_id ?? null);
+  const [linkModalOpen,    setLinkModalOpen]    = useState(false);
+  const [linkSelectedText, setLinkSelectedText] = useState('');
+  const [linkEditUrl,      setLinkEditUrl]      = useState('');
+  const [linkPopover, setLinkPopover] = useState<{ el: HTMLAnchorElement; top: number; left: number } | null>(null);
+  const contacts       = useContacts();
+  const bodyRef        = useRef<HTMLDivElement>(null);
+  const sigRef         = useRef<HTMLDivElement>(null);
+  const colorBtnRef    = useRef<HTMLDivElement>(null);
+  const vendorBtnRef   = useRef<HTMLDivElement>(null);
+  const savedRangeRef  = useRef<Range | null>(null);
 
   // Focus on mount
   useEffect(() => { bodyRef.current?.focus(); }, []);
@@ -958,6 +1615,31 @@ function ReplyPanel({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [colorOpen]);
+
+  // Dismiss link popover on outside click
+  useEffect(() => {
+    if (!linkPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as Element)?.closest('[data-link-popover]')) setLinkPopover(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [linkPopover]);
+
+  const checkLinkAtCursor = () => {
+    const sel = window.getSelection();
+    if (!sel?.anchorNode || !bodyRef.current) { setLinkPopover(null); return; }
+    const node = sel.anchorNode.nodeType === Node.TEXT_NODE
+      ? sel.anchorNode.parentElement
+      : sel.anchorNode as Element;
+    const anchor = node?.closest?.('a');
+    if (anchor && bodyRef.current.contains(anchor)) {
+      const rect = anchor.getBoundingClientRect();
+      setLinkPopover({ el: anchor as HTMLAnchorElement, top: rect.bottom + 6, left: rect.left });
+    } else {
+      setLinkPopover(null);
+    }
+  };
 
   const execCmd = (cmd: string) => {
     bodyRef.current?.focus();
@@ -991,6 +1673,65 @@ function ReplyPanel({
     </button>
   );
 
+  const fetchVendorsRP = async (projectId: string) => {
+    setVendorLoading(true);
+    try {
+      const [vendorRes, dayRes] = await Promise.all([
+        fetch(`/api/vendors?project_id=${encodeURIComponent(projectId)}`),
+        fetch(`/api/event-days?project_id=${encodeURIComponent(projectId)}`),
+      ]);
+      setVendors((await vendorRes.json()) ?? []);
+      setEventDays((await dayRes.json()) ?? []);
+    } catch { setVendors([]); setEventDays([]); }
+    finally { setVendorLoading(false); }
+  };
+
+  const insertVendorCreditsRP = () => {
+    const sel = vendors.filter(v => selectedVendorIds.has(v.id));
+    if (!sel.length) return;
+    bodyRef.current?.focus();
+    document.execCommand('insertHTML', false, buildVendorCreditsHtml(sel, eventDays));
+    setVendorOpen(false);
+    setSelectedVendorIds(new Set());
+  };
+
+  const handleRevise = async () => {
+    if (!reviseInstruction.trim() || revising) return;
+    setRevising(true);
+    try {
+      const res = await fetch('/api/emails/draft-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email_id: email.id,
+          instruction: reviseInstruction.trim(),
+          current_draft: bodyRef.current?.innerText ?? '',
+        }),
+      });
+      const data = await res.json();
+      if (data.draft && bodyRef.current) {
+        bodyRef.current.innerHTML = `<span style="color:#2C2C2C">${data.draft.replace(/\n/g, '<br>')}</span>`;
+        setIsEmpty(false);
+        setReviseInstruction('');
+      }
+    } finally {
+      setRevising(false);
+    }
+  };
+
+  const handleInsertLink = (displayText: string, url: string) => {
+    setLinkModalOpen(false);
+    const html = `<a href="${url}" style="color:#6B2737;text-decoration:underline;">${displayText}</a>`;
+    bodyRef.current?.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current) {
+      sel?.removeAllRanges();
+      sel?.addRange(savedRangeRef.current);
+    }
+    document.execCommand('insertHTML', false, html);
+    savedRangeRef.current = null;
+  };
+
   const handleSend = async () => {
     const bodyHtml = bodyRef.current?.innerHTML ?? '';
     if (!bodyHtml.trim() || bodyHtml === '<br>') return;
@@ -1013,6 +1754,7 @@ function ReplyPanel({
         body: JSON.stringify({
           message_id: email.message_id,
           reply_html: replyHtml,
+          to:  chipsToRecipients(toChips),
           cc:  chipsToRecipients(ccChips),
           bcc: chipsToRecipients(bccChips),
           reply_all: replyAll,
@@ -1052,13 +1794,66 @@ function ReplyPanel({
   }
 
   return (
+    <>
+    <LinkModal
+      open={linkModalOpen}
+      selectedText={linkSelectedText}
+      onInsert={handleInsertLink}
+      onClose={() => { setLinkModalOpen(false); setLinkEditUrl(''); }}
+      projectId={email.project_id ?? null}
+      initialUrl={linkEditUrl}
+    />
+    {/* Link edit/remove popover */}
+    {linkPopover && (
+      <div
+        data-link-popover=""
+        className="fixed z-[9998] bg-fq-card border border-fq-border rounded-xl shadow-xl px-3 py-2 flex items-center gap-3 max-w-[360px]"
+        style={{ top: linkPopover.top, left: linkPopover.left }}
+      >
+        <span className={`font-body text-[11.5px] ${tk.light} truncate flex-1 min-w-0`}>
+          {linkPopover.el.href}
+        </span>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            savedRangeRef.current = range.cloneRange();
+            const href = linkPopover.el.href;
+            const text = linkPopover.el.textContent ?? '';
+            document.execCommand('unlink');
+            setLinkSelectedText(text);
+            setLinkEditUrl(href);
+            setLinkModalOpen(true);
+            setLinkPopover(null);
+          }}
+          className="font-body text-[11px] text-fq-blue hover:underline shrink-0"
+        >Edit</button>
+        <button
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const range = document.createRange();
+            range.selectNodeContents(linkPopover.el);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            document.execCommand('unlink');
+            setLinkPopover(null);
+          }}
+          className={`font-body text-[11px] ${tk.light} hover:text-red-500 shrink-0`}
+        >Remove</button>
+      </div>
+    )}
     <div className="border border-fq-border rounded-xl overflow-hidden bg-fq-card">
-      {/* Panel header */}
-      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
-            {replyAll ? 'Replying all' : `Replying to ${email.from_name || email.from_email}`}
-          </span>
+      {/* Panel header — action bar */}
+      <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center justify-between gap-2">
+        <span className={`font-body text-[11.5px] ${tk.light} shrink-0`}>
+          {replyAll ? 'Reply all' : 'Reply'}
+        </span>
+        <div className="flex items-center gap-2 ml-auto">
           {!showCcBcc && (
             <button
               type="button"
@@ -1068,19 +1863,24 @@ function ReplyPanel({
               + CC / BCC
             </button>
           )}
+          <button
+            onClick={handleAIDraft}
+            disabled={draftLoading}
+            className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
+          >
+            {draftLoading ? (
+              <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z"/></svg>
+            )}
+            {draftLoading ? 'Drafting…' : 'AI Draft'}
+          </button>
         </div>
-        <button
-          onClick={handleAIDraft}
-          disabled={draftLoading}
-          className="flex items-center gap-1 font-body text-[11px] font-medium px-2.5 py-1 rounded-md border border-fq-blue/25 bg-fq-blue-light/50 text-fq-blue hover:bg-fq-blue-light transition-colors disabled:opacity-40"
-        >
-          {draftLoading ? (
-            <span className="w-3 h-3 border border-fq-blue/40 border-t-fq-blue rounded-full animate-spin" />
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l2 5h5l-4 3 1.5 5L10 12l-4.5 3L7 10 3 7h5z"/></svg>
-          )}
-          {draftLoading ? 'Drafting…' : 'AI Draft'}
-        </button>
+      </div>
+
+      {/* To field — always visible */}
+      <div className="px-4 py-2 border-b border-fq-border">
+        <AddressField label="To" chips={toChips} onChipsChange={setToChips} contacts={contacts} />
       </div>
 
       {/* CC / BCC fields (expanded) */}
@@ -1095,6 +1895,23 @@ function ReplyPanel({
         </div>
       )}
 
+      {/* Original email details strip */}
+      <div className="px-4 py-2.5 border-b border-fq-border bg-fq-bg/50">
+        <p className={`font-body text-[11.5px] ${tk.light} leading-relaxed`}>
+          <span className="font-medium text-fq-dark/60">From:</span>{' '}
+          {email.from_name && <span>{email.from_name} </span>}
+          {email.from_email && <span className="opacity-70">&lt;{email.from_email}&gt;</span>}
+        </p>
+        <p className={`font-body text-[11.5px] ${tk.light} leading-relaxed`}>
+          <span className="font-medium text-fq-dark/60">Date:</span>{' '}
+          {fmtFull(email.received_at)}
+        </p>
+        <p className={`font-body text-[11.5px] ${tk.light} leading-relaxed`}>
+          <span className="font-medium text-fq-dark/60">Subject:</span>{' '}
+          {email.subject}
+        </p>
+      </div>
+
       {/* Rich text toolbar */}
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-fq-border bg-fq-bg/60">
         {toolBtn('Bold', 'bold', <Bold size={13} />)}
@@ -1103,6 +1920,117 @@ function ReplyPanel({
         <div className="w-px h-4 bg-fq-border mx-1" />
         {toolBtn('Bullet list', 'insertUnorderedList', <List size={13} />)}
         {toolBtn('Numbered list', 'insertOrderedList', <ListOrdered size={13} />)}
+        <div className="w-px h-4 bg-fq-border mx-1" />
+        {/* Hyperlink */}
+        <button type="button" title="Insert link"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const sel = window.getSelection();
+            savedRangeRef.current = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0).cloneRange() : null;
+            setLinkSelectedText(sel?.toString() ?? '');
+            setLinkModalOpen(true);
+          }}
+          className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+        >
+          <Link size={13} />
+        </button>
+        {/* Vendor credits */}
+        <div ref={vendorBtnRef} className="relative">
+          <button type="button" title="Insert vendor credits"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const pid = vendorProjectId || email.project_id;
+              if (!vendorOpen) {
+                setVendorOpen(true);
+                setSelectedVendorIds(new Set());
+                if (pid) { setVendorProjectId(pid); fetchVendorsRP(pid); }
+                else { setVendors([]); setVendorLoading(false); }
+              } else { setVendorOpen(false); }
+            }}
+            className={`p-1.5 rounded transition-colors ${tk.icon} hover:bg-fq-border/60 hover:text-fq-dark/70 select-none`}
+          >
+            <Users size={13} />
+          </button>
+          {vendorOpen && (
+            <div className="absolute bottom-full mb-1 left-0 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-2 min-w-[220px]">
+              {!vendorProjectId && !email.project_id ? (
+                <div className="px-3 py-2">
+                  <p className={`font-body text-[11.5px] ${tk.light} mb-2`}>Select project:</p>
+                  <select onChange={(e) => { setVendorProjectId(e.target.value); if (e.target.value) fetchVendorsRP(e.target.value); }}
+                    className={`w-full font-body text-[12px] ${tk.body} bg-fq-bg border border-fq-border rounded-lg px-2 py-1.5 focus:outline-none`}>
+                    <option value="">—</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              ) : vendorLoading ? (
+                <div className="px-3 py-3 flex items-center gap-2">
+                  <span className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" />
+                  <span className={`font-body text-[12px] ${tk.light}`}>Loading…</span>
+                </div>
+              ) : vendors.length === 0 ? (
+                <p className={`px-3 py-2 font-body text-[12px] ${tk.light}`}>No vendors assigned to this project yet.</p>
+              ) : (
+                <>
+                  <div className="max-h-48 overflow-y-auto">
+                    {eventDays.length <= 1 ? (
+                      vendors.map(v => (
+                        <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                          <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                            onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                            className="rounded border-fq-border text-fq-accent" />
+                          <span className="min-w-0">
+                            <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                            {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                          </span>
+                        </label>
+                      ))
+                    ) : (
+                      [...eventDays]
+                        .sort((a, b) => a.sort_order - b.sort_order)
+                        .flatMap(day => {
+                          const dayVendors = vendors.filter(v => v.event_day_id === day.id);
+                          if (!dayVendors.length) return [];
+                          return [
+                            <p key={`hd-${day.id}`} className={`px-3 pt-2 pb-0.5 font-body text-[10.5px] uppercase tracking-wide ${tk.light}`}>{day.day_name}</p>,
+                            ...dayVendors.map(v => (
+                              <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                                <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                  onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                  className="rounded border-fq-border text-fq-accent" />
+                                <span className="min-w-0">
+                                  <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                  {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                                </span>
+                              </label>
+                            )),
+                          ];
+                        })
+                        .concat(
+                          vendors.filter(v => !v.event_day_id).map(v => (
+                            <label key={v.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-fq-light-accent cursor-pointer">
+                              <input type="checkbox" checked={selectedVendorIds.has(v.id)}
+                                onChange={(e) => setSelectedVendorIds(prev => { const n = new Set(prev); e.target.checked ? n.add(v.id) : n.delete(v.id); return n; })}
+                                className="rounded border-fq-border text-fq-accent" />
+                              <span className="min-w-0">
+                                <span className={`font-body text-[12px] ${tk.body}`}>{v.vendor_name}</span>
+                                {v.category && <span className={`font-body text-[10.5px] ${tk.light} ml-1.5`}>{v.category}</span>}
+                              </span>
+                            </label>
+                          ))
+                        )
+                    )}
+                  </div>
+                  <div className="border-t border-fq-border px-3 pt-2 pb-1">
+                    <button onMouseDown={(e) => { e.preventDefault(); insertVendorCreditsRP(); }}
+                      className="font-body text-[12px] font-medium px-3 py-1.5 rounded-lg bg-fq-dark text-white hover:bg-fq-dark/85 transition-colors w-full">
+                      Insert Credits
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
         <div className="w-px h-4 bg-fq-border mx-1" />
         <div ref={colorBtnRef} className="relative">
           <button
@@ -1144,10 +2072,34 @@ function ReplyPanel({
         suppressContentEditableWarning
         data-placeholder="Write your reply…"
         onInput={() => setIsEmpty(!(bodyRef.current?.innerText ?? '').trim())}
+        onMouseUp={checkLinkAtCursor}
+        onKeyUp={checkLinkAtCursor}
         style={{ color: '#2C2C2C' }}
         className={`min-h-[150px] px-4 py-3 font-body text-[13px] focus:outline-none leading-relaxed
           empty:before:content-[attr(data-placeholder)] empty:before:text-fq-muted/45`}
       />
+
+      {/* AI revision bar */}
+      <div className="flex items-center gap-2 px-3 py-2 border-t border-fq-border bg-fq-bg/40">
+        <input
+          type="text"
+          value={reviseInstruction}
+          onChange={(e) => setReviseInstruction(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleRevise(); }}
+          disabled={revising}
+          placeholder="Ask AI to revise… e.g. 'Make it shorter' or 'Add venue contact ask'"
+          className={`flex-1 font-body text-[12px] ${tk.body} bg-fq-card border border-fq-border rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-fq-accent/30 placeholder:text-fq-muted/40 disabled:opacity-50`}
+        />
+        <button
+          type="button"
+          onClick={handleRevise}
+          disabled={revising || !reviseInstruction.trim()}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-fq-border font-body text-[12px] font-medium text-fq-dark/70 hover:bg-fq-light-accent hover:border-fq-accent/30 transition-colors disabled:opacity-40 shrink-0"
+        >
+          {revising ? <span className="w-3 h-3 border border-fq-accent/30 border-t-fq-accent rounded-full animate-spin" /> : null}
+          {revising ? 'Revising…' : 'Revise →'}
+        </button>
+      </div>
 
       {/* Editable signature preview */}
       <div className="px-4 pb-2">
@@ -1181,6 +2133,7 @@ function ReplyPanel({
         </button>
       </div>
     </div>
+    </>
   );
 }
 
@@ -1719,7 +2672,7 @@ function ForwardPanel({ email, onClose }: { email: Email; onClose: () => void })
 /* ─────────────────────────────────────────────────────────────────────────────
    EmailDetail — main export
 ───────────────────────────────────────────────────────────────────────────── */
-export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed }: Props) {
+export default function EmailDetail({ email, projects, onClose, onPatch, onReassign, onTriageSave, generatingDraft = false, onGenerateDraft, draftFallbackText, onDraftFallbackConsumed, threadEmails, onSelectThread, onAttachmentsFound }: Props) {
   const [replyOpen,    setReplyOpen]    = useState(false);
   const [replyAllMode, setReplyAllMode] = useState(false);
   const [forwardOpen,  setForwardOpen]  = useState(false);
@@ -1731,6 +2684,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   const [sprintAdding, setSprintAdding]   = useState(false);
   const [draftText, setDraftText]         = useState('');
   const [toast, setToast]                 = useState<string | null>(null);
+  const [isExpanded, setIsExpanded]       = useState(false);
   const badgeRef    = useRef<HTMLDivElement>(null);
   const toastTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
@@ -1840,21 +2794,40 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-fq-bg min-w-0 relative">
+    <div className={isExpanded ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-fq-bg" : "flex-1 flex flex-col overflow-hidden bg-fq-bg min-w-0 relative"}>
       {/* ── Header ── */}
       <div className="px-7 pt-6 pb-4 border-b border-fq-border bg-fq-card shrink-0">
         <div className="flex items-start justify-between gap-4 mb-3">
           <h2 className={`font-heading text-[18px] font-semibold ${tk.heading} leading-snug flex-1 min-w-0`}>
             {email.subject || '(no subject)'}
           </h2>
-          <button
-            onClick={onClose}
-            className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon} shrink-0`}
-          >
-            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M5 5l10 10M15 5L5 15" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Pop-out / collapse button */}
+            <button
+              onClick={() => setIsExpanded(v => !v)}
+              title={isExpanded ? 'Collapse' : 'Expand to full screen'}
+              className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon}`}
+            >
+              {isExpanded ? (
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 3h4v4M3 17l6-6M7 17H3v-4M17 3l-6 6" />
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 13v4h4M17 7V3h-4M14 6l3-3M6 14l-3 3" />
+                </svg>
+              )}
+            </button>
+            {/* Close button */}
+            <button
+              onClick={onClose}
+              className={`p-1.5 rounded-lg hover:bg-fq-light-accent transition-colors ${tk.icon}`}
+            >
+              <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M5 5l10 10M15 5L5 15" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* From / date / project */}
@@ -2008,9 +2981,14 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           <TriagePanel email={email} projects={projects} onTriageSave={onTriageSave} />
         )}
 
+        {/* Attachments — shown first so they're visible without scrolling */}
+        {email.message_id && (
+          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} onFound={onAttachmentsFound} />
+        )}
+
         {/* Composer zone — Draft card OR Reply panel (shared space, never both) */}
         {email.draft_message_id ? (
-          <DraftCard email={email} onPatch={onPatch} showToast={showToast} />
+          <DraftCard email={email} projects={projects} onPatch={onPatch} showToast={showToast} />
         ) : generatingDraft ? (
           <div className="rounded-xl border border-fq-border bg-fq-card" style={{ borderLeftWidth: '3px', borderLeftColor: 'rgb(196 155 64 / 0.45)' }}>
             <div className="px-4 py-2.5 border-b border-fq-border bg-fq-amber-light/25 flex items-center gap-2">
@@ -2020,7 +2998,7 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
             <div className={`px-4 py-4 font-body text-[12.5px] ${tk.light}`}>Preparing your AI draft response…</div>
           </div>
         ) : replyOpen ? (
-          <ReplyPanel email={email} onClose={() => setReplyOpen(false)} initialText={draftText} replyAll={replyAllMode} />
+          <ReplyPanel email={email} projects={projects} onClose={() => setReplyOpen(false)} initialText={draftText} replyAll={replyAllMode} />
         ) : forwardOpen ? (
           <ForwardPanel email={email} onClose={() => setForwardOpen(false)} />
         ) : onGenerateDraft ? (
@@ -2036,13 +3014,37 @@ export default function EmailDetail({ email, projects, onClose, onPatch, onReass
           </button>
         ) : null}
 
-        {/* Attachments */}
-        {email.has_attachments && email.message_id && (
-          <AttachmentList messageId={email.message_id} projectId={email.project_id ?? null} />
-        )}
-
         {/* Email body */}
         <EmailBody html={email.body} plaintext={email.body_preview} />
+
+        {/* Thread — other messages in the same conversation */}
+        {threadEmails && threadEmails.length > 0 && (
+          <div className="border border-fq-border rounded-xl overflow-hidden">
+            <div className="px-4 py-2 border-b border-fq-border bg-fq-light-accent/40 flex items-center gap-2">
+              <ChevronDown size={12} className="text-fq-muted/60" />
+              <span className="font-body text-[11.5px] font-medium text-fq-dark/70">
+                {threadEmails.length} more message{threadEmails.length !== 1 ? 's' : ''} in this thread
+              </span>
+            </div>
+            {threadEmails.map((te) => (
+              <button
+                key={te.id}
+                onClick={() => onSelectThread?.(te)}
+                className="w-full text-left px-4 py-3 border-b border-fq-border/40 last:border-0 hover:bg-fq-light-accent/30 transition-colors"
+              >
+                <div className="flex items-center justify-between mb-0.5 gap-2">
+                  <span className="font-body text-[12.5px] font-medium text-fq-dark/80 truncate">
+                    {te.from_name || te.from_email}
+                  </span>
+                  <span className="font-body text-[11px] text-fq-muted/55 shrink-0">
+                    {te.received_at ? new Date(te.received_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                  </span>
+                </div>
+                <p className="font-body text-[11.5px] text-fq-muted/65 truncate">{te.body_preview}</p>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Create task form */}
         {taskOpen && (

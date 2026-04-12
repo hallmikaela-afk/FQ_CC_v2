@@ -64,6 +64,12 @@ export function detectReceipt(
   return false;
 }
 
+// ─── Inquiry detection ───────────────────────────────────────────────────────
+
+export function detectInquiry(subject: string): boolean {
+  return subject.toLowerCase().includes('new subscriber');
+}
+
 // ─── Meeting summary detection ───────────────────────────────────────────────
 
 const ZOOM_NOREPLY_PATTERNS = ['no-reply@zoom.us', 'noreply@zoom.us', 'no_reply@zoom.us'];
@@ -86,6 +92,7 @@ export async function upsertEmail(
   existingMap: Map<string, { project_id: string | null; match_confidence: string | null; category: string | null; dismissed: boolean | null }>,
   folderProjectMap: Map<string, string>,
   receiptsFolderId: string | null,
+  inquiriesFolderId: string | null,
   vendorEmails: Set<string>,
   projectOutlookFolderMap: Map<string, string> = new Map(),
 ) {
@@ -117,6 +124,13 @@ export async function upsertEmail(
       );
     }
     return;
+  }
+
+  // Route "New subscriber" notifications to Inquiries folder (not dismissed)
+  if (detectInquiry(msg.subject ?? '') && inquiriesFolderId && folderId !== inquiriesFolderId) {
+    moveMessage(msg.id, inquiriesFolderId).catch(err =>
+      console.error('[emails] inquiry move error:', err),
+    );
   }
 
   let projectId: string | null = existing?.project_id ?? null;
@@ -186,7 +200,8 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
 
   const projects = (projectsRes.data ?? []) as PreloadedMatchData['projects'];
 
-  const receiptsFolderId = allFolders.find(f => f.displayName.toLowerCase() === 'receipts')?.id ?? null;
+  const receiptsFolderId  = allFolders.find(f => f.displayName.toLowerCase() === 'receipts')?.id ?? null;
+  const inquiriesFolderId = allFolders.find(f => f.displayName.toLowerCase() === 'inquiries')?.id ?? null;
 
   // folder_id → project_id (from number-prefix Outlook folder names)
   const folderProjectMap = new Map<string, string>();
@@ -233,7 +248,7 @@ export async function buildSyncContext(supabase: ReturnType<typeof getServiceSup
     );
   }
 
-  return { foldersToSync, preloaded, folderProjectMap, projectOutlookFolderMap, receiptsFolderId, vendorEmails, matchesHideRule };
+  return { foldersToSync, preloaded, folderProjectMap, projectOutlookFolderMap, receiptsFolderId, inquiriesFolderId, vendorEmails, matchesHideRule };
 }
 
 // ─── Upsert a batch of msg+folder pairs ──────────────────────────────────────
@@ -244,6 +259,7 @@ export async function upsertBatch(
   preloaded: PreloadedMatchData,
   folderProjectMap: Map<string, string>,
   receiptsFolderId: string | null,
+  inquiriesFolderId: string | null,
   vendorEmails: Set<string>,
   matchesHideRule: (email: string) => boolean,
   projectOutlookFolderMap: Map<string, string> = new Map(),
@@ -266,7 +282,7 @@ export async function upsertBatch(
     const chunk = filtered.slice(i, i + SYNC_BATCH);
     await Promise.allSettled(
       chunk.map(({ msg, folderId }) =>
-        upsertEmail(msg, folderId, supabase, preloaded, existingMap, folderProjectMap, receiptsFolderId, vendorEmails, projectOutlookFolderMap),
+        upsertEmail(msg, folderId, supabase, preloaded, existingMap, folderProjectMap, receiptsFolderId, inquiriesFolderId, vendorEmails, projectOutlookFolderMap),
       ),
     );
     count += chunk.length;

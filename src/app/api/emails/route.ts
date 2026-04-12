@@ -90,8 +90,8 @@ export async function GET(request: Request) {
     .select(
       `id, message_id, subject, from_name, from_email, body_preview, body,
        received_at, is_read, project_id, match_confidence, conversation_id,
-       folder_id, needs_followup, followup_due_date, is_meeting_summary, created_at,
-       category, dismissed, resolved, draft_message_id,
+       folder_id, needs_followup, needs_response, followup_due_date, is_meeting_summary, created_at,
+       category, dismissed, resolved, draft_message_id, has_attachments,
        projects(id, name, type, color, event_date)`,
     )
     .order('received_at', { ascending: false })
@@ -276,6 +276,6 @@ async function syncEmails(
 
   await upsertBatch(
     allPairs, supabase, ctx.preloaded, ctx.folderProjectMap,
-    ctx.receiptsFolderId, ctx.vendorEmails, ctx.matchesHideRule, ctx.projectOutlookFolderMap,
+    ctx.receiptsFolderId, ctx.inquiriesFolderId, ctx.vendorEmails, ctx.matchesHideRule, ctx.projectOutlookFolderMap,
   );
 }

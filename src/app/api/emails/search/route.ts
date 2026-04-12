@@ -27,39 +27,59 @@ function graphMessageToEmailRow(msg: GraphMessage) {
     resolved:     false,
     draft_message_id: null,
     category:     null,
+    has_attachments: msg.hasAttachments ?? false,
+    needs_response: false,
     projects:     null,
   };
 }
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const query = searchParams.get('q')?.trim();
+  const query         = searchParams.get('q')?.trim() ?? '';
+  const fromFilter    = searchParams.get('from')?.trim() ?? '';
+  const hasAttachment = searchParams.get('has_attachment') === 'true';
 
-  if (!query || query.length < 2) {
+  const hasTextQuery = query.length >= 2;
+  const hasFilters   = fromFilter.length >= 1 || hasAttachment;
+
+  if (!hasTextQuery && !hasFilters) {
     return NextResponse.json({ emails: [], searchedGraph: false });
   }
 
   const supabase = getServiceSupabase();
 
   /* ── 1. Search Supabase cache ── */
-  const { data: cached } = await supabase
+  let q = supabase
     .from('emails')
     .select(`
       id, message_id, subject, from_name, from_email, body_preview, body,
-      received_at, is_read, needs_followup, project_id, match_confidence,
+      received_at, is_read, needs_followup, needs_response, project_id, match_confidence,
       conversation_id, folder_id, is_meeting_summary, dismissed, resolved,
-      draft_message_id, category,
+      draft_message_id, category, has_attachments,
       projects:project_id ( id, name, type, color, event_date )
     `)
-    .or(
+    .eq('dismissed', false)
+    .order('received_at', { ascending: false })
+    .limit(30);
+
+  if (hasTextQuery) {
+    q = q.or(
       `subject.ilike.%${query}%,` +
       `from_name.ilike.%${query}%,` +
       `from_email.ilike.%${query}%,` +
-      `body_preview.ilike.%${query}%`
-    )
-    .eq('dismissed', false)
-    .order('received_at', { ascending: false })
-    .limit(20);
+      `body_preview.ilike.%${query}%`,
+    );
+  }
+
+  if (fromFilter) {
+    q = q.or(`from_name.ilike.%${fromFilter}%,from_email.ilike.%${fromFilter}%`);
+  }
+
+  if (hasAttachment) {
+    q = q.eq('has_attachments', true);
+  }
+
+  const { data: cached } = await q;
 
   const cachedEmails = cached ?? [];
   const cachedMessageIds = new Set(cachedEmails.map((e) => e.message_id));
@@ -67,12 +87,12 @@ export async function GET(req: NextRequest) {
   let graphEmails: ReturnType<typeof graphMessageToEmailRow>[] = [];
   let searchedGraph = false;
 
-  /* ── 2. If cache has < 5 results, also query Graph API ── */
-  if (cachedEmails.length < 5) {
+  /* ── 2. If cache has < 5 results and there's a text query, also query Graph API ── */
+  if (cachedEmails.length < 5 && hasTextQuery) {
     try {
       const safeQuery = query.replace(/"/g, '\\"');
       const data = (await graphFetch(
-        `/me/messages?$search="${safeQuery}"&$top=20&$select=id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from`,
+        `/me/messages?$search="${safeQuery}"&$top=20&$select=id,subject,bodyPreview,body,receivedDateTime,isRead,conversationId,parentFolderId,from,hasAttachments`,
       )) as { value: GraphMessage[] };
 
       searchedGraph = true;
@@ -80,6 +100,20 @@ export async function GET(req: NextRequest) {
       graphEmails = (data.value ?? [])
         .filter((msg) => !cachedMessageIds.has(msg.id))
         .map(graphMessageToEmailRow);
+
+      // Apply from filter to Graph results client-side
+      if (fromFilter) {
+        const fl = fromFilter.toLowerCase();
+        graphEmails = graphEmails.filter(
+          (e) =>
+            (e.from_name ?? '').toLowerCase().includes(fl) ||
+            (e.from_email ?? '').toLowerCase().includes(fl),
+        );
+      }
+      // Apply has_attachment filter to Graph results
+      if (hasAttachment) {
+        graphEmails = graphEmails.filter((e) => e.has_attachments);
+      }
     } catch {
       // Graph search failed (e.g. not connected) — return cache results only
     }

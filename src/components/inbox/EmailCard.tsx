@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Reply, PenLine, Clock, Check, X, Trash2 } from 'lucide-react';
+import { Reply, PenLine, Clock, Check, X, Trash2, Paperclip } from 'lucide-react';
 
 /* ── Shared types (also used by page + EmailDetail) ── */
 export interface EmailProject {
@@ -52,6 +52,10 @@ interface Props {
   showTriage?: boolean;           // Untagged tab: show always-visible triage controls
   projects: Project[];
   onSelect: () => void;
+  /* Bulk select */
+  isSelectMode?: boolean;
+  isBulkSelected?: boolean;
+  onBulkToggle?: (shiftKey: boolean) => void;
   onReply: (email: Email) => void;
   onConfirmSuggested: (email: Email) => void;
   onDismissSuggested: (email: Email) => void;
@@ -62,6 +66,11 @@ interface Props {
   onDismiss: (email: Email) => void;
   onDelete?: (email: Email) => void;
   onReassign: (email: Email, projectId: string | null) => void;
+  onViewThread?: (email: Email) => void;
+  onRightClick?: (email: Email, x: number, y: number) => void;
+  threadCount?: number;
+  threadExpanded?: boolean;
+  onThreadToggle?: () => void;
 }
 
 /* ── Design tokens ── */
@@ -154,15 +163,17 @@ function ReassignDropdown({
   projects,
   onSelect,
   onClose,
+  upward,
 }: {
   email: Email;
   projects: Project[];
   onSelect: (projectId: string | null) => void;
   onClose: () => void;
+  upward?: boolean;
 }) {
   return (
     <div
-      className="absolute top-full left-0 mt-1 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]"
+      className={`absolute ${upward ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 z-50 bg-fq-card border border-fq-border rounded-xl shadow-lg py-1 min-w-[180px]`}
       onClick={(e) => e.stopPropagation()}
     >
       {projects.map((p) => {
@@ -208,6 +219,9 @@ export default function EmailCard({
   showTriage = false,
   projects,
   onSelect,
+  isSelectMode = false,
+  isBulkSelected = false,
+  onBulkToggle,
   onReply,
   onConfirmSuggested,
   onDismissSuggested,
@@ -218,6 +232,11 @@ export default function EmailCard({
   onDismiss,
   onDelete,
   onReassign,
+  onViewThread,
+  onRightClick,
+  threadCount,
+  threadExpanded,
+  onThreadToggle,
 }: Props) {
   const proj        = email.projects;
   const isUntagged  = !email.project_id;
@@ -252,11 +271,25 @@ export default function EmailCard({
     <div
       role="button"
       tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => e.key === 'Enter' && onSelect()}
+      onClick={(e) => {
+        if (isSelectMode) { onBulkToggle?.(e.shiftKey); }
+        else { onSelect(); }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || (e.key === ' ' && isSelectMode)) {
+          e.preventDefault();
+          if (isSelectMode) onBulkToggle?.(false);
+          else onSelect();
+        }
+      }}
+      onContextMenu={(e) => { if (onRightClick) { e.preventDefault(); onRightClick(email, e.clientX, e.clientY); } }}
       className={`group relative rounded-xl mb-2 transition-all duration-150 border cursor-pointer overflow-visible outline-none focus-visible:ring-2 focus-visible:ring-fq-accent/40 ${
         deleting
           ? 'opacity-40 scale-[0.98] pointer-events-none'
+          : isSelectMode
+          ? isBulkSelected
+            ? 'bg-fq-sage-light/30 border-fq-sage/30'
+            : 'bg-fq-card border-fq-border hover:border-fq-sage/20 hover:shadow-sm'
           : isSelected
           ? 'bg-fq-light-accent border-fq-accent/35 shadow-sm'
           : 'bg-fq-card border-fq-border hover:border-fq-accent/20 hover:shadow-sm'
@@ -268,24 +301,57 @@ export default function EmailCard({
           <div className="w-[3px] shrink-0 bg-fq-amber/55 rounded-l-xl" />
         )}
 
-        <div className="flex-1 px-4 py-3.5 min-w-0">
+        <div className="flex-1 px-4 py-2.5 min-w-0">
           {/* Row 1: sender + time */}
           <div className="flex items-start gap-2.5">
-            <ReadDot isRead={email.is_read} />
+            {isSelectMode ? (
+              <div className={`w-4 h-4 rounded border-2 shrink-0 mt-1 flex items-center justify-center transition-colors ${
+                isBulkSelected ? 'bg-fq-sage border-fq-sage' : 'border-fq-border bg-transparent'
+              }`}>
+                {isBulkSelected && (
+                  <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                )}
+              </div>
+            ) : (
+              <ReadDot isRead={email.is_read} />
+            )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between gap-2 mb-0.5">
-                <span
-                  className={`font-body text-[13.5px] truncate ${
-                    email.is_read
-                      ? `font-normal ${tk.body}`
-                      : `font-semibold ${tk.heading}`
-                  }`}
-                >
-                  {email.from_name || email.from_email || 'Unknown'}
-                </span>
-                <span className={`font-body text-[11px] ${tk.light} shrink-0`}>
-                  {fmtTime(email.received_at)}
-                </span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {threadCount && threadCount > 1 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onThreadToggle?.(); }}
+                      title={threadExpanded ? 'Collapse thread' : 'Expand thread'}
+                      className="shrink-0 flex items-center gap-0.5 text-fq-muted/40 hover:text-fq-accent transition-colors"
+                    >
+                      <svg
+                        width="9" height="9" viewBox="0 0 12 12" fill="none"
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ transform: threadExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms' }}
+                      >
+                        <path d="M4 2l4 4-4 4" />
+                      </svg>
+                      <span className={`font-body text-[10px] ${tk.light}`}>{threadCount}</span>
+                    </button>
+                  )}
+                  <span
+                    className={`font-body text-[13.5px] truncate ${
+                      email.is_read
+                        ? `font-normal ${tk.body}`
+                        : `font-semibold ${tk.heading}`
+                    }`}
+                  >
+                    {email.from_name || email.from_email || 'Unknown'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {email.has_attachments && <Paperclip size={11} className="text-fq-muted/50" />}
+                  <span className={`font-body text-[11px] ${tk.light}`}>
+                    {fmtTime(email.received_at)}
+                  </span>
+                </div>
               </div>
 
               {/* Row 2: subject */}
@@ -414,6 +480,7 @@ export default function EmailCard({
                     Meeting Summary
                   </span>
                 )}
+
               </div>
 
               {/* ── Inline triage panel (Untagged tab only) ── */}
@@ -422,28 +489,16 @@ export default function EmailCard({
                   className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-fq-border/60"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div
-                    ref={reassignContainerRef}
-                    className="relative flex-1"
+                  <select
+                    value={email.project_id ?? ''}
+                    onChange={(e) => handleReassignSelect(e.target.value || null)}
+                    className={`flex-1 px-2.5 py-1.5 font-body text-[11.5px] bg-fq-bg border border-fq-border rounded-lg ${tk.light} hover:border-fq-accent/30 focus:outline-none focus:ring-1 focus:ring-fq-accent/30 transition-colors`}
                   >
-                    <button
-                      onClick={() => setReassignOpen((v) => !v)}
-                      className={`w-full text-left px-2.5 py-1.5 font-body text-[11.5px] bg-fq-bg border border-fq-border rounded-lg ${tk.light} hover:border-fq-accent/30 transition-colors flex items-center justify-between`}
-                    >
-                      <span>Tag to project…</span>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 3.5l3 3 3-3" />
-                      </svg>
-                    </button>
-                    {reassignOpen && (
-                      <ReassignDropdown
-                        email={email}
-                        projects={projects}
-                        onSelect={handleReassignSelect}
-                        onClose={() => setReassignOpen(false)}
-                      />
-                    )}
-                  </div>
+                    <option value="">Tag to project…</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
                   <button
                     onClick={() => onDismiss(email)}
                     className={`px-2.5 py-1.5 font-body text-[11.5px] ${tk.light} hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-fq-border hover:border-red-200 shrink-0`}
@@ -454,24 +509,29 @@ export default function EmailCard({
               )}
             </div>
 
-            {/* Chevron — hidden on hover when quick actions appear */}
-            <svg
-              width="12" height="12" viewBox="0 0 14 14" fill="none"
-              stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className={`mt-1 shrink-0 ${tk.light} group-hover:opacity-0 transition-opacity`}
+            {/* Chevron — thread view button, always visible */}
+            <button
+              onClick={(e) => { e.stopPropagation(); onViewThread ? onViewThread(email) : onSelect(); }}
+              title="View thread"
+              className={`mt-1 shrink-0 p-0.5 rounded ${tk.light} hover:text-fq-accent transition-colors`}
             >
-              <path d="M5 3l4 4-4 4" />
-            </svg>
+              <svg
+                width="12" height="12" viewBox="0 0 14 14" fill="none"
+                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              >
+                <path d="M5 3l4 4-4 4" />
+              </svg>
+            </button>
           </div>
         </div>
       </div>
 
-      {/* ── Quick action toolbar — absolute overlay, visible on hover ── */}
+      {/* ── Quick action toolbar — absolute overlay, visible on hover (hidden in select mode) ── */}
       <div
-        className="absolute top-2.5 right-3 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none group-hover:pointer-events-auto"
+        className={`absolute top-2.5 right-3 items-center gap-0.5 ${isSelectMode ? 'hidden' : 'hidden group-hover:flex'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-0.5 bg-fq-card/95 border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
+        <div className="flex items-center gap-0.5 bg-fq-light-accent border border-fq-border rounded-lg px-1 py-0.5 shadow-sm">
 
           {/* 1. Reply — opens the email to compose a reply */}
           <Tip label="Reply">
