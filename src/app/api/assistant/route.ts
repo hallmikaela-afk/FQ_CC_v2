@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { projects as seedProjects, team as seedTeam } from '@/data/seed';
 import { getISOWeek } from '@/lib/week';
-import { listFilesInFolder, getValidGoogleToken } from '@/lib/google-drive';
+import { listFilesInFolder, getValidGoogleToken, downloadDriveFileAsBuffer } from '@/lib/google-drive';
 
 export const dynamic = 'force-dynamic';
 
@@ -194,7 +194,7 @@ async function searchDriveFiles(projectName: string, subfolder?: string): Promis
     }
     const files = await listFilesInFolder(folderId);
     if (files.length === 0) return `No files found in ${subfolder} for ${project.name}.`;
-    const list = files.map(f => `• ${f.name} — [View](${f.webViewLink})`).join('\n');
+    const list = files.map(f => `• ${f.name} [id: ${f.id}, type: ${f.mimeType}] — [View](${f.webViewLink})`).join('\n');
     return `${subfolder} (${files.length} file${files.length > 1 ? 's' : ''}):\n${list}`;
   }
 
@@ -204,7 +204,7 @@ async function searchDriveFiles(projectName: string, subfolder?: string): Promis
     try {
       const files = await listFilesInFolder(folderId);
       if (files.length > 0) {
-        const list = files.map(f => `  • ${f.name} — [View](${f.webViewLink})`).join('\n');
+        const list = files.map(f => `  • ${f.name} [id: ${f.id}, type: ${f.mimeType}] — [View](${f.webViewLink})`).join('\n');
         results.push(`${name} (${files.length} file${files.length > 1 ? 's' : ''}):\n${list}`);
       }
     } catch {
@@ -275,6 +275,59 @@ async function searchEmails(opts: {
   });
 
   return `Found ${emails.length} email${emails.length > 1 ? 's' : ''}:\n\n${lines.join('\n\n')}`;
+}
+
+async function readDriveFile(fileId: string, fileName: string, mimeType: string): Promise<string | any[]> {
+  const nameLower = fileName.toLowerCase();
+  let buffer: Buffer;
+  let effectiveMimeType: string;
+
+  try {
+    const result = await downloadDriveFileAsBuffer(fileId, mimeType);
+    buffer = result.buffer;
+    effectiveMimeType = result.effectiveMimeType;
+  } catch (err: any) {
+    return `Failed to download file: ${err.message}`;
+  }
+
+  // PDFs: return as document block for Claude's native reading
+  if (effectiveMimeType === 'application/pdf' || nameLower.endsWith('.pdf')) {
+    return [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') } }];
+  }
+
+  // Plain text / CSV (Google Docs & Sheets exports)
+  if (effectiveMimeType === 'text/plain' || effectiveMimeType === 'text/csv' || nameLower.endsWith('.csv') || nameLower.endsWith('.txt')) {
+    return buffer.toString('utf-8').slice(0, 60000);
+  }
+
+  // DOCX
+  if (
+    effectiveMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    effectiveMimeType === 'application/msword' ||
+    nameLower.endsWith('.docx') || nameLower.endsWith('.doc')
+  ) {
+    const mammoth = await import('mammoth');
+    const result = await mammoth.default.extractRawText({ buffer });
+    return result.value.slice(0, 60000);
+  }
+
+  // XLSX
+  if (
+    effectiveMimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    effectiveMimeType === 'application/vnd.ms-excel' ||
+    nameLower.endsWith('.xlsx') || nameLower.endsWith('.xls')
+  ) {
+    const XLSX = await import('xlsx');
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const parts: string[] = [];
+    for (const sheetName of workbook.SheetNames) {
+      const sheet = workbook.Sheets[sheetName];
+      parts.push(`[Sheet: ${sheetName}]\n${XLSX.utils.sheet_to_csv(sheet)}`);
+    }
+    return parts.join('\n\n').slice(0, 60000);
+  }
+
+  return `Cannot extract text from file type: ${effectiveMimeType}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -358,7 +411,7 @@ export async function POST(req: NextRequest) {
       },
       {
         name: 'search_drive_files',
-        description: 'Search Google Drive folders for a project to find files. Use this when Mikaela asks about documents, floor plans, contracts, timelines, budgets, photos, questionnaires, or any project files. Returns file names and direct links.',
+        description: 'Search Google Drive folders for a project to find files. Use this when Mikaela asks about documents, floor plans, contracts, timelines, budgets, photos, questionnaires, or any project files. Returns file names, IDs, and direct links. Use read_drive_file to read the actual content of a specific file.',
         input_schema: {
           type: 'object',
           properties: {
@@ -372,6 +425,28 @@ export async function POST(req: NextRequest) {
             },
           },
           required: ['project_name'],
+        },
+      },
+      {
+        name: 'read_drive_file',
+        description: 'Read the full content of a specific Google Drive file. Use this after search_drive_files when you need to read what is inside a document (e.g. to answer questions about a contract, proposal, or timeline). Pass the file_id, file_name, and mime_type from search_drive_files results.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            file_id: {
+              type: 'string',
+              description: 'The Google Drive file ID from search_drive_files results.',
+            },
+            file_name: {
+              type: 'string',
+              description: 'The file name including extension (e.g. "Vendor Contract.pdf").',
+            },
+            mime_type: {
+              type: 'string',
+              description: 'The MIME type from search_drive_files results (e.g. "application/pdf").',
+            },
+          },
+          required: ['file_id', 'file_name', 'mime_type'],
         },
       },
     ];
@@ -399,6 +474,10 @@ export async function POST(req: NextRequest) {
           const input = block.input as { project_name: string; subfolder?: string };
           const result = await searchDriveFiles(input.project_name, input.subfolder);
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+        } else if (block.name === 'read_drive_file') {
+          const input = block.input as { file_id: string; file_name: string; mime_type: string };
+          const content = await readDriveFile(input.file_id, input.file_name, input.mime_type);
+          toolResults.push({ type: 'tool_result', tool_use_id: block.id, content });
         }
       }
 
