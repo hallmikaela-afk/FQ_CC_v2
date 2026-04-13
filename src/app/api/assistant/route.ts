@@ -150,6 +150,7 @@ async function buildContext(): Promise<string> {
   context += `\nRESEARCH LINKS: When listing vendors or companies, format as: - [Company Name](https://url) - Brief description. Only link to real, well-known sites. Always use markdown links [text](url).\n`;
   context += `\nEMAIL SEARCH: You have a search_emails tool that searches the real inbox. ALWAYS use search_emails (never web_search) when Mikaela asks about emails, messages, whether someone replied, or emails from a specific person or vendor. Do not say you can't check email — use the tool.`;
   context += `\nWEB SEARCH: Use web_search for venues, vendors, pricing, contact info, current events, or anything requiring live internet data. Do NOT use web_search for inbox questions — use search_emails instead.`;
+  context += `\nDOCUMENT READING: When PDF or document files are listed as "[Attached: ...]" in the message, they are attached as readable document content blocks. Read and analyze them directly. Do NOT say you cannot access or read attached documents.`;
 
   return context;
 }
@@ -380,7 +381,7 @@ export async function POST(req: NextRequest) {
     // web_search is a server-side built-in and never triggers stop_reason: tool_use here.
     let currentMessages = [...apiMessages];
     let response = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: context,
       messages: currentMessages,
@@ -411,7 +412,7 @@ export async function POST(req: NextRequest) {
       ];
 
       response = await getAnthropic().messages.create({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         max_tokens: 4096,
         system: context,
         messages: currentMessages,

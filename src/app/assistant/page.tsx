@@ -389,9 +389,11 @@ export default function AssistantPage() {
     const imgFiles = pendingFiles.filter(f => f.base64 && f.mediaType);
     // Display text: user's typed input (clean bubble, no raw file content)
     const displayContent = text || pendingFiles.map(f => f.name).join(', ');
-    // API content for current message: prepend parsed doc text
+    // API content: prepend parsed doc text + PDF labels so Claude knows what's attached
     const fileContext = docFiles.map(f => `[Attached: ${f.name}]\n${f.parsedText}`).join('\n\n');
-    const apiContent = fileContext ? `${fileContext}\n\n${text}` : text;
+    const pdfHint = imgFiles.filter(f => f.mediaType === 'application/pdf')
+      .map(f => `[Attached: "${f.name}" (PDF — read the document content)]`).join('\n');
+    const apiContent = [fileContext, pdfHint, text].filter(Boolean).join('\n\n');
 
     const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
     const userMsg: ChatMessage = {

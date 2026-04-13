@@ -203,9 +203,11 @@ export default function FloatingChat() {
     const imgFiles = pendingFiles.filter(f => f.base64 && f.mediaType);
     // For display: show typed text (or a placeholder if files only)
     const displayContent = text || pendingFiles.map(f => f.name).join(', ');
-    // For the API: prepend parsed doc text to the current message only
+    // For the API: prepend parsed doc text + PDF labels so Claude knows what's attached
     const fileContext = docFiles.map(f => `[Attached: ${f.name}]\n${f.parsedText}`).join('\n\n');
-    const apiContent = fileContext ? `${fileContext}\n\n${text}` : text;
+    const pdfHint = imgFiles.filter(f => f.mediaType === 'application/pdf')
+      .map(f => `[Attached: "${f.name}" (PDF — read the document content)]`).join('\n');
+    const apiContent = [fileContext, pdfHint, text].filter(Boolean).join('\n\n');
 
     const userMsg: Message = {
       role: 'user',
