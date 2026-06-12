@@ -26,7 +26,11 @@ Each block is sized for one 2–3 hour session. Four blocks over the weekend is 
 
 These rule out "ghost bugs" before you spend sessions on them.
 
-- [ ] **Delete the 18 stale branches** at github.com/hallmikaela-afk/FQ_CC_v2/branches (keep `main` and `claude/dreamy-sagan-puylsk`). Recovery SHAs if ever needed: `1ecb4b4` (vendor-directory), `5a64680` (fix-ai-setup), `9e4075f` (drive-chat-access).
+- [ ] **Delete 16 of the 18 stale branches** at github.com/hallmikaela-afk/FQ_CC_v2/branches — all except these, which contain unmerged work worth keeping:
+  - **KEEP `claude/google-drive-chat-access-GDtfY`** — assistant Drive/email tools + PDF reading fixes; merges cleanly onto main; candidate to land right after this sprint.
+  - **KEEP `claude/build-vendor-directory-I9iQt`** — Phase 8 head start (global vendor directory, ~2,700 lines). Park until Phase 8; its migrations 023–028 must be renumbered then, since this sprint creates migration 023.
+  - Delete `claude/fix-ai-setup-4LsXl` along with the 15 merged ones — main already has everything in it (web search, assistant context, error messages). Recovery SHA if ever needed: `5a64680`.
+  - Also keep `main` and `claude/dreamy-sagan-puylsk` (this plan lives there).
 - [ ] **Verify Vercel is deploying latest main.** In Vercel → Deployments, confirm the production deploy commit is `f362f59`. If not, redeploy.
 - [ ] **Stale-deployment check.** On the live app, test these three features the audit found already built. If any fail live but exist in code, the problem is deployment, not code:
   - Vendor credits popout in email reply toolbar → should show checkboxes per vendor, insert a bulleted list with Instagram links
